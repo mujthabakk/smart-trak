@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  UserPlus, Plus, Clock, UserCheck, Route as RouteIcon, Phone,
-  FileText, Check, X, ShieldCheck, IdCard, Users,
+  UserPlus, Plus, UserCheck, Route as RouteIcon, Phone,
+  FileText, IdCard, Users,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -12,7 +12,6 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -20,11 +19,10 @@ import {
 } from '@/components/ui/dialog'
 import { allGuestTrips } from '@/lib/mockData'
 import { formatDate, getInitials } from '@/lib/utils'
-import type { GuestTrip, GuestTripStatus } from '@/types'
+import type { GuestTrip } from '@/types'
 
 const SCHOOL_ID = 'sch_001'
 
-// Document-verification metadata keyed by guest trip id (derived — not on the type).
 const DOC_META: Record<string, { license: string; docsVerified: boolean }> = {
   gt_001: { license: 'DXB-G-90011', docsVerified: true },
   gt_002: { license: 'DXB-G-90012', docsVerified: false },
@@ -33,67 +31,23 @@ function docMeta(id: string) {
   return DOC_META[id] ?? { license: `DXB-G-${id.slice(-4).padStart(4, '0')}`, docsVerified: false }
 }
 
-const CHECKLIST = [
-  { key: 'license', label: 'Driving licence verified' },
-  { key: 'background', label: 'Background check cleared' },
-  { key: 'id', label: 'Government ID confirmed' },
-]
-
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
 export default function GuestDrivers() {
   const [trips, setTrips] = useState<GuestTrip[]>(() =>
-    allGuestTrips.filter((t) => t.school_id === SCHOOL_ID),
+    allGuestTrips.filter((t) => t.school_id === SCHOOL_ID).map((t) => ({ ...t, status: 'approved' as const })),
   )
 
-  // approval dialog state
-  const [approving, setApproving] = useState<GuestTrip | null>(null)
-  const [checks, setChecks] = useState<Record<string, boolean>>({})
-
-  // add-guest dialog state
   const [addOpen, setAddOpen] = useState(false)
   const [gName, setGName] = useState('')
   const [gPhone, setGPhone] = useState('')
   const [gReg, setGReg] = useState('')
 
   const stats = useMemo(() => ({
-    pending: trips.filter((t) => t.status === 'pending_approval').length,
-    approved: trips.filter((t) => t.status === 'approved').length,
+    total: trips.length,
     active: trips.filter((t) => t.status === 'approved' && t.started_at && !t.ended_at).length,
+    completed: trips.filter((t) => t.status === 'completed').length,
   }), [trips])
-
-  const sorted = useMemo(() => {
-    const rank: Record<GuestTripStatus, number> = {
-      pending_approval: 0,
-      approved: 1,
-      completed: 2,
-      rejected: 3,
-    }
-    return [...trips].sort((a, b) => rank[a.status] - rank[b.status])
-  }, [trips])
-
-  const allChecked = CHECKLIST.every((c) => checks[c.key])
-
-  function openApproval(trip: GuestTrip) {
-    setApproving(trip)
-    setChecks({})
-  }
-
-  function confirmApproval() {
-    if (!approving || !allChecked) return
-    setTrips((prev) =>
-      prev.map((t) =>
-        t.id === approving.id ? { ...t, status: 'approved', approved_by: 'School Admin' } : t,
-      ),
-    )
-    setApproving(null)
-    setChecks({})
-  }
-
-  function reject(id: string) {
-    setTrips((prev) => prev.map((t) => (t.id === id ? { ...t, status: 'rejected', approved_by: 'School Admin' } : t)))
-    if (approving?.id === id) setApproving(null)
-  }
 
   function resetAdd() {
     setGName('')
@@ -109,7 +63,7 @@ export default function GuestDrivers() {
       guest_driver_name: gName,
       guest_driver_phone: gPhone,
       bus_registration: gReg,
-      status: 'pending_approval',
+      status: 'approved',
       students: [],
       created_at: new Date().toISOString(),
     }
@@ -122,7 +76,7 @@ export default function GuestDrivers() {
     <Layout>
       <PageHeader
         title="Guest Drivers"
-        subtitle="Approve temporary drivers and verify their documents"
+        subtitle="Manage temporary drivers for your school"
         actions={
           <Button onClick={() => setAddOpen(true)}>
             <Plus size={16} /> Add Guest Driver
@@ -137,18 +91,18 @@ export default function GuestDrivers() {
         className="space-y-6"
       >
         <motion.div variants={item} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <StatsCard title="Pending Approval" value={stats.pending} icon={Clock} color="warning" subtitle="needs review" />
-          <StatsCard title="Approved" value={stats.approved} icon={UserCheck} color="success" />
-          <StatsCard title="Active Trips" value={stats.active} icon={RouteIcon} color="info" subtitle="on the road" />
+          <StatsCard title="Total Drivers" value={stats.total} icon={UserPlus} color="info" />
+          <StatsCard title="Active Trips" value={stats.active} icon={RouteIcon} color="success" subtitle="on the road" />
+          <StatsCard title="Completed" value={stats.completed} icon={UserCheck} color="primary" />
         </motion.div>
 
         <motion.div variants={item} className="space-y-3">
-          {sorted.length === 0 ? (
+          {trips.length === 0 ? (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)]">
               <EmptyState
                 icon={UserPlus}
                 title="No guest drivers"
-                description="Temporary drivers awaiting approval will appear here. Add a guest driver to begin verification."
+                description="Temporary drivers will appear here. Add a guest driver to get started."
                 action={
                   <Button onClick={() => setAddOpen(true)}>
                     <Plus size={16} /> Add Guest Driver
@@ -157,18 +111,13 @@ export default function GuestDrivers() {
               />
             </div>
           ) : (
-            sorted.map((trip) => {
+            trips.map((trip) => {
               const meta = docMeta(trip.id)
-              const isPending = trip.status === 'pending_approval'
               return (
                 <motion.div
                   key={trip.id}
                   variants={item}
-                  className={
-                    isPending
-                      ? 'rounded-2xl border-2 border-amber-300 bg-amber-50/40 p-5 shadow-sm dark:border-amber-900/50 dark:bg-amber-900/10'
-                      : 'rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm'
-                  }
+                  className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm"
                 >
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     {/* Driver */}
@@ -212,43 +161,20 @@ export default function GuestDrivers() {
                       </p>
                     </div>
 
-                    {/* Valid period */}
+                    {/* Added date */}
                     <div className="min-w-0">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Valid Period</p>
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Added</p>
                       <p className="text-xs text-[var(--foreground)]">
-                        {trip.started_at ? formatDate(trip.started_at, 'datetime') : formatDate(trip.created_at, 'datetime')}
+                        {formatDate(trip.created_at, 'datetime')}
                       </p>
-                      {trip.ended_at && (
-                        <p className="text-xs text-[var(--muted-foreground)]">→ {formatDate(trip.ended_at, 'time')}</p>
-                      )}
                     </div>
 
-                    {/* Status + actions */}
+                    {/* Status */}
                     <div className="flex items-center gap-2">
                       <StatusBadge status={trip.status} size="sm" />
-                      {isPending ? (
-                        <>
-                          <Button
-                            size="sm"
-                            className="bg-green-600 text-white hover:bg-green-700"
-                            onClick={() => openApproval(trip)}
-                          >
-                            <Check size={14} /> Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20"
-                            onClick={() => reject(trip.id)}
-                          >
-                            <X size={14} /> Reject
-                          </Button>
-                        </>
-                      ) : (
-                        <Button size="sm" variant="ghost">
-                          <FileText size={14} /> Documents
-                        </Button>
-                      )}
+                      <Button size="sm" variant="ghost">
+                        <FileText size={14} /> Documents
+                      </Button>
                     </div>
                   </div>
                 </motion.div>
@@ -258,75 +184,6 @@ export default function GuestDrivers() {
         </motion.div>
       </motion.div>
 
-      {/* Approval dialog with document checklist */}
-      <Dialog open={approving !== null} onOpenChange={(o) => !o && setApproving(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck size={18} className="text-green-600" /> Verify & Approve
-            </DialogTitle>
-            <DialogDescription>
-              Confirm all documents for {approving?.guest_driver_name} before approving this guest driver.
-            </DialogDescription>
-          </DialogHeader>
-
-          {approving && (
-            <div className="space-y-4 py-1">
-              <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 p-3">
-                <Avatar className="h-10 w-10">
-                  <AvatarFallback className="bg-[var(--primary)]/10 text-xs font-semibold text-[var(--primary)]">
-                    {getInitials(approving.guest_driver_name)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-[var(--foreground)]">{approving.guest_driver_name}</p>
-                  <p className="text-xs text-[var(--muted-foreground)]">
-                    Licence {docMeta(approving.id).license} · Bus {approving.bus_registration}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-2.5">
-                <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                  Document Checklist
-                </p>
-                {CHECKLIST.map((c) => (
-                  <label
-                    key={c.key}
-                    htmlFor={`chk-${c.key}`}
-                    className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2.5 transition-colors hover:bg-[var(--muted)]/40"
-                  >
-                    <Checkbox
-                      id={`chk-${c.key}`}
-                      checked={!!checks[c.key]}
-                      onCheckedChange={(v) => setChecks((prev) => ({ ...prev, [c.key]: v === true }))}
-                    />
-                    <span className="text-sm text-[var(--foreground)]">{c.label}</span>
-                  </label>
-                ))}
-              </div>
-
-              {!allChecked && (
-                <p className="text-xs text-amber-600">All items must be checked before approval.</p>
-              )}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20"
-              onClick={() => approving && reject(approving.id)}
-            >
-              <X size={14} /> Reject
-            </Button>
-            <Button onClick={confirmApproval} disabled={!allChecked} className="bg-green-600 text-white hover:bg-green-700">
-              <Check size={14} /> Approve Driver
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Add guest driver dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
@@ -334,7 +191,7 @@ export default function GuestDrivers() {
             <DialogTitle className="flex items-center gap-2">
               <UserPlus size={18} className="text-[var(--primary)]" /> Add Guest Driver
             </DialogTitle>
-            <DialogDescription>Register a temporary driver for approval.</DialogDescription>
+            <DialogDescription>Register a temporary driver for your school.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-1">

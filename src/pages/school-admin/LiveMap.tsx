@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useJsApiLoader, GoogleMap, Marker, InfoWindow } from '@react-google-maps/api'
 import {
   Bus as BusIcon, Search, Gauge, Clock, MapPin, Navigation,
   Wifi, WifiOff, CircleDot, Radio,
@@ -11,76 +12,41 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { mockBuses } from '@/lib/mockData'
+import { mockBuses, mockRoutes } from '@/lib/mockData'
 import type { Bus } from '@/types'
+
+// Must be defined outside component to avoid re-renders
+const GOOGLE_MAP_LIBRARIES: ['places'] = ['places']
+
+const GOOGLE_MAPS_API_KEY = 'import.meta.env.VITE_GOOGLE_MAPS_API_KEY'
+
+const DUBAI_CENTER = { lat: 25.2048, lng: 55.2708 }
+
+const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' }
 
 type StatusFilter = 'all' | 'running' | 'idle' | 'offline'
 
-// Decorative marker positions + telemetry, keyed by bus id.
-const MARKER_META: Record<string, { x: number; y: number; speed: number; eta: string }> = {
-  bus_001: { x: 28, y: 38, speed: 42, eta: '8 min' },
-  bus_002: { x: 62, y: 30, speed: 36, eta: '14 min' },
-  bus_003: { x: 46, y: 64, speed: 0, eta: '—' },
-  bus_004: { x: 78, y: 72, speed: 0, eta: 'Offline' },
+// Telemetry data keyed by bus id
+const BUS_TELEMETRY: Record<string, { speed: number; eta: string }> = {
+  bus_001: { speed: 42, eta: '8 min' },
+  bus_002: { speed: 36, eta: '14 min' },
+  bus_003: { speed: 0, eta: '—' },
+  bus_004: { speed: 0, eta: 'Offline' },
 }
-const FALLBACK_META = { x: 50, y: 50, speed: 0, eta: '—' }
+const FALLBACK_TELEMETRY = { speed: 0, eta: '—' }
+
+// Map bus id -> first stop of its assigned route for position
+const getBusPosition = (busId: string): google.maps.LatLngLiteral | null => {
+  const route = mockRoutes.find((r) => r.bus_id === busId && r.school_id === 'sch_001')
+  if (!route || !route.stops || route.stops.length === 0) return null
+  const stop = route.stops[0]
+  return { lat: stop.latitude, lng: stop.longitude }
+}
 
 const STATUS_DOT: Record<string, string> = {
   running: 'bg-green-500',
   idle: 'bg-amber-500',
   offline: 'bg-gray-400',
-}
-const STATUS_RING: Record<string, string> = {
-  running: 'bg-green-500/40',
-  idle: 'bg-amber-500/40',
-  offline: 'bg-gray-400/30',
-}
-
-function BusMarker({
-  bus, selected, onSelect,
-}: {
-  bus: Bus
-  selected: boolean
-  onSelect: () => void
-}) {
-  const meta = MARKER_META[bus.id] ?? FALLBACK_META
-  const status = bus.status ?? 'offline'
-  const isLive = status === 'running'
-
-  return (
-    <button
-      onClick={onSelect}
-      className="absolute -translate-x-1/2 -translate-y-1/2 focus:outline-none"
-      style={{ left: `${meta.x}%`, top: `${meta.y}%` }}
-      aria-label={`Bus ${bus.bus_number}`}
-    >
-      {/* pulsing ring for live buses */}
-      {isLive && (
-        <motion.span
-          className={cn('absolute inset-0 -z-10 rounded-full', STATUS_RING[status])}
-          initial={{ scale: 1, opacity: 0.7 }}
-          animate={{ scale: 2.4, opacity: 0 }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeOut' }}
-        />
-      )}
-      <motion.div
-        whileHover={{ scale: 1.15 }}
-        animate={selected ? { scale: 1.2 } : { scale: 1 }}
-        className={cn(
-          'relative flex h-9 w-9 items-center justify-center rounded-full border-2 border-white shadow-lg dark:border-[var(--card)]',
-          STATUS_DOT[status],
-          selected && 'ring-4 ring-[var(--primary)]/40',
-        )}
-      >
-        <BusIcon size={16} className="text-white" />
-      </motion.div>
-      {selected && (
-        <div className="absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded-md bg-[var(--foreground)] px-2 py-0.5 text-[10px] font-semibold text-[var(--background)] shadow">
-          {bus.bus_number}
-        </div>
-      )}
-    </button>
-  )
 }
 
 function StatStrip({ label, value, icon: Icon, dot }: {
@@ -111,24 +77,35 @@ export default function LiveMap() {
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [now, setNow] = useState(new Date())
 
+  const { isLoaded } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    libraries: GOOGLE_MAP_LIBRARIES,
+  })
+
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
 
+  const schoolBuses = useMemo(
+    () => mockBuses.filter((b) => b.school_id === 'sch_001'),
+    [],
+  )
+
   const counts = useMemo(() => {
-    const running = mockBuses.filter((b) => b.status === 'running').length
-    const idle = mockBuses.filter((b) => b.status === 'idle').length
-    const offline = mockBuses.filter((b) => b.status === 'offline').length
-    const live = mockBuses.filter((b) => b.status === 'running')
+    const running = schoolBuses.filter((b) => b.status === 'running').length
+    const idle = schoolBuses.filter((b) => b.status === 'idle').length
+    const offline = schoolBuses.filter((b) => b.status === 'offline').length
+    const live = schoolBuses.filter((b) => b.status === 'running')
     const avgSpeed = live.length
-      ? Math.round(live.reduce((s, b) => s + (MARKER_META[b.id]?.speed ?? 0), 0) / live.length)
+      ? Math.round(live.reduce((s, b) => s + (BUS_TELEMETRY[b.id]?.speed ?? 0), 0) / live.length)
       : 0
     return { running, idle, offline, avgSpeed }
-  }, [])
+  }, [schoolBuses])
 
   const filteredBuses = useMemo(() => {
-    return mockBuses.filter((b) => {
+    return schoolBuses.filter((b) => {
       const matchesFilter = filter === 'all' || b.status === filter
       const q = search.trim().toLowerCase()
       const matchesSearch =
@@ -137,7 +114,17 @@ export default function LiveMap() {
         (b.driver_name ?? '').toLowerCase().includes(q)
       return matchesFilter && matchesSearch
     })
-  }, [search, filter])
+  }, [schoolBuses, search, filter])
+
+  const selectedBus = useMemo(
+    () => schoolBuses.find((b) => b.id === selectedBusId) ?? null,
+    [schoolBuses, selectedBusId],
+  )
+
+  const selectedBusPosition = useMemo(
+    () => (selectedBusId ? getBusPosition(selectedBusId) : null),
+    [selectedBusId],
+  )
 
   return (
     <Layout>
@@ -190,74 +177,60 @@ export default function LiveMap() {
 
       {/* Main two-column layout */}
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        {/* LEFT — stylistic map panel */}
-        <div
-          className="relative min-h-[420px] overflow-hidden rounded-2xl border border-[var(--border)] lg:min-h-[560px]"
-          style={{
-            background:
-              'radial-gradient(circle at 25% 20%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 55%), radial-gradient(circle at 80% 80%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 50%), linear-gradient(135deg, var(--muted), var(--background))',
-          }}
-        >
-          {/* grid + route polylines */}
-          <svg className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
-            <defs>
-              <pattern id="map-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="var(--border)" strokeWidth="0.5" opacity="0.4" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#map-grid)" />
-            {/* route polyline 1 (green-ish, running) */}
-            <path
-              d="M 6% 80% Q 22% 50% 40% 55% T 70% 28%"
-              fill="none"
-              stroke="var(--primary)"
-              strokeWidth="2.5"
-              strokeDasharray="9 7"
-              strokeLinecap="round"
-              opacity="0.7"
-            />
-            {/* route polyline 2 */}
-            <path
-              d="M 90% 18% Q 70% 40% 55% 50% T 30% 88%"
-              fill="none"
-              stroke="var(--primary)"
-              strokeWidth="2"
-              strokeDasharray="6 8"
-              strokeLinecap="round"
-              opacity="0.45"
-            />
-          </svg>
-
-          {/* compass / corner ornament */}
-          <div className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--card)]/80 text-[var(--muted-foreground)] backdrop-blur">
-            <Navigation size={16} />
-          </div>
-
-          {/* bus markers */}
-          {filteredBuses.map((bus) => (
-            <BusMarker
-              key={bus.id}
-              bus={bus}
-              selected={selectedBusId === bus.id}
-              onSelect={() => setSelectedBusId(bus.id)}
-            />
-          ))}
-
-          {/* floating legend */}
-          <div className="absolute bottom-4 left-4 rounded-xl border border-[var(--border)] bg-[var(--card)]/90 p-3 text-xs shadow-lg backdrop-blur">
-            <p className="mb-2 font-semibold text-[var(--foreground)]">Fleet Status</p>
-            <div className="space-y-1.5">
-              <span className="flex items-center gap-2 text-[var(--muted-foreground)]">
-                <span className="h-2.5 w-2.5 rounded-full bg-green-500" /> On Route
-              </span>
-              <span className="flex items-center gap-2 text-[var(--muted-foreground)]">
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Idle
-              </span>
-              <span className="flex items-center gap-2 text-[var(--muted-foreground)]">
-                <span className="h-2.5 w-2.5 rounded-full bg-gray-400" /> Offline
-              </span>
+        {/* LEFT — Google Map panel */}
+        <div className="h-[500px] rounded-2xl overflow-hidden border border-[var(--border)]">
+          {!isLoaded ? (
+            /* Loading skeleton */
+            <div className="flex h-full w-full animate-pulse flex-col gap-3 rounded-2xl bg-[var(--muted)] p-6">
+              <div className="h-6 w-1/3 rounded-lg bg-[var(--border)]" />
+              <div className="flex-1 rounded-xl bg-[var(--border)]" />
+              <div className="h-4 w-1/2 rounded-lg bg-[var(--border)]" />
             </div>
-          </div>
+          ) : (
+            <GoogleMap
+              mapContainerStyle={MAP_CONTAINER_STYLE}
+              center={DUBAI_CENTER}
+              zoom={12}
+              options={{
+                disableDefaultUI: false,
+                zoomControl: true,
+                streetViewControl: false,
+                mapTypeControl: false,
+                fullscreenControl: false,
+              }}
+            >
+              {filteredBuses.map((bus) => {
+                const position = getBusPosition(bus.id)
+                if (!position) return null
+                return (
+                  <Marker
+                    key={bus.id}
+                    position={position}
+                    title={`${bus.bus_number} — ${bus.driver_name ?? 'No driver'}`}
+                    onClick={() => setSelectedBusId(bus.id === selectedBusId ? null : bus.id)}
+                  />
+                )
+              })}
+
+              {selectedBus && selectedBusPosition && (
+                <InfoWindow
+                  position={selectedBusPosition}
+                  onCloseClick={() => setSelectedBusId(null)}
+                >
+                  <div className="min-w-[140px] p-1 text-sm">
+                    <p className="font-bold text-gray-800">{selectedBus.bus_number}</p>
+                    <p className="text-gray-600">{selectedBus.driver_name ?? 'No driver'}</p>
+                    {selectedBus.current_stop && (
+                      <p className="mt-1 text-xs text-gray-500">{selectedBus.current_stop}</p>
+                    )}
+                    <p className="mt-1 text-xs font-medium capitalize text-gray-700">
+                      Status: {selectedBus.status ?? 'unknown'}
+                    </p>
+                  </div>
+                </InfoWindow>
+              )}
+            </GoogleMap>
+          )}
         </div>
 
         {/* RIGHT — bus list sidebar */}
@@ -280,14 +253,14 @@ export default function LiveMap() {
               </div>
             ) : (
               filteredBuses.map((bus) => {
-                const meta = MARKER_META[bus.id] ?? FALLBACK_META
+                const telemetry = BUS_TELEMETRY[bus.id] ?? FALLBACK_TELEMETRY
                 const status = bus.status ?? 'offline'
                 const isSelected = selectedBusId === bus.id
                 return (
                   <motion.button
                     key={bus.id}
                     layout
-                    onClick={() => setSelectedBusId(bus.id)}
+                    onClick={() => setSelectedBusId(isSelected ? null : bus.id)}
                     whileHover={{ x: 2 }}
                     className={cn(
                       'w-full rounded-xl border p-3 text-left transition-colors',
@@ -310,11 +283,11 @@ export default function LiveMap() {
                     <div className="mt-2.5 flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
                       <span className="flex items-center gap-1">
                         <Gauge size={12} className="text-[var(--primary)]" />
-                        <span className="font-medium text-[var(--foreground)] tabular-nums">{meta.speed}</span> km/h
+                        <span className="font-medium text-[var(--foreground)] tabular-nums">{telemetry.speed}</span> km/h
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock size={12} className="text-[var(--primary)]" />
-                        ETA <span className="font-medium text-[var(--foreground)]">{meta.eta}</span>
+                        ETA <span className="font-medium text-[var(--foreground)]">{telemetry.eta}</span>
                       </span>
                       <span className="ml-auto flex items-center gap-1">
                         {status === 'offline' ? <WifiOff size={12} /> : <Wifi size={12} className="text-green-500" />}

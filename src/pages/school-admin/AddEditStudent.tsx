@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  User, Users, Bus, Camera, QrCode, Save, X, Hash,
-  GraduationCap, MapPin, Phone, Mail, Sparkles,
+  User, Users, Camera, QrCode, Save, X, Hash,
+  GraduationCap, Phone, Mail, Sparkles,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -15,7 +15,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { CLASSES, DIVISIONS, RELATIONSHIPS } from '@/lib/constants'
-import { allRoutes } from '@/lib/mockData'
 
 const container = {
   hidden: { opacity: 0 },
@@ -34,10 +33,6 @@ interface StudentForm {
   phone: string
   email: string
   address: string
-  routeId: string
-  pickupStop: string
-  dropStop: string
-  seatNo: string
 }
 
 function SectionCard({
@@ -105,26 +100,16 @@ export default function AddEditStudent() {
     phone: '',
     email: '',
     address: '',
-    routeId: '',
-    pickupStop: '',
-    dropStop: '',
-    seatNo: '',
   })
 
   const set = <K extends keyof StudentForm>(key: K, value: StudentForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
 
-  const selectedRoute = useMemo(
-    () => allRoutes.find((r) => r.id === form.routeId),
-    [form.routeId],
-  )
-  const stopOptions = selectedRoute?.stops ?? []
-
   return (
     <Layout>
       <PageHeader
         title="Add Student"
-        subtitle="Enrol a new student and assign transport"
+        subtitle="Enrol a new student"
         breadcrumbs={[
           { label: 'Students', path: '/school-admin/students' },
           { label: 'Add Student' },
@@ -310,87 +295,6 @@ export default function AddEditStudent() {
             </div>
           </SectionCard>
 
-          {/* Transport assignment */}
-          <SectionCard
-            step={3}
-            icon={Bus}
-            title="Transport Assignment"
-            description="Assign a route, stops and seat"
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
-              <div className="sm:col-span-2">
-                <Field label="Route">
-                  <Select
-                    value={form.routeId}
-                    onValueChange={(v) => set('routeId', v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a route" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allRoutes.map((r) => (
-                        <SelectItem key={r.id} value={r.id}>
-                          {r.name} · Bus {r.bus_number ?? '—'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </div>
-
-              <Field label="Pickup Stop">
-                <Select
-                  value={form.pickupStop}
-                  onValueChange={(v) => set('pickupStop', v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={selectedRoute ? 'Select stop' : 'Choose a route first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {stopOptions.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              <Field label="Drop Stop">
-                <Select
-                  value={form.dropStop}
-                  onValueChange={(v) => set('dropStop', v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={selectedRoute ? 'Select stop' : 'Choose a route first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {stopOptions.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              <Field label="Seat No." htmlFor="seatNo">
-                <Input
-                  id="seatNo"
-                  placeholder="e.g. 12"
-                  value={form.seatNo}
-                  onChange={(e) => set('seatNo', e.target.value)}
-                />
-              </Field>
-
-              {selectedRoute && (
-                <div className="sm:col-span-2 flex items-center gap-2 rounded-lg bg-[var(--muted)]/50 px-3 py-2 text-xs text-[var(--muted-foreground)]">
-                  <MapPin size={14} className="text-[var(--primary)] flex-shrink-0" />
-                  {selectedRoute.start_point} → {selectedRoute.end_point} · {selectedRoute.stops.length} stops · driven by {selectedRoute.driver_name ?? 'unassigned'}
-                </div>
-              )}
-            </div>
-          </SectionCard>
         </div>
 
         {/* ── Right: QR preview ── */}

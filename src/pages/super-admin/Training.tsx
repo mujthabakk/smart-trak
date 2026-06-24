@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Plus, Play, Pencil, Trash2, Clock, Eye, BookOpen,
+  Plus, Play, Pencil, Trash2, Clock, Eye, BookOpen, X,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -45,6 +45,14 @@ const TARGET_ROLES: UserRole[] = ['school_admin', 'driver', 'parent']
 
 type FilterTab = 'all' | UserRole
 
+function getEmbedUrl(url: string): string {
+  const watchMatch = url.match(/youtube\.com\/watch\?v=([^&]+)/)
+  if (watchMatch) return `https://www.youtube.com/embed/${watchMatch[1]}`
+  const shortMatch = url.match(/youtu\.be\/([^?]+)/)
+  if (shortMatch) return `https://www.youtube.com/embed/${shortMatch[1]}`
+  return url
+}
+
 export default function Training() {
   const [modules, setModules] = useState<TrainingModule[]>(mockTrainingModules)
   const [tab, setTab] = useState<FilterTab>('all')
@@ -52,6 +60,8 @@ export default function Training() {
   const [editing, setEditing] = useState<TrainingModule | null>(null)
   const [formRole, setFormRole] = useState<UserRole>('school_admin')
   const [formPublished, setFormPublished] = useState(true)
+  const [playerOpen, setPlayerOpen] = useState(false)
+  const [playerModule, setPlayerModule] = useState<TrainingModule | null>(null)
 
   const filtered = useMemo(
     () => (tab === 'all' ? modules : modules.filter((m) => m.target_role === tab)),
@@ -80,6 +90,11 @@ export default function Training() {
     setFormRole(m.target_role)
     setFormPublished(m.is_published)
     setDialogOpen(true)
+  }
+
+  function openPlayer(m: TrainingModule) {
+    setPlayerModule(m)
+    setPlayerOpen(true)
   }
 
   return (
@@ -123,8 +138,11 @@ export default function Training() {
                 variants={item}
                 className="group rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col"
               >
-                {/* Thumbnail */}
-                <div className={`relative aspect-video bg-gradient-to-br ${ROLE_GRADIENT[m.target_role] ?? 'from-slate-500 to-slate-700'} flex items-center justify-center`}>
+                {/* Thumbnail / play area */}
+                <div
+                  className={`relative aspect-video bg-gradient-to-br ${ROLE_GRADIENT[m.target_role] ?? 'from-slate-500 to-slate-700'} flex items-center justify-center cursor-pointer`}
+                  onClick={() => openPlayer(m)}
+                >
                   <div className="h-14 w-14 rounded-full bg-white/25 backdrop-blur flex items-center justify-center group-hover:scale-110 transition-transform">
                     <Play size={24} className="text-white fill-white ml-0.5" />
                   </div>
@@ -138,6 +156,7 @@ export default function Training() {
                       {m.duration_mins} min
                     </div>
                   )}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                 </div>
 
                 {/* Body */}
@@ -167,6 +186,9 @@ export default function Training() {
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" className="h-8 px-2 gap-1 text-xs" onClick={() => openPlayer(m)}>
+                        <Play size={13} className="fill-current" /> Watch
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(m)}>
                         <Pencil size={15} />
                       </Button>
@@ -187,6 +209,33 @@ export default function Training() {
         )}
       </motion.div>
 
+      {/* Video Player Dialog */}
+      <Dialog open={playerOpen} onOpenChange={setPlayerOpen}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+            <div className="min-w-0 pr-4">
+              <h2 className="font-semibold text-[var(--foreground)] truncate">{playerModule?.title}</h2>
+              <p className="text-xs text-[var(--muted-foreground)] truncate mt-0.5">{playerModule?.description}</p>
+            </div>
+            <Button variant="ghost" size="icon" className="flex-shrink-0" onClick={() => setPlayerOpen(false)}>
+              <X size={16} />
+            </Button>
+          </div>
+          <div className="aspect-video w-full bg-black">
+            {playerModule?.video_url && (
+              <iframe
+                src={getEmbedUrl(playerModule.video_url)}
+                className="w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                title={playerModule.title}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add / Edit Module Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -221,7 +270,7 @@ export default function Training() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="mod-video">Video URL</Label>
-                <Input id="mod-video" defaultValue={editing?.video_url ?? ''} placeholder="https://…" />
+                <Input id="mod-video" defaultValue={editing?.video_url ?? ''} placeholder="https://youtube.com/watch?v=…" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="mod-thumb">Thumbnail URL</Label>

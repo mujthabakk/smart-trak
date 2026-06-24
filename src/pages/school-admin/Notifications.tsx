@@ -24,10 +24,12 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { mockNotifications } from '@/lib/mockData'
+import { mockNotifications, mockRoutes, mockDrivers } from '@/lib/mockData'
 import { NOTIFICATION_TYPES } from '@/lib/constants'
 import { formatDate, cn } from '@/lib/utils'
 import type { AppNotification } from '@/types'
+
+const SCHOOL_ID = 'sch_001'
 
 const TYPE_CONFIG: Record<
   string,
@@ -120,7 +122,32 @@ function BroadcastDialog() {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
+  const [audience, setAudience] = useState('all_parents')
+  const [selectedRoute, setSelectedRoute] = useState('')
+  const [selectedDrivers, setSelectedDrivers] = useState<string[]>([])
   const MAX = 300
+
+  const schoolRoutes = mockRoutes.filter((r) => r.school_id === SCHOOL_ID)
+  const schoolDrivers = mockDrivers.filter((d) => d.school_id === SCHOOL_ID)
+
+  function toggleDriver(id: string) {
+    setSelectedDrivers((prev) =>
+      prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id],
+    )
+  }
+
+  function selectAllDrivers() {
+    setSelectedDrivers(schoolDrivers.map((d) => d.id))
+  }
+
+  function handleClose() {
+    setTitle('')
+    setMessage('')
+    setAudience('all_parents')
+    setSelectedRoute('')
+    setSelectedDrivers([])
+    setOpen(false)
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -129,7 +156,7 @@ function BroadcastDialog() {
           <Megaphone size={16} /> New Broadcast
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Megaphone size={18} className="text-[var(--primary)]" />
@@ -164,7 +191,7 @@ function BroadcastDialog() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Audience</Label>
-              <Select defaultValue="all_parents">
+              <Select value={audience} onValueChange={(v) => { setAudience(v); setSelectedRoute(''); setSelectedDrivers([]) }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all_parents">All Parents</SelectItem>
@@ -185,13 +212,72 @@ function BroadcastDialog() {
               </Select>
             </div>
           </div>
+
+          {/* Route selector */}
+          {audience === 'specific_route' && (
+            <div className="space-y-1.5">
+              <Label>Select Route</Label>
+              <Select value={selectedRoute} onValueChange={setSelectedRoute}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a route…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {schoolRoutes.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Driver multi-select */}
+          {audience === 'drivers' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Select Drivers</Label>
+                <button
+                  type="button"
+                  onClick={selectAllDrivers}
+                  className="text-xs text-[var(--primary)] hover:underline"
+                >
+                  Select All
+                </button>
+              </div>
+              <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-[var(--border)] p-2">
+                {schoolDrivers.map((d) => (
+                  <label
+                    key={d.id}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-[var(--muted)]/40"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedDrivers.includes(d.id)}
+                      onChange={() => toggleDriver(d.id)}
+                      className="h-4 w-4 rounded border-[var(--border)] accent-[var(--primary)]"
+                    />
+                    <span className="text-sm text-[var(--foreground)]">{d.name}</span>
+                  </label>
+                ))}
+              </div>
+              {selectedDrivers.length > 0 && (
+                <p className="text-xs text-[var(--muted-foreground)]">{selectedDrivers.length} driver{selectedDrivers.length > 1 ? 's' : ''} selected</p>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">Cancel</Button>
+            <Button variant="outline" onClick={handleClose}>Cancel</Button>
           </DialogClose>
-          <Button disabled={!title.trim() || !message.trim()} onClick={() => setOpen(false)}>
+          <Button
+            disabled={
+              !title.trim() || !message.trim() ||
+              (audience === 'specific_route' && !selectedRoute) ||
+              (audience === 'drivers' && selectedDrivers.length === 0)
+            }
+            onClick={handleClose}
+          >
             <Send size={15} /> Send Broadcast
           </Button>
         </DialogFooter>

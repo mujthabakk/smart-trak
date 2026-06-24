@@ -4,7 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
-  DollarSign, TrendingUp, AlertTriangle, CreditCard, Receipt, CalendarClock,
+  DollarSign, TrendingUp, AlertTriangle, CreditCard, Receipt, CalendarClock, Filter, X,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -23,7 +23,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { formatCurrency, formatDate, daysUntil } from '@/lib/utils'
-import { mockSubscriptions, mockRevenueData } from '@/lib/mockData'
+import { allSubscriptions, mockRevenueData } from '@/lib/mockData'
 import { PAYMENT_METHODS } from '@/lib/constants'
 import type { Subscription } from '@/types'
 
@@ -59,27 +59,78 @@ function RevenueTooltip({ active, payload, label }: RevenueTooltipProps) {
   return null
 }
 
+function formatMonthLabel(ym: string): string {
+  const [y, m] = ym.split('-')
+  return new Date(Number(y), Number(m) - 1).toLocaleString('default', { month: 'short', year: 'numeric' })
+}
+
 export default function Subscriptions() {
   const [payOpen, setPayOpen] = useState(false)
   const [activeSub, setActiveSub] = useState<Subscription | null>(null)
   const [payMethod, setPayMethod] = useState<string>(PAYMENT_METHODS[1])
 
+  // Filters
+  const [filterMonth, setFilterMonth] = useState('all')
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
+  const [filterSchool, setFilterSchool] = useState('all')
+  const [filterPlan, setFilterPlan] = useState('all')
+  const [filterStatus, setFilterStatus] = useState('all')
+
+  const uniqueSchools = useMemo(
+    () => [...new Set(allSubscriptions.map((s) => s.school_name))].sort(),
+    [],
+  )
+
+  const availableMonths = useMemo(() => {
+    const months = new Set(allSubscriptions.map((s) => s.start_date.slice(0, 7)))
+    return [...months].sort()
+  }, [])
+
+  const uniqueStatuses = useMemo(
+    () => [...new Set(allSubscriptions.map((s) => s.status))].sort(),
+    [],
+  )
+
+  const hasActiveFilters = filterMonth !== 'all' || filterDateFrom || filterDateTo || filterSchool !== 'all' || filterPlan !== 'all' || filterStatus !== 'all'
+
+  function resetFilters() {
+    setFilterMonth('all')
+    setFilterDateFrom('')
+    setFilterDateTo('')
+    setFilterSchool('all')
+    setFilterPlan('all')
+    setFilterStatus('all')
+  }
+
+  const filteredSubscriptions = useMemo(() => {
+    return allSubscriptions.filter((s) => {
+      if (filterMonth !== 'all' && !s.start_date.startsWith(filterMonth)) return false
+      if (filterDateFrom && s.start_date < filterDateFrom) return false
+      if (filterDateTo && s.start_date > filterDateTo) return false
+      if (filterSchool !== 'all' && s.school_name !== filterSchool) return false
+      if (filterPlan !== 'all' && s.plan_name.toLowerCase() !== filterPlan) return false
+      if (filterStatus !== 'all' && s.status !== filterStatus) return false
+      return true
+    })
+  }, [filterMonth, filterDateFrom, filterDateTo, filterSchool, filterPlan, filterStatus])
+
   const stats = useMemo(() => {
     const totalRevenue = mockRevenueData.reduce((sum, m) => sum + m.revenue, 0)
     const monthlyRevenue = mockRevenueData[mockRevenueData.length - 1]?.revenue ?? 0
-    const outstanding = mockSubscriptions
+    const outstanding = allSubscriptions
       .filter((s) => s.status === 'expired' || s.status === 'suspended')
       .reduce((sum, s) => sum + s.amount_paid, 0)
-    const activeCount = mockSubscriptions.filter((s) => s.status === 'active').length
+    const activeCount = allSubscriptions.filter((s) => s.status === 'active').length
     return { totalRevenue, monthlyRevenue, outstanding, activeCount }
   }, [])
 
   const expiringSoon = useMemo(() => {
-    const withDays = mockSubscriptions.filter((s) => {
+    const withDays = allSubscriptions.filter((s) => {
       const d = daysUntil(s.end_date)
       return d >= 0 && d <= 7
     })
-    return withDays.length > 0 ? withDays : mockSubscriptions.slice(0, 2)
+    return withDays.length > 0 ? withDays : allSubscriptions.slice(0, 2)
   }, [])
 
   function openPayment(sub: Subscription) {
@@ -225,16 +276,120 @@ export default function Subscriptions() {
           </div>
         </motion.div>
 
+        {/* Filters */}
+        <motion.div variants={item}>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Filter size={15} className="text-[var(--muted-foreground)]" />
+                <span className="text-sm font-medium text-[var(--foreground)]">Filters</span>
+                {hasActiveFilters && (
+                  <Button variant="ghost" size="sm" className="ml-auto h-7 px-2 text-xs gap-1" onClick={resetFilters}>
+                    <X size={12} /> Reset
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                {/* Month */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Month</Label>
+                  <Select value={filterMonth} onValueChange={setFilterMonth}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="All months" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All months</SelectItem>
+                      {availableMonths.map((m) => (
+                        <SelectItem key={m} value={m}>{formatMonthLabel(m)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Date From */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Start From</Label>
+                  <Input
+                    type="date"
+                    className="h-8 text-xs"
+                    value={filterDateFrom}
+                    onChange={(e) => setFilterDateFrom(e.target.value)}
+                  />
+                </div>
+
+                {/* Date To */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Start To</Label>
+                  <Input
+                    type="date"
+                    className="h-8 text-xs"
+                    value={filterDateTo}
+                    onChange={(e) => setFilterDateTo(e.target.value)}
+                  />
+                </div>
+
+                {/* School */}
+                <div className="space-y-1">
+                  <Label className="text-xs">School</Label>
+                  <Select value={filterSchool} onValueChange={setFilterSchool}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="All schools" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All schools</SelectItem>
+                      {uniqueSchools.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Plan */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Plan</Label>
+                  <Select value={filterPlan} onValueChange={setFilterPlan}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="All plans" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All plans</SelectItem>
+                      <SelectItem value="basic">Basic</SelectItem>
+                      <SelectItem value="standard">Standard</SelectItem>
+                      <SelectItem value="premium">Premium</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Status */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Status</Label>
+                  <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="All statuses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All statuses</SelectItem>
+                      {uniqueStatuses.map((s) => (
+                        <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
         <motion.div variants={item}>
           <DataTable
             columns={columns}
-            data={mockSubscriptions}
+            data={filteredSubscriptions}
             keyField="id"
             searchable
             searchKeys={['school_name', 'plan_name']}
             searchPlaceholder="Search subscriptions…"
             emptyTitle="No subscriptions"
-            emptyDescription="No subscription records match your search."
+            emptyDescription="No subscription records match your filters."
           />
         </motion.div>
       </motion.div>

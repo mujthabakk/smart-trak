@@ -16,8 +16,11 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { mockAttendance, mockAttendanceTrend } from '@/lib/mockData'
+import { mockAttendance, mockAttendanceTrend, mockBuses, mockRoutes } from '@/lib/mockData'
 import { formatDate, getInitials, downloadCSV } from '@/lib/utils'
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from '@/components/ui/select'
 import type { AttendanceRecord } from '@/types'
 
 interface TrendTooltipProps {
@@ -43,21 +46,46 @@ function TrendTooltip({ active, payload, label }: TrendTooltipProps) {
   return null
 }
 
+const SCHOOL_ID = 'sch_001'
+
 export default function Attendance() {
   const [date, setDate] = useState('2026-06-23')
+  const [filterBus, setFilterBus] = useState('all')
+  const [filterClass, setFilterClass] = useState('all')
+  const [filterRoute, setFilterRoute] = useState('all')
+
+  const schoolBuses = useMemo(() => mockBuses.filter((b) => b.school_id === SCHOOL_ID), [])
+  const schoolRoutes = useMemo(() => mockRoutes.filter((r) => r.school_id === SCHOOL_ID), [])
+
+  const uniqueClasses = useMemo(() => {
+    const cls = new Set(mockAttendance.map((a) => a.student_class).filter(Boolean))
+    return Array.from(cls).sort()
+  }, [])
+
+  const filteredAttendance = useMemo(() => {
+    return mockAttendance.filter((a) => {
+      if (filterClass !== 'all' && a.student_class !== filterClass) return false
+      if (filterRoute !== 'all' && a.route_name !== filterRoute) return false
+      if (filterBus !== 'all') {
+        const route = schoolRoutes.find((r) => r.name === a.route_name)
+        if (route?.bus_number !== filterBus) return false
+      }
+      return true
+    })
+  }, [filterBus, filterClass, filterRoute, schoolRoutes])
 
   const stats = useMemo(() => {
-    const present = mockAttendance.filter((a) => a.status === 'present').length
-    const absent = mockAttendance.filter((a) => a.status === 'absent').length
-    const leave = mockAttendance.filter((a) => a.status === 'leave').length
-    const total = mockAttendance.length || 1
+    const present = filteredAttendance.filter((a) => a.status === 'present').length
+    const absent = filteredAttendance.filter((a) => a.status === 'absent').length
+    const leave = filteredAttendance.filter((a) => a.status === 'leave').length
+    const total = filteredAttendance.length || 1
     const rate = Math.round((present / total) * 100)
     return { present, absent, leave, rate }
-  }, [])
+  }, [filteredAttendance])
 
   function handleExport() {
     downloadCSV(
-      mockAttendance.map((a) => ({
+      filteredAttendance.map((a) => ({
         student: a.student_name,
         class: a.student_class,
         route: a.route_name ?? '',
@@ -157,6 +185,54 @@ export default function Attendance() {
         }
       />
 
+      {/* Filters */}
+      <div className="mb-5 flex flex-wrap gap-3">
+        <Select value={filterBus} onValueChange={setFilterBus}>
+          <SelectTrigger className="h-9 w-40">
+            <SelectValue placeholder="All Buses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Buses</SelectItem>
+            {schoolBuses.map((b) => (
+              <SelectItem key={b.id} value={b.bus_number}>Bus {b.bus_number}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={filterClass} onValueChange={setFilterClass}>
+          <SelectTrigger className="h-9 w-36">
+            <SelectValue placeholder="All Classes" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Classes</SelectItem>
+            {uniqueClasses.map((c) => (
+              <SelectItem key={c} value={c}>Class {c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={filterRoute} onValueChange={setFilterRoute}>
+          <SelectTrigger className="h-9 w-44">
+            <SelectValue placeholder="All Routes" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Routes</SelectItem>
+            {schoolRoutes.map((r) => (
+              <SelectItem key={r.id} value={r.name}>{r.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {(filterBus !== 'all' || filterClass !== 'all' || filterRoute !== 'all') && (
+          <button
+            onClick={() => { setFilterBus('all'); setFilterClass('all'); setFilterRoute('all') }}
+            className="h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+
       {/* Stat cards */}
       <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
         <StatsCard title="Present" value={stats.present} icon={UserCheck} color="success" />
@@ -178,7 +254,7 @@ export default function Attendance() {
         <TabsContent value="daily">
           <DataTable
             columns={columns}
-            data={mockAttendance}
+            data={filteredAttendance}
             keyField="id"
             searchable
             searchKeys={['student_name', 'student_class', 'route_name']}

@@ -236,6 +236,7 @@ export interface LostFoundItem {
   driver_name: string
   description: string
   photo_url?: string
+  image_url?: string
   reported_at: string
   status: LostFoundStatus
   claims: LFClaim[]

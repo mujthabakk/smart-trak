@@ -35,7 +35,6 @@ const PLAN_RING: Record<string, string> = {
   premium: 'border-[var(--border)]',
 }
 
-// Feature matrix for the comparison table (basic / standard / premium)
 const FEATURE_MATRIX: Array<{ feature: string; basic: boolean; standard: boolean; premium: boolean }> = [
   { feature: 'Real-time GPS Tracking', basic: true, standard: true, premium: true },
   { feature: 'QR Attendance', basic: true, standard: true, premium: true },
@@ -52,14 +51,15 @@ const FEATURE_MATRIX: Array<{ feature: string; basic: boolean; standard: boolean
   { feature: 'API Access', basic: false, standard: false, premium: true },
 ]
 
-const TOGGLE_FEATURES = [
-  'WhatsApp Notifications',
-  'Training Centre',
-  'Bus Transfer',
-  'Guest Driver',
-  'Advanced Reports',
-  'API Access',
-]
+const ALL_FEATURES = FEATURE_MATRIX.map((f) => f.feature)
+
+function defaultToggles(planKey: string): Record<string, boolean> {
+  const result: Record<string, boolean> = {}
+  for (const row of FEATURE_MATRIX) {
+    result[row.feature] = planKey === 'premium' ? row.premium : planKey === 'standard' ? row.standard : row.basic
+  }
+  return result
+}
 
 function CheckCell({ on }: { on: boolean }) {
   return on ? (
@@ -73,32 +73,97 @@ function limitLabel(n: number): string {
   return n >= 99999 ? 'Unlimited' : formatNumber(n)
 }
 
+const EMPTY_EDIT_FORM = {
+  label: '', price_monthly: 0, price_annual: 0,
+  max_students: 0, max_buses: 0, max_drivers: 0,
+}
+const EMPTY_CREATE_FORM = {
+  label: '', price_monthly: '', price_annual: '',
+  max_students: '', max_buses: '', max_drivers: '',
+}
+
 export default function Plans() {
+  const [plans, setPlans] = useState<Plan[]>(mockPlans)
+
+  // ── Edit state ────────────────────────────────────────────────────────────
   const [editOpen, setEditOpen] = useState(false)
   const [activePlan, setActivePlan] = useState<Plan | null>(null)
-  const [toggles, setToggles] = useState<Record<string, boolean>>({})
+  const [editForm, setEditForm] = useState(EMPTY_EDIT_FORM)
+  const [editToggles, setEditToggles] = useState<Record<string, boolean>>({})
+
+  // ── Create state ──────────────────────────────────────────────────────────
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM)
+  const [createToggles, setCreateToggles] = useState<Record<string, boolean>>(
+    Object.fromEntries(ALL_FEATURES.map((f) => [f, false])),
+  )
 
   function openEdit(plan: Plan) {
     setActivePlan(plan)
-    const key = plan.name.toLowerCase()
-    setToggles({
-      'WhatsApp Notifications': key !== 'basic',
-      'Training Centre': key !== 'basic',
-      'Bus Transfer': key !== 'basic',
-      'Guest Driver': key === 'premium',
-      'Advanced Reports': key !== 'basic',
-      'API Access': key === 'premium',
+    setEditForm({
+      label: plan.label,
+      price_monthly: plan.price_monthly,
+      price_annual: plan.price_annual,
+      max_students: plan.max_students,
+      max_buses: plan.max_buses,
+      max_drivers: plan.max_drivers,
     })
+    setEditToggles(defaultToggles(plan.name.toLowerCase()))
     setEditOpen(true)
+  }
+
+  function saveEdit() {
+    if (!activePlan || !editForm.label.trim()) return
+    setPlans((prev) =>
+      prev.map((p) =>
+        p.id === activePlan.id
+          ? {
+              ...p,
+              label: editForm.label,
+              price_monthly: Number(editForm.price_monthly),
+              price_annual: Number(editForm.price_annual),
+              max_students: Number(editForm.max_students),
+              max_buses: Number(editForm.max_buses),
+              max_drivers: Number(editForm.max_drivers),
+              features: ALL_FEATURES.filter((f) => editToggles[f]),
+            }
+          : p,
+      ),
+    )
+    setEditOpen(false)
+  }
+
+  function openCreate() {
+    setCreateForm(EMPTY_CREATE_FORM)
+    setCreateToggles(Object.fromEntries(ALL_FEATURES.map((f) => [f, false])))
+    setCreateOpen(true)
+  }
+
+  function saveCreate() {
+    if (!createForm.label.trim()) return
+    const newPlan: Plan = {
+      id: `plan_${Date.now()}`,
+      name: createForm.label.toLowerCase().replace(/\s+/g, '_'),
+      label: createForm.label,
+      price_monthly: Number(createForm.price_monthly) || 0,
+      price_annual: Number(createForm.price_annual) || 0,
+      billing_cycle: 'monthly',
+      max_students: Number(createForm.max_students) || 0,
+      max_buses: Number(createForm.max_buses) || 0,
+      max_drivers: Number(createForm.max_drivers) || 0,
+      features: ALL_FEATURES.filter((f) => createToggles[f]),
+    }
+    setPlans((prev) => [...prev, newPlan])
+    setCreateOpen(false)
   }
 
   const featureLists = useMemo(
     () =>
-      mockPlans.map((p) => ({
+      plans.map((p) => ({
         id: p.id,
         list: PLAN_FEATURES[p.name as keyof typeof PLAN_FEATURES] ?? p.features,
       })),
-    [],
+    [plans],
   )
 
   return (
@@ -107,7 +172,7 @@ export default function Plans() {
         title="Subscription Plans"
         subtitle="Configure pricing tiers and feature access"
         actions={
-          <Button>
+          <Button onClick={openCreate}>
             <Plus size={16} /> Create Plan
           </Button>
         }
@@ -116,7 +181,7 @@ export default function Plans() {
       <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
         {/* Plan cards */}
         <motion.div variants={item} className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-          {mockPlans.map((plan) => {
+          {plans.map((plan) => {
             const key = plan.name.toLowerCase()
             const features = featureLists.find((f) => f.id === plan.id)?.list ?? plan.features
             return (
@@ -217,7 +282,7 @@ export default function Plans() {
 
       {/* Edit Plan Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit {activePlan?.label} Plan</DialogTitle>
             <DialogDescription>Update pricing, limits and feature access.</DialogDescription>
@@ -226,32 +291,61 @@ export default function Plans() {
           <div className="space-y-5">
             <div className="space-y-1.5">
               <Label htmlFor="plan-name">Plan Name</Label>
-              <Input id="plan-name" defaultValue={activePlan?.label ?? ''} />
+              <Input
+                id="plan-name"
+                value={editForm.label}
+                onChange={(e) => setEditForm((f) => ({ ...f, label: e.target.value }))}
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="plan-monthly">Monthly Price (USD)</Label>
-                <Input id="plan-monthly" type="number" defaultValue={activePlan?.price_monthly ?? 0} />
+                <Input
+                  id="plan-monthly"
+                  type="number"
+                  value={editForm.price_monthly}
+                  onChange={(e) => setEditForm((f) => ({ ...f, price_monthly: Number(e.target.value) }))}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="plan-annual">Annual Price (USD)</Label>
-                <Input id="plan-annual" type="number" defaultValue={activePlan?.price_annual ?? 0} />
+                <Input
+                  id="plan-annual"
+                  type="number"
+                  value={editForm.price_annual}
+                  onChange={(e) => setEditForm((f) => ({ ...f, price_annual: Number(e.target.value) }))}
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="plan-students">Max Students</Label>
-                <Input id="plan-students" type="number" defaultValue={activePlan?.max_students ?? 0} />
+                <Input
+                  id="plan-students"
+                  type="number"
+                  value={editForm.max_students}
+                  onChange={(e) => setEditForm((f) => ({ ...f, max_students: Number(e.target.value) }))}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="plan-buses">Max Buses</Label>
-                <Input id="plan-buses" type="number" defaultValue={activePlan?.max_buses ?? 0} />
+                <Input
+                  id="plan-buses"
+                  type="number"
+                  value={editForm.max_buses}
+                  onChange={(e) => setEditForm((f) => ({ ...f, max_buses: Number(e.target.value) }))}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="plan-drivers">Max Drivers</Label>
-                <Input id="plan-drivers" type="number" defaultValue={activePlan?.max_drivers ?? 0} />
+                <Input
+                  id="plan-drivers"
+                  type="number"
+                  value={editForm.max_drivers}
+                  onChange={(e) => setEditForm((f) => ({ ...f, max_drivers: Number(e.target.value) }))}
+                />
               </div>
             </div>
 
@@ -260,12 +354,12 @@ export default function Plans() {
             <div className="space-y-3">
               <Label>Features</Label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {TOGGLE_FEATURES.map((feat) => (
+                {ALL_FEATURES.map((feat) => (
                   <div key={feat} className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2">
                     <span className="text-sm text-[var(--foreground)]">{feat}</span>
                     <Switch
-                      checked={toggles[feat] ?? false}
-                      onCheckedChange={(v) => setToggles((prev) => ({ ...prev, [feat]: v }))}
+                      checked={editToggles[feat] ?? false}
+                      onCheckedChange={(v) => setEditToggles((prev) => ({ ...prev, [feat]: v }))}
                     />
                   </div>
                 ))}
@@ -275,7 +369,112 @@ export default function Plans() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={() => setEditOpen(false)}>Save Changes</Button>
+            <Button onClick={saveEdit} disabled={!editForm.label.trim()}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Plan Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create New Plan</DialogTitle>
+            <DialogDescription>Define a new subscription tier with pricing, limits and features.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-plan-name">Plan Name</Label>
+              <Input
+                id="new-plan-name"
+                placeholder="e.g. Enterprise"
+                value={createForm.label}
+                onChange={(e) => setCreateForm((f) => ({ ...f, label: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="new-plan-monthly">Monthly Price (USD)</Label>
+                <Input
+                  id="new-plan-monthly"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={createForm.price_monthly}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, price_monthly: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-plan-annual">Annual Price (USD)</Label>
+                <Input
+                  id="new-plan-annual"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={createForm.price_annual}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, price_annual: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="new-plan-students">Max Students</Label>
+                <Input
+                  id="new-plan-students"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={createForm.max_students}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, max_students: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-plan-buses">Max Buses</Label>
+                <Input
+                  id="new-plan-buses"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={createForm.max_buses}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, max_buses: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-plan-drivers">Max Drivers</Label>
+                <Input
+                  id="new-plan-drivers"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={createForm.max_drivers}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, max_drivers: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-3">
+              <Label>Features</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {ALL_FEATURES.map((feat) => (
+                  <div key={feat} className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2">
+                    <span className="text-sm text-[var(--foreground)]">{feat}</span>
+                    <Switch
+                      checked={createToggles[feat] ?? false}
+                      onCheckedChange={(v) => setCreateToggles((prev) => ({ ...prev, [feat]: v }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={saveCreate} disabled={!createForm.label.trim()}><Plus size={14} /> Create Plan</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

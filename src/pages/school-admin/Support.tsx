@@ -23,7 +23,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { allSupportTickets } from '@/lib/mockData'
+import { allSupportTickets, mockDrivers } from '@/lib/mockData'
 import { SUPPORT_CATEGORIES, SUPPORT_PRIORITIES } from '@/lib/constants'
 import { formatDate, getInitials } from '@/lib/utils'
 import type { SupportTicket, TicketReply, TicketPriority } from '@/types'
@@ -49,6 +49,7 @@ export default function Support() {
     return first?.id ?? null
   })
   const [reply, setReply] = useState('')
+  const [assignedDriver, setAssignedDriver] = useState<Record<string, string>>({})
 
   // raise-ticket dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -56,6 +57,11 @@ export default function Support() {
   const [category, setCategory] = useState(SUPPORT_CATEGORIES[0])
   const [priority, setPriority] = useState<TicketPriority>('medium')
   const [description, setDescription] = useState('')
+
+  const schoolDrivers = useMemo(
+    () => mockDrivers.filter((d) => d.school_id === SCHOOL_ID),
+    [],
+  )
 
   const stats = useMemo(() => ({
     open: tickets.filter((t) => t.status === 'open').length,
@@ -213,6 +219,32 @@ export default function Support() {
                   <Badge variant={PRIORITY_VARIANT[selected.priority]} className="capitalize">
                     {selected.priority} priority
                   </Badge>
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-xs font-medium text-[var(--muted-foreground)] whitespace-nowrap">
+                    Assign Driver:
+                  </span>
+                  <Select
+                    value={assignedDriver[selected.id] ?? ''}
+                    onValueChange={(driverId) =>
+                      setAssignedDriver((prev) => ({ ...prev, [selected.id]: driverId }))
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-52 text-xs">
+                      <SelectValue placeholder="Assign a driver…">
+                        {assignedDriver[selected.id]
+                          ? schoolDrivers.find((d) => d.id === assignedDriver[selected.id])?.name
+                          : undefined}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {schoolDrivers.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 

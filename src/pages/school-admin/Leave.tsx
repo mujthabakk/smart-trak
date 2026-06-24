@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  CalendarOff, Plus, Clock, CheckCircle2, XCircle, CalendarRange,
+  CalendarOff, Clock, CheckCircle2, XCircle, CalendarRange,
   Check, X, Eye,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
@@ -12,18 +12,8 @@ import { DataTable, type Column } from '@/components/shared/DataTable'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-  DialogFooter, DialogClose,
-} from '@/components/ui/dialog'
-import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { allLeaves, allStudents } from '@/lib/mockData'
-import { LEAVE_REASONS } from '@/lib/constants'
 import { formatDate, getInitials } from '@/lib/utils'
 import type { Leave as LeaveType, LeaveStatus } from '@/types'
 
@@ -52,14 +42,6 @@ export default function Leave() {
   const [leaves, setLeaves] = useState<LeaveType[]>(() =>
     allLeaves.filter((l) => l.school_id === SCHOOL_ID),
   )
-  const [dialogOpen, setDialogOpen] = useState(false)
-
-  // New-request form state
-  const [formStudent, setFormStudent] = useState('')
-  const [formReason, setFormReason] = useState(LEAVE_REASONS[0])
-  const [formFrom, setFormFrom] = useState('')
-  const [formTo, setFormTo] = useState('')
-  const [formNotes, setFormNotes] = useState('')
 
   const stats = useMemo(() => {
     const pending = leaves.filter((l) => l.status === 'pending').length
@@ -81,34 +63,6 @@ export default function Leave() {
           : l,
       ),
     )
-  }
-
-  function resetForm() {
-    setFormStudent('')
-    setFormReason(LEAVE_REASONS[0])
-    setFormFrom('')
-    setFormTo('')
-    setFormNotes('')
-  }
-
-  function submitRequest() {
-    const student = schoolStudents.find((s) => s.id === formStudent)
-    if (!student || !formFrom || !formTo) return
-    const newLeave: LeaveType = {
-      id: `lv_${Date.now()}`,
-      student_id: student.id,
-      student_name: student.name,
-      student_class: `${student.class}${student.division}`,
-      school_id: SCHOOL_ID,
-      from_date: formFrom,
-      to_date: formTo,
-      reason: formReason,
-      status: 'pending',
-      created_at: new Date().toISOString(),
-    }
-    setLeaves((prev) => [newLeave, ...prev])
-    resetForm()
-    setDialogOpen(false)
   }
 
   const columns: Column<LeaveType>[] = [
@@ -218,11 +172,6 @@ export default function Leave() {
       <PageHeader
         title="Leave Management"
         subtitle="Review and respond to student leave requests"
-        actions={
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus size={16} /> New Leave Request
-          </Button>
-        }
       />
 
       <motion.div
@@ -272,89 +221,6 @@ export default function Leave() {
         </motion.div>
       </motion.div>
 
-      {/* New leave request dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Leave Request</DialogTitle>
-            <DialogDescription>Submit a leave request on behalf of a student.</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-1">
-            <div className="space-y-1.5">
-              <Label htmlFor="leave-student">Student</Label>
-              <Select value={formStudent} onValueChange={setFormStudent}>
-                <SelectTrigger id="leave-student">
-                  <SelectValue placeholder="Select a student" />
-                </SelectTrigger>
-                <SelectContent>
-                  {schoolStudents.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name} · Class {s.class}{s.division}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="leave-reason">Reason</Label>
-              <Select value={formReason} onValueChange={setFormReason}>
-                <SelectTrigger id="leave-reason">
-                  <SelectValue placeholder="Select a reason" />
-                </SelectTrigger>
-                <SelectContent>
-                  {LEAVE_REASONS.map((r) => (
-                    <SelectItem key={r} value={r}>{r}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="leave-from">From</Label>
-                <input
-                  id="leave-from"
-                  type="date"
-                  value={formFrom}
-                  onChange={(e) => setFormFrom(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="leave-to">To</Label>
-                <input
-                  id="leave-to"
-                  type="date"
-                  value={formTo}
-                  onChange={(e) => setFormTo(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="leave-notes">Notes</Label>
-              <Textarea
-                id="leave-notes"
-                value={formNotes}
-                onChange={(e) => setFormNotes(e.target.value)}
-                placeholder="Any additional details…"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
-            <Button onClick={submitRequest} disabled={!formStudent || !formFrom || !formTo}>
-              Submit Request
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Layout>
   )
 }

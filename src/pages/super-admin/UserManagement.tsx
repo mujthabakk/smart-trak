@@ -60,7 +60,10 @@ function MiniStat({ label, value, icon: Icon, accent }: { label: string; value: 
 export default function UserManagement() {
   const [admins, setAdmins] = useState<SchoolAdmin[]>(INITIAL_ADMINS)
   const [addOpen, setAddOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<SchoolAdmin | null>(null)
   const [form, setForm] = useState({ name: '', email: '', school: mockSchools[0]?.name ?? '' })
+  const [editForm, setEditForm] = useState({ name: '', email: '', school: mockSchools[0]?.name ?? '' })
 
   const counts = useMemo(() => ({
     total: admins.length,
@@ -77,6 +80,22 @@ export default function UserManagement() {
     setAdmins((prev) => [{ id: `sa-${generateId()}`, name: form.name, email: form.email, school: form.school, lastLogin: new Date().toISOString(), status: 'active' }, ...prev])
     setForm({ name: '', email: '', school: mockSchools[0]?.name ?? '' })
     setAddOpen(false)
+  }
+
+  function openEdit(admin: SchoolAdmin) {
+    setEditTarget(admin)
+    setEditForm({ name: admin.name, email: admin.email, school: admin.school })
+    setEditOpen(true)
+  }
+
+  function saveEdit() {
+    if (!editTarget || !editForm.name.trim() || !editForm.email.trim()) return
+    setAdmins((prev) => prev.map((m) => m.id === editTarget.id
+      ? { ...m, name: editForm.name, email: editForm.email, school: editForm.school }
+      : m,
+    ))
+    setEditOpen(false)
+    setEditTarget(null)
   }
 
   const columns: Column<SchoolAdmin>[] = [
@@ -121,7 +140,7 @@ export default function UserManagement() {
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal size={16} /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <DropdownMenuItem><Pencil size={14} /> Edit</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openEdit(row)}><Pencil size={14} /> Edit</DropdownMenuItem>
               <DropdownMenuItem onClick={() => window.alert(`A password reset link has been sent to ${row.email}`)}><KeyRound size={14} /> Reset Password</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem destructive onClick={() => toggleStatus(row.id)}><Power size={14} />{row.status === 'active' ? 'Deactivate' : 'Activate'}</DropdownMenuItem>
@@ -161,6 +180,7 @@ export default function UserManagement() {
         </motion.div>
       </motion.div>
 
+      {/* Add Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader>
@@ -189,6 +209,50 @@ export default function UserManagement() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
             <Button onClick={addAdmin}><Send size={14} /> Create & Send Invite</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit School Admin</DialogTitle>
+            <DialogDescription>Update this administrator's name, email, or school assignment.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-admin-name">Full Name</Label>
+              <Input
+                id="edit-admin-name"
+                value={editForm.name}
+                onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Hassan Ahmed"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-admin-email">Email</Label>
+              <Input
+                id="edit-admin-email"
+                type="email"
+                value={editForm.email}
+                onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="admin@school.ae"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>School</Label>
+              <Select value={editForm.school} onValueChange={(v) => setEditForm((f) => ({ ...f, school: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select school" /></SelectTrigger>
+                <SelectContent>
+                  {mockSchools.map((s) => <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button onClick={saveEdit}><Pencil size={14} /> Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

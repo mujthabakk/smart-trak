@@ -10,6 +10,7 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
@@ -155,6 +156,10 @@ export default function BusTransfer() {
 
   const [fromBus, setFromBus] = useState('')
   const [toBus, setToBus] = useState('')
+  const [useTempBus, setUseTempBus] = useState(false)
+  const [tempBusNumber, setTempBusNumber] = useState('')
+  const [tempBusMake, setTempBusMake] = useState('')
+  const [tempBusCapacity, setTempBusCapacity] = useState<number | ''>('')
   const [reason, setReason] = useState(TRANSFER_REASONS[0].value)
   const [notes, setNotes] = useState('')
   const [notify, setNotify] = useState(true)
@@ -181,6 +186,10 @@ export default function BusTransfer() {
   function resetForm() {
     setFromBus('')
     setToBus('')
+    setUseTempBus(false)
+    setTempBusNumber('')
+    setTempBusMake('')
+    setTempBusCapacity('')
     setReason(TRANSFER_REASONS[0].value)
     setNotes('')
     setNotify(true)
@@ -188,8 +197,14 @@ export default function BusTransfer() {
 
   function submitTransfer() {
     const from = buses.find((b) => b.id === fromBus)
-    const to = buses.find((b) => b.id === toBus)
-    if (!from || !to || from.id === to.id) return
+    if (!from) return
+    if (useTempBus) {
+      if (!tempBusNumber) return
+    } else {
+      const to = buses.find((b) => b.id === toBus)
+      if (!to || from.id === to.id) return
+    }
+    const to = useTempBus ? null : buses.find((b) => b.id === toBus)!
     const reasonLabel = TRANSFER_REASONS.find((r) => r.value === reason)?.label ?? 'Other'
     const newTransfer: BusTransferType = {
       id: `bt_${Date.now()}`,
@@ -197,10 +212,10 @@ export default function BusTransfer() {
       original_trip_id: from.current_trip_id ?? '',
       original_bus_id: from.id,
       original_bus_number: from.bus_number,
-      new_bus_id: to.id,
-      new_bus_number: to.bus_number,
-      new_driver_id: to.driver_id,
-      new_driver_name: to.driver_name,
+      new_bus_id: useTempBus ? '' : to!.id,
+      new_bus_number: useTempBus ? tempBusNumber : to!.bus_number,
+      new_driver_id: useTempBus ? undefined : to!.driver_id,
+      new_driver_name: useTempBus ? undefined : to!.driver_name,
       authorised_by: 'School Admin',
       transfer_at: new Date().toISOString(),
       status: 'initiated',
@@ -295,32 +310,87 @@ export default function BusTransfer() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="bt-to">To Bus</Label>
-                <Select value={toBus} onValueChange={setToBus}>
-                  <SelectTrigger id="bt-to">
-                    <SelectValue placeholder="Select bus" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {toBusOptions.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        Bus {b.bus_number}{b.driver_name ? ` · ${b.driver_name}` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="bt-to">To Bus</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="bt-use-temp" className="cursor-pointer text-xs text-[var(--muted-foreground)]">
+                      Use temporary bus
+                    </Label>
+                    <Switch
+                      id="bt-use-temp"
+                      checked={useTempBus}
+                      onCheckedChange={(checked) => {
+                        setUseTempBus(checked)
+                        if (checked) setToBus('')
+                        else { setTempBusNumber(''); setTempBusMake(''); setTempBusCapacity('') }
+                      }}
+                    />
+                  </div>
+                </div>
+                {!useTempBus ? (
+                  <Select value={toBus} onValueChange={setToBus}>
+                    <SelectTrigger id="bt-to">
+                      <SelectValue placeholder="Select bus" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {toBusOptions.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          Bus {b.bus_number}{b.driver_name ? ` · ${b.driver_name}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="space-y-2 rounded-xl border border-dashed border-[var(--border)] bg-[var(--muted)]/30 p-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="bt-temp-number" className="text-xs">Bus Number <span className="text-destructive">*</span></Label>
+                      <Input
+                        id="bt-temp-number"
+                        value={tempBusNumber}
+                        onChange={(e) => setTempBusNumber(e.target.value)}
+                        placeholder="e.g. TMP-01"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="bt-temp-make" className="text-xs">Make / Model</Label>
+                      <Input
+                        id="bt-temp-make"
+                        value={tempBusMake}
+                        onChange={(e) => setTempBusMake(e.target.value)}
+                        placeholder="e.g. Toyota Coaster"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="bt-temp-capacity" className="text-xs">Capacity</Label>
+                      <Input
+                        id="bt-temp-capacity"
+                        type="number"
+                        min={1}
+                        value={tempBusCapacity}
+                        onChange={(e) => setTempBusCapacity(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 30"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* live preview of the transfer */}
-            {fromBus && toBus && (
+            {fromBus && (useTempBus ? tempBusNumber : toBus) && (
               <div className="flex items-center justify-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 p-3">
                 <span className="rounded-lg bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 dark:bg-red-900/30 dark:text-red-400">
                   {buses.find((b) => b.id === fromBus)?.bus_number}
                 </span>
                 <ArrowRight size={16} className="text-[var(--primary)]" />
                 <span className="rounded-lg bg-green-100 px-2.5 py-1 text-xs font-bold text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                  {buses.find((b) => b.id === toBus)?.bus_number}
+                  {useTempBus ? tempBusNumber : buses.find((b) => b.id === toBus)?.bus_number}
                 </span>
+                {useTempBus && (
+                  <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                    Temp
+                  </span>
+                )}
               </div>
             )}
 
@@ -361,7 +431,14 @@ export default function BusTransfer() {
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
-            <Button onClick={submitTransfer} disabled={!fromBus || !toBus || fromBus === toBus}>
+            <Button
+              onClick={submitTransfer}
+              disabled={
+                useTempBus
+                  ? !fromBus || !tempBusNumber
+                  : !fromBus || !toBus || fromBus === toBus
+              }
+            >
               Initiate Transfer
             </Button>
           </DialogFooter>

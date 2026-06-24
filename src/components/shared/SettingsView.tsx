@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Check, User, Bell, Shield, Mail, Smartphone, MessageCircle, Globe,
-  Lock, Monitor, LogOut, Camera,
+  Lock, Camera,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -35,7 +35,6 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
   const [prefs, setPrefs] = useState<Record<string, boolean>>(
     Object.fromEntries(NOTIFICATION_PREFS.map((p) => [p.id, p.on])),
   )
-  const [twoFA, setTwoFA] = useState(true)
   const [saved, setSaved] = useState(false)
 
   function handleSaveProfile() {
@@ -166,55 +165,6 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
             </CardContent>
           </Card>
 
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle>Two-Factor Authentication</CardTitle>
-              <CardDescription>Add an extra layer of security to your account.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-lg bg-[var(--muted)] flex items-center justify-center text-[var(--muted-foreground)]">
-                  <Shield size={17} />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-[var(--foreground)]">Authenticator app</p>
-                  <p className="text-xs text-[var(--muted-foreground)]">{twoFA ? 'Enabled' : 'Disabled'}</p>
-                </div>
-              </div>
-              <Switch checked={twoFA} onCheckedChange={setTwoFA} />
-            </CardContent>
-          </Card>
-
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle>Active Sessions</CardTitle>
-              <CardDescription>Devices currently signed in to your account.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {[
-                { device: 'MacBook Pro · Chrome', loc: 'Dubai, UAE', current: true },
-                { device: 'iPhone 15 · SmartTrack App', loc: 'Dubai, UAE', current: false },
-              ].map((s) => (
-                <div key={s.device} className="flex items-center justify-between rounded-xl border border-[var(--border)] p-3">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-lg bg-[var(--muted)] flex items-center justify-center text-[var(--muted-foreground)]">
-                      <Monitor size={17} />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-[var(--foreground)] flex items-center gap-2">
-                        {s.device}
-                        {s.current && <span className="text-[10px] font-semibold text-green-600 bg-green-50 dark:bg-green-900/20 rounded-full px-1.5 py-0.5">Current</span>}
-                      </p>
-                      <p className="text-xs text-[var(--muted-foreground)]">{s.loc}</p>
-                    </div>
-                  </div>
-                  {!s.current && (
-                    <Button variant="ghost" size="sm" className="text-red-500"><LogOut size={14} /> Revoke</Button>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
     </>

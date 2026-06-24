@@ -116,7 +116,7 @@ export const mockTickets: SupportTicket[] = [
 
 // ─── Training Modules ─────────────────────────────────────────────────────────
 export const mockTrainingModules: TrainingModule[] = [
-  { id: 'trn_001', title: 'Getting Started with SmartTrack', description: 'Complete overview for school administrators.', video_url: 'https://www.youtube.com/embed/dQw4w9WgXcQ', target_role: 'school_admin', is_published: true, created_at: '2026-01-10T08:00:00Z', view_count: 145, duration_mins: 12 },
+  { id: 'trn_001', title: 'Getting Started with SmartTrack', description: 'Complete overview for school administrators.', video_url: 'https://www.youtube.com/embed/EngW7tLk6R8', target_role: 'school_admin', is_published: true, created_at: '2026-01-10T08:00:00Z', view_count: 145, duration_mins: 12 },
   { id: 'trn_002', title: 'Managing Students & Routes', description: 'How to add students and configure routes.', video_url: 'https://www.youtube.com/embed/dQw4w9WgXcQ', target_role: 'school_admin', is_published: true, created_at: '2026-01-15T08:00:00Z', view_count: 98, duration_mins: 18 },
   { id: 'trn_003', title: 'Driver App Complete Guide', description: 'Start trips, mark attendance, handle emergencies.', video_url: 'https://www.youtube.com/embed/dQw4w9WgXcQ', target_role: 'driver', is_published: true, created_at: '2026-01-20T08:00:00Z', view_count: 213, duration_mins: 15 },
   { id: 'trn_004', title: 'Parent App Guide', description: 'Track bus, apply for leave, set proximity alerts.', video_url: 'https://www.youtube.com/embed/dQw4w9WgXcQ', target_role: 'parent', is_published: true, created_at: '2026-01-25T08:00:00Z', view_count: 312, duration_mins: 8 },

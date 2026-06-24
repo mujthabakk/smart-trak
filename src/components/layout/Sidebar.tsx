@@ -138,8 +138,8 @@ export function Sidebar() {
                   cn(
                     'group flex items-center rounded-lg px-2 py-2 text-sm font-medium transition-all duration-150 relative',
                     isActive
-                      ? 'bg-[var(--primary)] text-white shadow-sm'
-                      : 'text-[var(--sidebar-text,#cbd5e1)] hover:bg-white/10 hover:text-white',
+                      ? 'bg-[var(--sidebar-active,var(--primary))] text-white shadow-sm'
+                      : 'text-[var(--sidebar-text,#cbd5e1)] hover:bg-[var(--sidebar-hover,rgba(255,255,255,0.1))] hover:text-[var(--sidebar-active,#ffffff)]',
                     sidebarCollapsed ? 'justify-center' : 'gap-3',
                   )
                 }
@@ -249,13 +249,15 @@ export function Sidebar() {
         <button
           onClick={toggleSidebar}
           className={cn(
-            'absolute top-3.5 -right-3 h-6 w-6 rounded-full border border-[var(--border)]',
-            'bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]',
-            'flex items-center justify-center shadow-sm transition-colors z-10',
+            'absolute top-5 -right-4 h-8 w-8 rounded-full',
+            'border-2 border-[var(--primary)]/40 bg-white dark:bg-gray-800',
+            'shadow-[0_2px_8px_rgba(0,0,0,0.18)]',
+            'text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white hover:border-[var(--primary)]',
+            'flex items-center justify-center transition-all duration-150 z-40',
             'hidden lg:flex',
           )}
         >
-          {sidebarCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+          {sidebarCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
         </button>
       </motion.aside>
     </>

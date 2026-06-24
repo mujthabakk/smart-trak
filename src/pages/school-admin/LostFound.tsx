@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Package, Plus, PackageSearch, PackageCheck, CheckCircle2,
-  Bus as BusIcon, CalendarDays, ClipboardList, Eye,
+  Bus as BusIcon, CalendarDays, ClipboardList, Eye, ImagePlus,
+  User, MessageSquare,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -38,10 +39,11 @@ const GRADIENTS = [
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
-function ItemCard({ entry, index, onAction }: {
+function ItemCard({ entry, index, onAction, onViewClaims }: {
   entry: LostFoundItem
   index: number
   onAction: (id: string) => void
+  onViewClaims: (entry: LostFoundItem) => void
 }) {
   const title = entry.description.split(/[,.]/)[0].trim()
   return (
@@ -50,9 +52,17 @@ function ItemCard({ entry, index, onAction }: {
       layout
       className="flex flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-sm transition-shadow hover:shadow-md"
     >
-      {/* Placeholder image area */}
-      <div className={`relative flex h-36 items-center justify-center bg-gradient-to-br ${GRADIENTS[index % GRADIENTS.length]}`}>
-        <Package size={44} className="text-[var(--foreground)]/30" strokeWidth={1.5} />
+      {/* Image area — real photo if available, else gradient placeholder */}
+      <div className={`relative flex h-36 items-center justify-center overflow-hidden bg-gradient-to-br ${GRADIENTS[index % GRADIENTS.length]}`}>
+        {entry.image_url ? (
+          <img
+            src={entry.image_url}
+            alt={title}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <Package size={44} className="text-[var(--foreground)]/30" strokeWidth={1.5} />
+        )}
         <div className="absolute right-3 top-3">
           <StatusBadge status={entry.status} size="sm" />
         </div>
@@ -81,7 +91,7 @@ function ItemCard({ entry, index, onAction }: {
               <PackageCheck size={14} /> Mark Claimed
             </Button>
           ) : (
-            <Button size="sm" variant="outline" className="w-full">
+            <Button size="sm" variant="outline" className="w-full" onClick={() => onViewClaims(entry)}>
               <Eye size={14} /> View Claims
               {entry.claims.length > 0 && (
                 <span className="ml-1 rounded-full bg-[var(--primary)]/10 px-1.5 text-[10px] font-semibold text-[var(--primary)]">
@@ -105,12 +115,23 @@ export default function LostFound() {
   )
   const [tab, setTab] = useState<LostFoundStatus | 'all'>('all')
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [viewingClaims, setViewingClaims] = useState<LostFoundItem | null>(null)
 
   // Report form state
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
   const [formLocation, setFormLocation] = useState('')
   const [formDate, setFormDate] = useState('')
+  const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => setFormImageUrl(ev.target?.result as string)
+    reader.readAsDataURL(file)
+  }
 
   const stats = useMemo(() => ({
     reported: items.filter((i) => i.status === 'reported').length,
@@ -132,6 +153,8 @@ export default function LostFound() {
     setFormDesc('')
     setFormLocation('')
     setFormDate('')
+    setFormImageUrl(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   function submitReport() {
@@ -149,6 +172,7 @@ export default function LostFound() {
       reported_at: formDate ? new Date(formDate).toISOString() : new Date().toISOString(),
       status: 'reported',
       claims: [],
+      ...(formImageUrl ? { image_url: formImageUrl } : {}),
     }
     setItems((prev) => [newItem, ...prev])
     resetForm()
@@ -216,13 +240,72 @@ export default function LostFound() {
             >
               <AnimatePresence>
                 {filtered.map((entry, i) => (
-                  <ItemCard key={entry.id} entry={entry} index={i} onAction={markClaimed} />
+                  <ItemCard key={entry.id} entry={entry} index={i} onAction={markClaimed} onViewClaims={setViewingClaims} />
                 ))}
               </AnimatePresence>
             </motion.div>
           )}
         </motion.div>
       </motion.div>
+
+      {/* View Claims dialog */}
+      <Dialog open={!!viewingClaims} onOpenChange={(open) => { if (!open) setViewingClaims(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList size={18} className="text-[var(--primary)]" />
+              Claims
+            </DialogTitle>
+            <DialogDescription>
+              {viewingClaims
+                ? `"${viewingClaims.description.split(/[,.]/)[0].trim()}" — ${viewingClaims.claims.length} claim${viewingClaims.claims.length !== 1 ? 's' : ''}`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-80 overflow-y-auto py-1">
+            {viewingClaims && viewingClaims.claims.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-[var(--muted-foreground)]">
+                <MessageSquare size={32} className="opacity-30" />
+                <p>No claims have been submitted for this item yet.</p>
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {viewingClaims?.claims.map((claim) => (
+                  <li
+                    key={claim.id}
+                    className="rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 p-3 text-sm"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <User size={14} className="mt-0.5 shrink-0 text-[var(--primary)]" />
+                        <span className="font-medium text-[var(--foreground)]">{claim.student_name}</span>
+                      </div>
+                      <StatusBadge status={claim.status} size="sm" />
+                    </div>
+                    {claim.claim_note && (
+                      <p className="mt-2 pl-5 text-xs leading-relaxed text-[var(--muted-foreground)]">
+                        {claim.claim_note}
+                      </p>
+                    )}
+                    {claim.claimed_at && (
+                      <p className="mt-1.5 pl-5 text-[11px] text-[var(--muted-foreground)]/70">
+                        {formatDate(claim.claimed_at, 'datetime')}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Close</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Report item dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -252,6 +335,35 @@ export default function LostFound() {
                 value={formDesc}
                 onChange={(e) => setFormDesc(e.target.value)}
                 placeholder="Colour, contents, where it was found…"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Photo (optional)</Label>
+              <div
+                className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--muted)]/30 p-4 transition-colors hover:border-[var(--primary)]/50 hover:bg-[var(--muted)]/50"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {formImageUrl ? (
+                  <img
+                    src={formImageUrl}
+                    alt="Preview"
+                    className="max-h-32 max-w-full rounded-md object-contain"
+                  />
+                ) : (
+                  <>
+                    <ImagePlus size={24} className="text-[var(--muted-foreground)]" />
+                    <span className="text-xs text-[var(--muted-foreground)]">Click to upload an image</span>
+                  </>
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                id="lf-image"
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageChange}
               />
             </div>
 
