@@ -1,0 +1,575 @@
+@import "tailwindcss";
+
+/* Make the `dark:` variant respond ONLY to a `.dark` class, not the OS
+   prefers-color-scheme. The app is locked to light mode, so `dark:` accents
+   stay inactive and text keeps full contrast. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================================
+   THEME: electric (default / :root)
+   primary: #5929fe  secondary: #fcbe0f
+   ============================================================ */
+:root,
+[data-theme="electric"] {
+  --primary: #4b1e99;
+  --primary-foreground: #ffffff;
+  --secondary: #ffc41f;
+  --secondary-foreground: #2b1500;
+
+  --background: #f3f2f7;
+  --foreground: #2b3143;
+  --card: #ffffff;
+  --card-foreground: #2b3143;
+
+  --muted: #ece9f6;
+  --muted-foreground: #6b6f80;
+  --border: #e3def1;
+  --input: #efedf7;
+  --ring: #4b1e99;
+
+  --sidebar-bg: #ffffff;
+  --sidebar-text: #3a3353;
+  --sidebar-hover: #ece9f6;
+  --sidebar-active: #4b1e99;
+
+  --destructive: #f43b51;
+  --destructive-foreground: #ffffff;
+  --success: #0ba81d;
+  --warning: #ff773d;
+}
+
+[data-theme="electric"].dark,
+[data-theme="electric"] .dark {
+  --primary: #7c55ff;
+  --primary-foreground: #ffffff;
+  --secondary: #fcbe0f;
+  --secondary-foreground: #0f0a00;
+
+  --background: #09070f;
+  --foreground: #edeafd;
+  --card: #130e21;
+  --card-foreground: #edeafd;
+
+  --muted: #1e1632;
+  --muted-foreground: #9d94b8;
+  --border: #2a1f4a;
+  --input: #1e1632;
+  --ring: #7c55ff;
+
+  --sidebar-bg: #0e0a1c;
+  --sidebar-text: #c4bde8;
+  --sidebar-hover: #1e1632;
+  --sidebar-active: #7c55ff;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+/* ============================================================
+   THEME: royal
+   primary: #1a4fdb  secondary: #38bdf8
+   ============================================================ */
+[data-theme="royal"] {
+  --primary: #1a4fdb;
+  --primary-foreground: #ffffff;
+  --secondary: #38bdf8;
+  --secondary-foreground: #001820;
+
+  --background: #f0f4ff;
+  --foreground: #06102b;
+  --card: #ffffff;
+  --card-foreground: #06102b;
+
+  --muted: #e0e9ff;
+  --muted-foreground: #4a5a80;
+  --border: #c7d7f8;
+  --input: #e6eeff;
+  --ring: #1a4fdb;
+
+  --sidebar-bg: #ffffff;
+  --sidebar-text: #1e2f55;
+  --sidebar-hover: #e0e9ff;
+  --sidebar-active: #1a4fdb;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --success: #16a34a;
+  --warning: #d97706;
+}
+
+[data-theme="royal"].dark,
+[data-theme="royal"] .dark {
+  --primary: #4a7aff;
+  --primary-foreground: #ffffff;
+  --secondary: #38bdf8;
+  --secondary-foreground: #001820;
+
+  --background: #060d1f;
+  --foreground: #dce6ff;
+  --card: #0c1630;
+  --card-foreground: #dce6ff;
+
+  --muted: #111e3f;
+  --muted-foreground: #7d94c4;
+  --border: #1c2e58;
+  --input: #111e3f;
+  --ring: #4a7aff;
+
+  --sidebar-bg: #080f26;
+  --sidebar-text: #8ba4d9;
+  --sidebar-hover: #111e3f;
+  --sidebar-active: #4a7aff;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+/* ============================================================
+   THEME: forest
+   primary: #16a34a  secondary: #4ade80
+   ============================================================ */
+[data-theme="forest"] {
+  --primary: #16a34a;
+  --primary-foreground: #ffffff;
+  --secondary: #4ade80;
+  --secondary-foreground: #052010;
+
+  --background: #f0faf4;
+  --foreground: #071a0e;
+  --card: #ffffff;
+  --card-foreground: #071a0e;
+
+  --muted: #dcf5e7;
+  --muted-foreground: #3d6650;
+  --border: #bbedcd;
+  --input: #e6f7ee;
+  --ring: #16a34a;
+
+  --sidebar-bg: #ffffff;
+  --sidebar-text: #14432a;
+  --sidebar-hover: #dcf5e7;
+  --sidebar-active: #16a34a;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --success: #15803d;
+  --warning: #d97706;
+}
+
+[data-theme="forest"].dark,
+[data-theme="forest"] .dark {
+  --primary: #22c55e;
+  --primary-foreground: #ffffff;
+  --secondary: #4ade80;
+  --secondary-foreground: #052010;
+
+  --background: #040d07;
+  --foreground: #d1fae5;
+  --card: #071710;
+  --card-foreground: #d1fae5;
+
+  --muted: #0c2616;
+  --muted-foreground: #5a9470;
+  --border: #133d22;
+  --input: #0c2616;
+  --ring: #22c55e;
+
+  --sidebar-bg: #050e08;
+  --sidebar-text: #6dbb8a;
+  --sidebar-hover: #0c2616;
+  --sidebar-active: #22c55e;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #4ade80;
+  --warning: #f59e0b;
+}
+
+/* ============================================================
+   THEME: crimson
+   primary: #c41c1c  secondary: #f97316
+   ============================================================ */
+[data-theme="crimson"] {
+  --primary: #c41c1c;
+  --primary-foreground: #ffffff;
+  --secondary: #f97316;
+  --secondary-foreground: #1a0800;
+
+  --background: #fff5f5;
+  --foreground: #1a0404;
+  --card: #ffffff;
+  --card-foreground: #1a0404;
+
+  --muted: #fde8e8;
+  --muted-foreground: #834040;
+  --border: #f8c8c8;
+  --input: #feeaea;
+  --ring: #c41c1c;
+
+  --sidebar-bg: #ffffff;
+  --sidebar-text: #5a1414;
+  --sidebar-hover: #fde8e8;
+  --sidebar-active: #c41c1c;
+
+  --destructive: #991b1b;
+  --destructive-foreground: #ffffff;
+  --success: #16a34a;
+  --warning: #d97706;
+}
+
+[data-theme="crimson"].dark,
+[data-theme="crimson"] .dark {
+  --primary: #f04444;
+  --primary-foreground: #ffffff;
+  --secondary: #f97316;
+  --secondary-foreground: #1a0800;
+
+  --background: #100404;
+  --foreground: #fde8e8;
+  --card: #1e0808;
+  --card-foreground: #fde8e8;
+
+  --muted: #2d0c0c;
+  --muted-foreground: #b87070;
+  --border: #4a1515;
+  --input: #2d0c0c;
+  --ring: #f04444;
+
+  --sidebar-bg: #0d0303;
+  --sidebar-text: #d47a7a;
+  --sidebar-hover: #2d0c0c;
+  --sidebar-active: #f04444;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+/* ============================================================
+   THEME: midnight
+   primary: #3730a3  secondary: #818cf8
+   ============================================================ */
+[data-theme="midnight"] {
+  --primary: #3730a3;
+  --primary-foreground: #ffffff;
+  --secondary: #818cf8;
+  --secondary-foreground: #050720;
+
+  --background: #f5f5ff;
+  --foreground: #0c0c22;
+  --card: #ffffff;
+  --card-foreground: #0c0c22;
+
+  --muted: #e8e8ff;
+  --muted-foreground: #5050a0;
+  --border: #d0d0f8;
+  --input: #ebebff;
+  --ring: #3730a3;
+
+  --sidebar-bg: #ffffff;
+  --sidebar-text: #1e1c5e;
+  --sidebar-hover: #e8e8ff;
+  --sidebar-active: #3730a3;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --success: #16a34a;
+  --warning: #d97706;
+}
+
+[data-theme="midnight"].dark,
+[data-theme="midnight"] .dark {
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --secondary: #818cf8;
+  --secondary-foreground: #050720;
+
+  --background: #05050f;
+  --foreground: #e0e0ff;
+  --card: #0b0b1e;
+  --card-foreground: #e0e0ff;
+
+  --muted: #111130;
+  --muted-foreground: #7070b8;
+  --border: #1e1e4a;
+  --input: #111130;
+  --ring: #6366f1;
+
+  --sidebar-bg: #070710;
+  --sidebar-text: #8080cc;
+  --sidebar-hover: #111130;
+  --sidebar-active: #6366f1;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+/* ============================================================
+   THEME: ocean
+   primary: #0f766e  secondary: #2dd4bf
+   ============================================================ */
+[data-theme="ocean"] {
+  --primary: #0f766e;
+  --primary-foreground: #ffffff;
+  --secondary: #2dd4bf;
+  --secondary-foreground: #001a18;
+
+  --background: #f0fdfb;
+  --foreground: #061a18;
+  --card: #ffffff;
+  --card-foreground: #061a18;
+
+  --muted: #ccfbf1;
+  --muted-foreground: #2f6b64;
+  --border: #99f0e4;
+  --input: #dcfdf7;
+  --ring: #0f766e;
+
+  --sidebar-bg: #ffffff;
+  --sidebar-text: #0f4440;
+  --sidebar-hover: #ccfbf1;
+  --sidebar-active: #0f766e;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --success: #16a34a;
+  --warning: #d97706;
+}
+
+[data-theme="ocean"].dark,
+[data-theme="ocean"] .dark {
+  --primary: #14b8a6;
+  --primary-foreground: #ffffff;
+  --secondary: #2dd4bf;
+  --secondary-foreground: #001a18;
+
+  --background: #030f0e;
+  --foreground: #ccfbf1;
+  --card: #071918;
+  --card-foreground: #ccfbf1;
+
+  --muted: #0c2826;
+  --muted-foreground: #3d9990;
+  --border: #134040;
+  --input: #0c2826;
+  --ring: #14b8a6;
+
+  --sidebar-bg: #040f0e;
+  --sidebar-text: #4db8ad;
+  --sidebar-hover: #0c2826;
+  --sidebar-active: #14b8a6;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+/* ============================================================
+   Standalone .dark class (fallback — applies electric dark palette)
+   ============================================================ */
+.dark:not([data-theme]) {
+  --primary: #7c55ff;
+  --primary-foreground: #ffffff;
+  --secondary: #fcbe0f;
+  --secondary-foreground: #0f0a00;
+
+  --background: #09070f;
+  --foreground: #edeafd;
+  --card: #130e21;
+  --card-foreground: #edeafd;
+
+  --muted: #1e1632;
+  --muted-foreground: #9d94b8;
+  --border: #2a1f4a;
+  --input: #1e1632;
+  --ring: #7c55ff;
+
+  --sidebar-bg: #0e0a1c;
+  --sidebar-text: #c4bde8;
+  --sidebar-hover: #1e1632;
+  --sidebar-active: #7c55ff;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+/* ============================================================
+   Tailwind v4 design-token bridge
+   ============================================================ */
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar-bg: var(--sidebar-bg);
+  --color-sidebar-text: var(--sidebar-text);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  --font-sans: "Poppins", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ============================================================
+   Base / Global Styles
+   ============================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: "Poppins", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "Poppins", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.5;
+  min-height: 100dvh;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+/* ============================================================
+   Custom Scrollbar
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--muted);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border-radius: 99px;
+  opacity: 0.7;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  opacity: 1;
+  background: var(--primary);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary) var(--muted);
+}
+
+/* ============================================================
+   Glassmorphism utility
+   ============================================================ */
+.glass {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* ============================================================
+   Skeleton / Loading animation
+   ============================================================ */
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  border-radius: 0.375rem;
+  background: linear-gradient(
+    90deg,
+    var(--muted) 25%,
+    var(--border) 50%,
+    var(--muted) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton-pulse {
+  animation: skeleton-pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  background-color: var(--muted);
+  border-radius: 0.375rem;
+}
+
+/* ============================================================
+   Fade-in animation
+   ============================================================ */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease forwards;
+}
+
+/* ============================================================
+   Spin animation (for loaders)
+   ============================================================ */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin 2s linear infinite;
+}
