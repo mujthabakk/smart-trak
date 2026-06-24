@@ -18,7 +18,7 @@ import type { Bus } from '@/types'
 // Must be defined outside component to avoid re-renders
 const GOOGLE_MAP_LIBRARIES: ['places'] = ['places']
 
-const GOOGLE_MAPS_API_KEY = 'import.meta.env.VITE_GOOGLE_MAPS_API_KEY'
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string
 
 const DUBAI_CENTER = { lat: 25.2048, lng: 55.2708 }
 

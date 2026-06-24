@@ -92,6 +92,7 @@ export const router = createBrowserRouter([
   { path: '/school-admin/dashboard', element: <SchoolAdminDashboard /> },
   { path: '/school-admin/students', element: <Students /> },
   { path: '/school-admin/students/add', element: <AddEditStudent /> },
+  { path: '/school-admin/students/:id/edit', element: <AddEditStudent /> },
   { path: '/school-admin/students/:id', element: <StudentProfile /> },
   { path: '/school-admin/drivers', element: <Drivers /> },
   { path: '/school-admin/buses', element: <Buses /> },

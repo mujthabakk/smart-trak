@@ -123,7 +123,7 @@ function BroadcastDialog() {
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [audience, setAudience] = useState('all_parents')
-  const [selectedRoute, setSelectedRoute] = useState('')
+  const [selectedRoutes, setSelectedRoutes] = useState<string[]>([])
   const [selectedDrivers, setSelectedDrivers] = useState<string[]>([])
   const MAX = 300
 
@@ -136,6 +136,16 @@ function BroadcastDialog() {
     )
   }
 
+  function toggleRoute(id: string) {
+    setSelectedRoutes((prev) =>
+      prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id],
+    )
+  }
+
+  function selectAllRoutes() {
+    setSelectedRoutes(schoolRoutes.map((r) => r.id))
+  }
+
   function selectAllDrivers() {
     setSelectedDrivers(schoolDrivers.map((d) => d.id))
   }
@@ -144,7 +154,7 @@ function BroadcastDialog() {
     setTitle('')
     setMessage('')
     setAudience('all_parents')
-    setSelectedRoute('')
+    setSelectedRoutes([])
     setSelectedDrivers([])
     setOpen(false)
   }
@@ -213,20 +223,38 @@ function BroadcastDialog() {
             </div>
           </div>
 
-          {/* Route selector */}
+          {/* Route multi-select */}
           {audience === 'specific_route' && (
-            <div className="space-y-1.5">
-              <Label>Select Route</Label>
-              <Select value={selectedRoute} onValueChange={setSelectedRoute}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a route…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {schoolRoutes.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Select Routes</Label>
+                <button
+                  type="button"
+                  onClick={selectAllRoutes}
+                  className="text-xs text-[var(--primary)] hover:underline"
+                >
+                  Select All
+                </button>
+              </div>
+              <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-[var(--border)] p-2">
+                {schoolRoutes.map((r) => (
+                  <label
+                    key={r.id}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-[var(--muted)]/40"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedRoutes.includes(r.id)}
+                      onChange={() => toggleRoute(r.id)}
+                      className="h-4 w-4 rounded border-[var(--border)] accent-[var(--primary)]"
+                    />
+                    <span className="text-sm text-[var(--foreground)]">{r.name}</span>
+                  </label>
+                ))}
+              </div>
+              {selectedRoutes.length > 0 && (
+                <p className="text-xs text-[var(--muted-foreground)]">{selectedRoutes.length} route{selectedRoutes.length > 1 ? 's' : ''} selected</p>
+              )}
             </div>
           )}
 
@@ -273,7 +301,7 @@ function BroadcastDialog() {
           <Button
             disabled={
               !title.trim() || !message.trim() ||
-              (audience === 'specific_route' && !selectedRoute) ||
+              (audience === 'specific_route' && selectedRoutes.length === 0) ||
               (audience === 'drivers' && selectedDrivers.length === 0)
             }
             onClick={handleClose}

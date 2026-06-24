@@ -2,12 +2,11 @@ import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   UserPlus, Plus, UserCheck, Route as RouteIcon, Phone,
-  FileText, IdCard, Users,
+  IdCard, Users,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
-import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -135,17 +134,11 @@ export default function GuestDrivers() {
                       </div>
                     </div>
 
-                    {/* License + docs */}
+                    {/* License */}
                     <div className="min-w-0">
                       <p className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
                         <IdCard size={13} className="text-[var(--primary)]" />
                         <span className="font-medium text-[var(--foreground)]">{meta.license}</span>
-                      </p>
-                      <p className="mt-1 flex items-center gap-1.5 text-xs">
-                        <FileText size={13} className={meta.docsVerified ? 'text-green-600' : 'text-amber-600'} />
-                        <span className={meta.docsVerified ? 'text-green-600' : 'text-amber-600'}>
-                          {meta.docsVerified ? 'Documents verified' : 'Documents pending'}
-                        </span>
                       </p>
                     </div>
 
@@ -169,13 +162,8 @@ export default function GuestDrivers() {
                       </p>
                     </div>
 
-                    {/* Status */}
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={trip.status} size="sm" />
-                      <Button size="sm" variant="ghost">
-                        <FileText size={14} /> Documents
-                      </Button>
-                    </div>
+                    {/* Actions placeholder */}
+                    <div className="flex items-center gap-2" />
                   </div>
                 </motion.div>
               )

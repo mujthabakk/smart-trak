@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   User, Users, Camera, QrCode, Save, X, Hash,
-  GraduationCap, Phone, Mail, Sparkles,
+  GraduationCap, Phone, Mail, Sparkles, MapPin,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { CLASSES, DIVISIONS, RELATIONSHIPS } from '@/lib/constants'
+import { allStudents } from '@/lib/mockData'
 
 const container = {
   hidden: { opacity: 0 },
@@ -33,6 +34,8 @@ interface StudentForm {
   phone: string
   email: string
   address: string
+  pickupLocation: string
+  dropLocation: string
 }
 
 function SectionCard({
@@ -82,25 +85,33 @@ function Field({ label, htmlFor, children, hint }: { label: string; htmlFor?: st
 
 export default function AddEditStudent() {
   const navigate = useNavigate()
+  const { id } = useParams<{ id: string }>()
 
-  // Auto-generated, stable student ID for this session
+  const existing = useMemo(
+    () => (id ? allStudents.find((s) => s.id === id) ?? null : null),
+    [id],
+  )
+  const isEdit = !!existing
+
   const studentId = useMemo(
-    () => `STD-${Math.floor(1000 + Math.random() * 9000)}`,
-    [],
+    () => existing?.roll_number ? `STD-${existing.roll_number}` : `STD-${Math.floor(1000 + Math.random() * 9000)}`,
+    [existing],
   )
 
-  const [form, setForm] = useState<StudentForm>({
-    fullName: '',
-    className: '',
-    division: '',
-    dob: '',
+  const [form, setForm] = useState<StudentForm>(() => ({
+    fullName: existing?.name ?? '',
+    className: existing?.class ?? '',
+    division: existing?.division ?? '',
+    dob: existing?.dob ?? '',
     gender: '',
-    guardianName: '',
-    relationship: '',
-    phone: '',
-    email: '',
+    guardianName: existing?.parents[0]?.parent_name ?? '',
+    relationship: existing?.parents[0]?.relationship ?? '',
+    phone: existing?.parents[0]?.phone ?? '',
+    email: existing?.parents[0]?.email ?? '',
     address: '',
-  })
+    pickupLocation: '',
+    dropLocation: '',
+  }))
 
   const set = <K extends keyof StudentForm>(key: K, value: StudentForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
@@ -108,11 +119,11 @@ export default function AddEditStudent() {
   return (
     <Layout>
       <PageHeader
-        title="Add Student"
-        subtitle="Enrol a new student"
+        title={isEdit ? 'Edit Student' : 'Add Student'}
+        subtitle={isEdit ? `Editing ${existing?.name ?? 'student'}` : 'Enrol a new student'}
         breadcrumbs={[
           { label: 'Students', path: '/school-admin/students' },
-          { label: 'Add Student' },
+          { label: isEdit ? 'Edit Student' : 'Add Student' },
         ]}
       />
 
@@ -295,6 +306,42 @@ export default function AddEditStudent() {
             </div>
           </SectionCard>
 
+          {/* Transport details */}
+          <SectionCard
+            step={3}
+            icon={MapPin}
+            title="Transport Details"
+            description="Student pickup and drop-off locations"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
+              <Field label="Pickup Location" htmlFor="pickupLocation" hint="Where the student boards the bus">
+                <div className="relative">
+                  <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                  <Input
+                    id="pickupLocation"
+                    placeholder="e.g. Al Barsha Mall Stop"
+                    className="pl-9"
+                    value={form.pickupLocation}
+                    onChange={(e) => set('pickupLocation', e.target.value)}
+                  />
+                </div>
+              </Field>
+
+              <Field label="Drop Location" htmlFor="dropLocation" hint="Where the student exits the bus">
+                <div className="relative">
+                  <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                  <Input
+                    id="dropLocation"
+                    placeholder="e.g. JBR Residential Gate 2"
+                    className="pl-9"
+                    value={form.dropLocation}
+                    onChange={(e) => set('dropLocation', e.target.value)}
+                  />
+                </div>
+              </Field>
+            </div>
+          </SectionCard>
+
         </div>
 
         {/* ── Right: QR preview ── */}
@@ -341,14 +388,16 @@ export default function AddEditStudent() {
       <div className="fixed bottom-0 left-0 right-0 lg:left-60 z-30 border-t border-[var(--border)] bg-[var(--card)]/90 backdrop-blur-lg">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
           <p className="hidden sm:block text-xs text-[var(--muted-foreground)]">
-            {form.fullName ? `Enrolling ${form.fullName}` : 'Fill in the details to enrol a student'}
+            {isEdit
+              ? `Editing ${form.fullName || existing?.name || 'student'}`
+              : form.fullName ? `Enrolling ${form.fullName}` : 'Fill in the details to enrol a student'}
           </p>
           <div className="flex items-center gap-2 ml-auto">
             <Button variant="outline" onClick={() => navigate(-1)}>
               <X size={16} /> Cancel
             </Button>
             <Button onClick={() => navigate('/school-admin/students')}>
-              <Save size={16} /> Save Student
+              <Save size={16} /> {isEdit ? 'Save Changes' : 'Save Student'}
             </Button>
           </div>
         </div>

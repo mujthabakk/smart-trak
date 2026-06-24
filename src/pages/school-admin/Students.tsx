@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { jsPDF } from 'jspdf'
 import {
   Plus, Download, Users, UserCheck, UserX, MoreVertical,
   Eye, Pencil, QrCode, Ban, Upload, FileDown,
@@ -38,6 +39,14 @@ const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 // ---------------------------------------------------------------------------
 
 function downloadStudentQR(student: Student) {
+  const canvas = buildStudentQRCanvas(student)
+  const link = document.createElement('a')
+  link.download = `student-qr-${student.roll_number}.png`
+  link.href = canvas.toDataURL('image/png')
+  link.click()
+}
+
+function buildStudentQRCanvas(student: Student): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = 250
   canvas.height = 300
@@ -50,7 +59,6 @@ function downloadStudentQR(student: Student) {
     for (let j = 0; j < 20; j++)
       if ((data.charCodeAt((i * 20 + j) % data.length) + i + j) % 2 === 0)
         ctx.fillRect(i * 10 + 25, j * 10 + 25, 10, 10)
-  // finder patterns
   const fc = (x: number, y: number) => {
     ctx.fillRect(x, y, 70, 10)
     ctx.fillRect(x, y, 10, 70)
@@ -60,22 +68,37 @@ function downloadStudentQR(student: Student) {
   fc(25, 25)
   fc(155, 25)
   fc(25, 155)
-  // student name below QR
   ctx.font = 'bold 12px Arial'
   ctx.textAlign = 'center'
   ctx.fillText(student.name, 125, 240)
   ctx.font = '11px Arial'
   ctx.fillText(`Class ${student.class}${student.division} | Roll: ${student.roll_number}`, 125, 258)
-  const link = document.createElement('a')
-  link.download = `student-qr-${student.roll_number}.png`
-  link.href = canvas.toDataURL('image/png')
-  link.click()
+  return canvas
 }
 
-function downloadAllStudentQRs(students: Student[]) {
+function downloadAllStudentQRsPDF(students: Student[]) {
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const cols = 2
+  const cellW = 88
+  const cellH = 105
+  const marginX = 11
+  const marginY = 11
+  const gapX = 10
+  const gapY = 10
+  const perPage = cols * 2 // 4 per page
+
   students.forEach((s, i) => {
-    setTimeout(() => downloadStudentQR(s), i * 200)
+    if (i > 0 && i % perPage === 0) pdf.addPage()
+    const posInPage = i % perPage
+    const col = posInPage % cols
+    const row = Math.floor(posInPage / cols)
+    const x = marginX + col * (cellW + gapX)
+    const y = marginY + row * (cellH + gapY)
+    const canvas = buildStudentQRCanvas(s)
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, cellW, cellH)
   })
+
+  pdf.save('all-student-qrs.pdf')
 }
 
 // ---------------------------------------------------------------------------
@@ -405,8 +428,8 @@ export default function Students() {
               <Button variant="outline" onClick={() => setBulkImportOpen(true)}>
                 <Upload size={16} /> Bulk Import
               </Button>
-              <Button variant="outline" onClick={() => downloadAllStudentQRs(filtered)}>
-                <QrCode size={16} /> Download All QRs
+              <Button variant="outline" onClick={() => downloadAllStudentQRsPDF(filtered)}>
+                <QrCode size={16} /> Export QR PDF
               </Button>
               <Button variant="outline" onClick={handleExport}>
                 <Download size={16} /> Export CSV
