@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createHashRouter, Navigate } from 'react-router-dom'
 
 // Auth
 import SplashScreen from '@/pages/auth/SplashScreen'
@@ -54,7 +54,7 @@ import AuditLogs from '@/pages/shared/AuditLogs'
 import HelpCenter from '@/pages/shared/HelpCenter'
 import NotFound from '@/pages/shared/NotFound'
 
-export const router = createBrowserRouter([
+export const router = createHashRouter([
   // Public / marketing
   { path: '/', element: <Landing /> },
   { path: '/splash', element: <SplashScreen /> },
