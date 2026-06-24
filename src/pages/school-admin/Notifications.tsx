@@ -201,7 +201,7 @@ function BroadcastDialog() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Audience</Label>
-              <Select value={audience} onValueChange={(v) => { setAudience(v); setSelectedRoute(''); setSelectedDrivers([]) }}>
+              <Select value={audience} onValueChange={(v) => { setAudience(v); setSelectedRoutes([]); setSelectedDrivers([]) }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all_parents">All Parents</SelectItem>
