@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -9,6 +9,7 @@ import {
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -45,9 +46,14 @@ function InfoRow({ icon: Icon, label, value, action }: {
   )
 }
 
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export default function StudentProfile() {
   const navigate = useNavigate()
   const { id } = useParams()
+  const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
 
   const student = useMemo(
     () => mockStudents.find((s) => s.id === id) ?? mockStudents[0],
@@ -222,6 +228,12 @@ export default function StudentProfile() {
 
               {/* Attendance */}
               <TabsContent value="attendance" className="space-y-6">
+                <Card>
+                  <CardContent className="pt-4 pb-3">
+                    <HorizontalCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+                  </CardContent>
+                </Card>
+
                 <div className="grid grid-cols-3 gap-4">
                   <QuickStat label="Present" value={stats.present} tone="text-green-600" />
                   <QuickStat label="Absent" value={stats.absent} tone="text-red-600" />
@@ -229,7 +241,7 @@ export default function StudentProfile() {
                 </div>
 
                 <Card>
-                  <CardHeader><CardTitle>Recent Attendance</CardTitle></CardHeader>
+                  <CardHeader><CardTitle>Attendance History</CardTitle></CardHeader>
                   <CardContent className="p-0">
                     {records.length ? (
                       <div className="divide-y divide-[var(--border)]">
@@ -237,16 +249,29 @@ export default function StudentProfile() {
                           const meta = ATT_META[r.status]
                           const Icon = meta.icon
                           return (
-                            <div key={r.id} className="flex items-center gap-3 px-6 py-3">
-                              <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${meta.color}`}>
+                            <div key={r.id} className="flex items-start gap-3 px-6 py-3">
+                              <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${meta.color}`}>
                                 <Icon size={15} />
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium text-[var(--foreground)]">{formatDate(r.date)}</p>
-                                <p className="text-xs text-[var(--muted-foreground)] truncate">
+                                <p className="text-xs text-[var(--muted-foreground)] truncate mt-0.5">
                                   {r.route_name ?? '—'}{r.stop_name ? ` · ${r.stop_name}` : ''}
-                                  {r.pickup_time ? ` · picked up ${formatDate(r.pickup_time, 'time')}` : ''}
                                 </p>
+                                <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+                                  {r.pickup_time && (
+                                    <span className="flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400">
+                                      <Clock size={10} /> Pickup: {formatDate(r.pickup_time, 'time')}
+                                      {r.stop_name ? ` @ ${r.stop_name}` : ''}
+                                    </span>
+                                  )}
+                                  {r.drop_time && (
+                                    <span className="flex items-center gap-1 text-[11px] text-purple-600 dark:text-purple-400">
+                                      <Clock size={10} /> Drop: {formatDate(r.drop_time, 'time')}
+                                      {r.stop_name ? ` @ ${r.stop_name}` : ''}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               <StatusBadge status={r.status} size="sm" />
                             </div>

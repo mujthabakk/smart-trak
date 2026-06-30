@@ -1,48 +1,36 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useJsApiLoader, GoogleMap, Marker, InfoWindow } from '@react-google-maps/api'
 import {
   Bus as BusIcon, Search, Gauge, Clock, MapPin, Navigation,
-  Wifi, WifiOff, CircleDot, Radio, List,
+  Wifi, WifiOff, CircleDot, Radio, ExternalLink, Users,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from '@/components/ui/select'
+import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { mockBuses, mockRoutes } from '@/lib/mockData'
 import type { Bus } from '@/types'
 
 // Must be defined outside component to avoid re-renders
 const GOOGLE_MAP_LIBRARIES: ['places'] = ['places']
-
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string
-
 const DUBAI_CENTER = { lat: 25.2048, lng: 55.2708 }
-
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' }
 
-type StatusFilter = 'all' | 'running' | 'idle' | 'offline'
+type StatusFilter = 'all' | 'running' | 'idle'
 
-// Telemetry data keyed by bus id
-const BUS_TELEMETRY: Record<string, { speed: number; eta: string }> = {
-  bus_001: { speed: 42, eta: '8 min' },
-  bus_002: { speed: 36, eta: '14 min' },
-  bus_003: { speed: 0, eta: '—' },
-  bus_004: { speed: 0, eta: 'Offline' },
+const BUS_TELEMETRY: Record<string, { speed: number; eta: string; startTime: string; onboarding: number }> = {
+  bus_001: { speed: 42, eta: '8 min', startTime: '7:00 AM', onboarding: 22 },
+  bus_002: { speed: 36, eta: '14 min', startTime: '7:15 AM', onboarding: 18 },
+  bus_003: { speed: 0, eta: '—', startTime: '—', onboarding: 0 },
+  bus_004: { speed: 0, eta: 'Offline', startTime: '—', onboarding: 0 },
 }
-const FALLBACK_TELEMETRY = { speed: 0, eta: '—' }
-
-// Map bus id -> first stop of its assigned route for position
-const getBusPosition = (busId: string): google.maps.LatLngLiteral | null => {
-  const route = mockRoutes.find((r) => r.bus_id === busId && r.school_id === 'sch_001')
-  if (!route || !route.stops || route.stops.length === 0) return null
-  const stop = route.stops[0]
-  return { lat: stop.latitude, lng: stop.longitude }
-}
+const FALLBACK_TELEMETRY = { speed: 0, eta: '—', startTime: '—', onboarding: 0 }
 
 const STATUS_DOT: Record<string, string> = {
   running: 'bg-green-500',
@@ -50,9 +38,28 @@ const STATUS_DOT: Record<string, string> = {
   offline: 'bg-gray-400',
 }
 
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const TODAY = toLocalDateStr(new Date())
+
+function makeDayMeta() {
+  return Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - i)
+    return { date: toLocalDateStr(d), dot: (i % 4 === 2 ? 'amber' : 'green') as 'green' | 'amber' }
+  })
+}
+
+function getBusPosition(busId: string): google.maps.LatLngLiteral | null {
+  const route = mockRoutes.find((r) => r.bus_id === busId && r.school_id === 'sch_001')
+  if (!route?.stops?.length) return null
+  const stop = route.stops[0]
+  return { lat: stop.latitude, lng: stop.longitude }
+}
+
 function StatStrip({ label, value, icon: Icon, dot }: {
-  label: string
-  value: string | number
+  label: string; value: string | number
   icon: React.ComponentType<{ size?: number; className?: string }>
   dot?: string
 }) {
@@ -73,11 +80,13 @@ function StatStrip({ label, value, icon: Icon, dot }: {
 }
 
 export default function LiveMap() {
+  const navigate = useNavigate()
   const [selectedBusId, setSelectedBusId] = useState<string | null>('bus_001')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<StatusFilter>('all')
+  const [selectedDate, setSelectedDate] = useState(TODAY)
   const [now, setNow] = useState(new Date())
-  const [showListView, setShowListView] = useState(true)
+  const dayMeta = useMemo(() => makeDayMeta(), [])
 
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
@@ -90,10 +99,7 @@ export default function LiveMap() {
     return () => clearInterval(t)
   }, [])
 
-  const schoolBuses = useMemo(
-    () => mockBuses.filter((b) => b.school_id === 'sch_001'),
-    [],
-  )
+  const schoolBuses = useMemo(() => mockBuses.filter((b) => b.school_id === 'sch_001'), [])
 
   const counts = useMemo(() => {
     const running = schoolBuses.filter((b) => b.status === 'running').length
@@ -108,7 +114,8 @@ export default function LiveMap() {
 
   const filteredBuses = useMemo(() => {
     return schoolBuses.filter((b) => {
-      const matchesFilter = filter === 'all' || b.status === filter
+      const matchesFilter =
+        filter === 'all' || b.status === filter
       const q = search.trim().toLowerCase()
       const matchesSearch =
         !q ||
@@ -128,11 +135,16 @@ export default function LiveMap() {
     [selectedBusId],
   )
 
-  // Occupancy estimate: ~70% of seat capacity when running, 0 when idle/offline
   const getOccupancy = (bus: Bus) => {
     if (bus.status === 'running') return Math.round(bus.seat_capacity * 0.7)
     return 0
   }
+
+  const FILTER_PILLS: { label: string; value: StatusFilter; dot: string; count: number }[] = [
+    { label: 'All', value: 'all', dot: 'bg-[var(--muted-foreground)]', count: schoolBuses.length },
+    { label: 'Running', value: 'running', dot: 'bg-green-500', count: counts.running },
+    { label: 'Idle', value: 'idle', dot: 'bg-amber-500', count: counts.idle },
+  ]
 
   return (
     <Layout>
@@ -157,30 +169,10 @@ export default function LiveMap() {
               className="pl-9"
             />
           </div>
-          <Select value={filter} onValueChange={(v) => setFilter(v as StatusFilter)}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="running">Running</SelectItem>
-              <SelectItem value="idle">Idle</SelectItem>
-              <SelectItem value="offline">Offline</SelectItem>
-            </SelectContent>
-          </Select>
           <div className="hidden items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] tabular-nums md:flex">
             <Clock size={14} className="text-[var(--primary)]" />
             {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </div>
-          <Button
-            variant={showListView ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setShowListView((v) => !v)}
-            className="gap-1.5"
-          >
-            <List size={15} />
-            List View
-          </Button>
         </div>
       </div>
 
@@ -192,138 +184,102 @@ export default function LiveMap() {
         <StatStrip label="Avg Speed" value={`${counts.avgSpeed} km/h`} icon={Gauge} />
       </div>
 
-      {/* Main two-column layout */}
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        {/* LEFT — Map + List View below */}
-        <div className="flex flex-col gap-4">
-          {/* Google Map panel — 60% height when list is visible */}
-          <div
-            className="rounded-2xl overflow-hidden border border-[var(--border)] transition-all duration-300"
-            style={{ height: showListView ? '380px' : '500px' }}
-          >
-            {!isLoaded ? (
-              /* Loading skeleton */
-              <div className="flex h-full w-full animate-pulse flex-col gap-3 rounded-2xl bg-[var(--muted)] p-6">
-                <div className="h-6 w-1/3 rounded-lg bg-[var(--border)]" />
-                <div className="flex-1 rounded-xl bg-[var(--border)]" />
-                <div className="h-4 w-1/2 rounded-lg bg-[var(--border)]" />
-              </div>
-            ) : (
-              <GoogleMap
-                mapContainerStyle={MAP_CONTAINER_STYLE}
-                center={DUBAI_CENTER}
-                zoom={12}
-                options={{
-                  disableDefaultUI: false,
-                  zoomControl: true,
-                  streetViewControl: false,
-                  mapTypeControl: false,
-                  fullscreenControl: false,
-                }}
-              >
-                {filteredBuses.map((bus) => {
-                  const position = getBusPosition(bus.id)
-                  if (!position) return null
-                  return (
-                    <Marker
-                      key={bus.id}
-                      position={position}
-                      title={`${bus.bus_number} — ${bus.driver_name ?? 'No driver'}`}
-                      onClick={() => setSelectedBusId(bus.id === selectedBusId ? null : bus.id)}
-                    />
-                  )
-                })}
+      {/* Horizontal Calendar */}
+      <Card className="mb-4">
+        <CardContent className="pt-4 pb-3">
+          <HorizontalCalendar
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            dayMeta={dayMeta}
+          />
+        </CardContent>
+      </Card>
 
-                {selectedBus && selectedBusPosition && (
-                  <InfoWindow
-                    position={selectedBusPosition}
-                    onCloseClick={() => setSelectedBusId(null)}
-                  >
-                    <div className="min-w-[160px] p-1 text-sm">
-                      <p className="font-bold text-gray-800">{selectedBus.bus_number}</p>
-                      <p className="text-gray-600">{selectedBus.driver_name ?? 'No driver'}</p>
-                      <p className="mt-1 text-xs font-medium capitalize text-gray-700">
-                        Status: {selectedBus.status ?? 'unknown'}
-                      </p>
-                      {selectedBus.current_stop && (
-                        <p className="mt-0.5 text-xs text-gray-500">{selectedBus.current_stop}</p>
-                      )}
-                      <p className="mt-1.5 text-xs font-semibold text-gray-700">
-                        Students on board: {getOccupancy(selectedBus)}
-                      </p>
-                    </div>
-                  </InfoWindow>
-                )}
-              </GoogleMap>
+      {/* Filter pills */}
+      <div className="mb-4 flex items-center gap-2">
+        {FILTER_PILLS.map((pill) => (
+          <button
+            key={pill.value}
+            onClick={() => setFilter(pill.value)}
+            className={cn(
+              'flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors',
+              filter === pill.value
+                ? 'border-[var(--primary)] bg-[var(--primary)] text-white'
+                : 'border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--muted)]/60',
             )}
-          </div>
+          >
+            <span className={cn('h-2 w-2 rounded-full', pill.dot, filter === pill.value ? 'bg-white/80' : '')} />
+            {pill.label}
+            <span className={cn(
+              'rounded-full px-1.5 py-0.5 text-xs font-semibold',
+              filter === pill.value ? 'bg-white/20 text-white' : 'bg-[var(--muted)] text-[var(--muted-foreground)]',
+            )}>
+              {pill.count}
+            </span>
+          </button>
+        ))}
+      </div>
 
-          {/* Horizontal scrollable list view below map */}
-          {showListView && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden"
+      {/* Main two-column layout */}
+      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+        {/* LEFT — Map */}
+        <div className="rounded-2xl overflow-hidden border border-[var(--border)]" style={{ height: '480px' }}>
+          {!isLoaded ? (
+            <div className="flex h-full w-full animate-pulse flex-col gap-3 rounded-2xl bg-[var(--muted)] p-6">
+              <div className="h-6 w-1/3 rounded-lg bg-[var(--border)]" />
+              <div className="flex-1 rounded-xl bg-[var(--border)]" />
+              <div className="h-4 w-1/2 rounded-lg bg-[var(--border)]" />
+            </div>
+          ) : (
+            <GoogleMap
+              mapContainerStyle={MAP_CONTAINER_STYLE}
+              center={selectedBusPosition ?? DUBAI_CENTER}
+              zoom={selectedBusPosition ? 14 : 12}
+              options={{
+                disableDefaultUI: false,
+                zoomControl: true,
+                streetViewControl: false,
+                mapTypeControl: false,
+                fullscreenControl: false,
+              }}
             >
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)]">
-                <BusIcon size={15} className="text-[var(--primary)]" />
-                <span className="text-sm font-semibold text-[var(--foreground)]">Bus List</span>
-                <span className="ml-auto rounded-full bg-[var(--muted)] px-2 py-0.5 text-xs font-medium text-[var(--muted-foreground)]">
-                  {filteredBuses.length} bus{filteredBuses.length === 1 ? '' : 'es'}
-                </span>
-              </div>
-              <div className="flex gap-3 overflow-x-auto p-3 scrollbar-thin">
-                {filteredBuses.length === 0 ? (
-                  <div className="flex w-full items-center justify-center py-6">
-                    <p className="text-sm text-[var(--muted-foreground)]">No buses match your filter.</p>
+              {filteredBuses.map((bus) => {
+                const position = getBusPosition(bus.id)
+                if (!position) return null
+                return (
+                  <Marker
+                    key={bus.id}
+                    position={position}
+                    title={`${bus.bus_number} — ${bus.driver_name ?? 'No driver'}`}
+                    onClick={() => setSelectedBusId(bus.id === selectedBusId ? null : bus.id)}
+                  />
+                )
+              })}
+
+              {selectedBus && selectedBusPosition && (
+                <InfoWindow
+                  position={selectedBusPosition}
+                  onCloseClick={() => setSelectedBusId(null)}
+                >
+                  <div className="min-w-[160px] p-1 text-sm">
+                    <p className="font-bold text-gray-800">{selectedBus.bus_number}</p>
+                    <p className="text-gray-600">{selectedBus.driver_name ?? 'No driver'}</p>
+                    <p className="mt-1 text-xs font-medium capitalize text-gray-700">
+                      Status: {selectedBus.status ?? 'unknown'}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-600">
+                      On board: {getOccupancy(selectedBus)} students
+                    </p>
+                    <button
+                      onClick={() => navigate(`/school-admin/buses/${selectedBus.id}`)}
+                      className="mt-2 text-xs font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      View Details <ExternalLink size={10} />
+                    </button>
                   </div>
-                ) : (
-                  filteredBuses.map((bus) => {
-                    const telemetry = BUS_TELEMETRY[bus.id] ?? FALLBACK_TELEMETRY
-                    const status = bus.status ?? 'offline'
-                    const isSelected = selectedBusId === bus.id
-                    return (
-                      <button
-                        key={bus.id}
-                        onClick={() => setSelectedBusId(isSelected ? null : bus.id)}
-                        className={cn(
-                          'flex-shrink-0 w-52 rounded-xl border p-3 text-left transition-colors',
-                          isSelected
-                            ? 'border-[var(--primary)] bg-[var(--primary)]/5 ring-1 ring-[var(--primary)]/30'
-                            : 'border-[var(--border)] hover:bg-[var(--muted)]/40',
-                        )}
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={cn('h-2.5 w-2.5 flex-shrink-0 rounded-full', STATUS_DOT[status], status === 'running' && 'animate-pulse')} />
-                          <p className="text-sm font-bold text-[var(--foreground)] truncate">{bus.bus_number}</p>
-                          <StatusBadge status={status} size="sm" />
-                        </div>
-                        <p className="text-xs text-[var(--muted-foreground)] truncate mb-2">
-                          {bus.driver_name ?? 'No driver'}
-                        </p>
-                        <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
-                          <span className="flex items-center gap-1">
-                            <Gauge size={11} className="text-[var(--primary)]" />
-                            <span className="font-medium text-[var(--foreground)] tabular-nums">{telemetry.speed}</span> km/h
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock size={11} className="text-[var(--primary)]" />
-                            <span className="font-medium text-[var(--foreground)]">{telemetry.eta}</span>
-                          </span>
-                        </div>
-                        {bus.current_stop && (
-                          <p className="mt-1.5 flex items-center gap-1 truncate text-xs text-[var(--muted-foreground)]">
-                            <MapPin size={11} className="flex-shrink-0 text-[var(--primary)]" />
-                            {bus.current_stop}
-                          </p>
-                        )}
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-            </motion.div>
+                </InfoWindow>
+              )}
+            </GoogleMap>
           )}
         </div>
 
@@ -339,7 +295,7 @@ export default function LiveMap() {
             </span>
           </div>
 
-          <div className="flex-1 space-y-2 overflow-y-auto p-3 lg:max-h-[500px]">
+          <div className="flex-1 space-y-2 overflow-y-auto p-3 lg:max-h-[440px]">
             {filteredBuses.length === 0 ? (
               <div className="py-12 text-center">
                 <WifiOff size={28} className="mx-auto mb-2 text-[var(--muted-foreground)]" strokeWidth={1.5} />
@@ -351,50 +307,76 @@ export default function LiveMap() {
                 const status = bus.status ?? 'offline'
                 const isSelected = selectedBusId === bus.id
                 return (
-                  <motion.button
+                  <motion.div
                     key={bus.id}
                     layout
-                    onClick={() => setSelectedBusId(isSelected ? null : bus.id)}
-                    whileHover={{ x: 2 }}
                     className={cn(
-                      'w-full rounded-xl border p-3 text-left transition-colors',
+                      'rounded-xl border transition-colors',
                       isSelected
                         ? 'border-[var(--primary)] bg-[var(--primary)]/5 ring-1 ring-[var(--primary)]/30'
                         : 'border-[var(--border)] hover:bg-[var(--muted)]/40',
                     )}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className={cn('h-2.5 w-2.5 flex-shrink-0 rounded-full', STATUS_DOT[status], status === 'running' && 'animate-pulse')} />
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-[var(--foreground)]">{bus.bus_number}</p>
-                          <p className="truncate text-xs text-[var(--muted-foreground)]">{bus.driver_name ?? 'No driver'}</p>
+                    {/* Click the card body to focus on map */}
+                    <button
+                      className="w-full p-3 text-left"
+                      onClick={() => setSelectedBusId(isSelected ? null : bus.id)}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className={cn('h-2.5 w-2.5 flex-shrink-0 rounded-full', STATUS_DOT[status] ?? 'bg-gray-400', status === 'running' && 'animate-pulse')} />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-[var(--foreground)]">{bus.bus_number}</p>
+                            <p className="truncate text-xs text-[var(--muted-foreground)]">{bus.driver_name ?? 'No driver'}</p>
+                          </div>
+                        </div>
+                        <StatusBadge status={status} size="sm" />
+                      </div>
+
+                      {/* Starting time + onboarding count */}
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div className="flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
+                          <Clock size={11} className="flex-shrink-0 text-[var(--primary)]" />
+                          <span>Start: <span className="font-medium text-[var(--foreground)]">{telemetry.startTime}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
+                          <Users size={11} className="flex-shrink-0 text-[var(--primary)]" />
+                          <span><span className="font-medium text-[var(--foreground)]">{telemetry.onboarding}</span> on board</span>
                         </div>
                       </div>
-                      <StatusBadge status={status} size="sm" />
-                    </div>
 
-                    <div className="mt-2.5 flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
-                      <span className="flex items-center gap-1">
-                        <Gauge size={12} className="text-[var(--primary)]" />
-                        <span className="font-medium text-[var(--foreground)] tabular-nums">{telemetry.speed}</span> km/h
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock size={12} className="text-[var(--primary)]" />
-                        ETA <span className="font-medium text-[var(--foreground)]">{telemetry.eta}</span>
-                      </span>
-                      <span className="ml-auto flex items-center gap-1">
-                        {status === 'offline' ? <WifiOff size={12} /> : <Wifi size={12} className="text-green-500" />}
-                      </span>
-                    </div>
+                      <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
+                        <span className="flex items-center gap-1">
+                          <Gauge size={12} className="text-[var(--primary)]" />
+                          <span className="font-medium text-[var(--foreground)] tabular-nums">{telemetry.speed}</span> km/h
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock size={12} className="text-[var(--primary)]" />
+                          ETA <span className="font-medium text-[var(--foreground)]">{telemetry.eta}</span>
+                        </span>
+                        <span className="ml-auto">
+                          {status === 'offline' ? <WifiOff size={12} /> : <Wifi size={12} className="text-green-500" />}
+                        </span>
+                      </div>
 
-                    {bus.current_stop && (
-                      <p className="mt-2 flex items-center gap-1 truncate text-xs text-[var(--muted-foreground)]">
-                        <MapPin size={12} className="flex-shrink-0 text-[var(--primary)]" />
-                        {bus.current_stop}
-                      </p>
-                    )}
-                  </motion.button>
+                      {bus.current_stop && (
+                        <p className="mt-1.5 flex items-center gap-1 truncate text-xs text-[var(--muted-foreground)]">
+                          <MapPin size={12} className="flex-shrink-0 text-[var(--primary)]" />
+                          {bus.current_stop}
+                        </p>
+                      )}
+                    </button>
+
+                    {/* Footer action — navigate to bus inner page */}
+                    <div className="border-t border-[var(--border)] px-3 py-2">
+                      <button
+                        onClick={() => navigate(`/school-admin/buses/${bus.id}`)}
+                        className="flex items-center gap-1 text-xs font-semibold text-[var(--primary)] hover:underline"
+                      >
+                        <ExternalLink size={11} /> View Bus Details
+                      </button>
+                    </div>
+                  </motion.div>
                 )
               })
             )}

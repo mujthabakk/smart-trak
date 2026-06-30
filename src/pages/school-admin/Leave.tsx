@@ -6,11 +6,13 @@ import {
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -20,6 +22,10 @@ import { formatDate, getInitials } from '@/lib/utils'
 import type { Leave as LeaveType, LeaveStatus } from '@/types'
 
 const SCHOOL_ID = 'sch_001'
+
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
@@ -228,6 +234,7 @@ export default function Leave() {
 
   // ── Dialog state ────────────────────────────────────────────────────────────
   const [selectedLeave, setSelectedLeave] = useState<LeaveType | null>(null)
+  const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
 
   // ── Stats ────────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -387,6 +394,15 @@ export default function Leave() {
         animate="show"
         className="space-y-6"
       >
+        {/* ── Horizontal Calendar ── */}
+        <motion.div variants={item}>
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <HorizontalCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+            </CardContent>
+          </Card>
+        </motion.div>
+
         {/* ── Stats Cards (tinted) ── */}
         <motion.div variants={item} className="grid grid-cols-2 gap-4 xl:grid-cols-4">
           <TintedStatsCard

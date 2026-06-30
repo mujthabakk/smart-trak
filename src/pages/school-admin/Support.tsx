@@ -1,20 +1,20 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  LifeBuoy, Plus, Inbox, Loader2, CheckCircle2, Send,
-  MessageSquare, Tag, User,
+  LifeBuoy, Plus, Inbox, Loader2, CheckCircle2, Tag, User, Clock,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter, DialogClose,
@@ -23,10 +23,10 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { allSupportTickets, mockDrivers } from '@/lib/mockData'
+import { allSupportTickets } from '@/lib/mockData'
 import { SUPPORT_CATEGORIES, SUPPORT_PRIORITIES } from '@/lib/constants'
-import { formatDate, getInitials } from '@/lib/utils'
-import type { SupportTicket, TicketReply, TicketPriority } from '@/types'
+import { formatDate } from '@/lib/utils'
+import type { SupportTicket, TicketPriority } from '@/types'
 
 const SCHOOL_ID = 'sch_001'
 const SCHOOL_NAME = 'Al-Noor International School'
@@ -38,18 +38,26 @@ const PRIORITY_VARIANT: Record<TicketPriority, 'success' | 'warning' | 'destruct
   critical: 'destructive',
 }
 
+const STATUS_FILTERS = [
+  { value: 'all' as const, label: 'All' },
+  { value: 'open' as const, label: 'Open' },
+  { value: 'in_progress' as const, label: 'In Progress' },
+  { value: 'resolved' as const, label: 'Resolved' },
+  { value: 'escalated' as const, label: 'Escalated' },
+]
+
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
 export default function Support() {
   const [tickets, setTickets] = useState<SupportTicket[]>(() =>
     allSupportTickets.filter((t) => t.school_id === SCHOOL_ID),
   )
-  const [selectedId, setSelectedId] = useState<string | null>(() => {
-    const first = allSupportTickets.find((t) => t.school_id === SCHOOL_ID)
-    return first?.id ?? null
-  })
-  const [reply, setReply] = useState('')
-  const [assignedDriver, setAssignedDriver] = useState<Record<string, string>>({})
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
 
   // raise-ticket dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -58,38 +66,16 @@ export default function Support() {
   const [priority, setPriority] = useState<TicketPriority>('medium')
   const [description, setDescription] = useState('')
 
-  const schoolDrivers = useMemo(
-    () => mockDrivers.filter((d) => d.school_id === SCHOOL_ID),
-    [],
-  )
-
   const stats = useMemo(() => ({
     open: tickets.filter((t) => t.status === 'open').length,
     inProgress: tickets.filter((t) => t.status === 'in_progress').length,
     resolved: tickets.filter((t) => t.status === 'resolved').length,
   }), [tickets])
 
-  const selected = useMemo(
-    () => tickets.find((t) => t.id === selectedId) ?? null,
-    [tickets, selectedId],
-  )
-
-  function sendReply() {
-    if (!selected || !reply.trim()) return
-    const newReply: TicketReply = {
-      id: `rpl_${Date.now()}`,
-      ticket_id: selected.id,
-      user_id: 'sa_001',
-      user_name: 'Hassan Al-Rashid',
-      user_role: 'school_admin',
-      content: reply.trim(),
-      created_at: new Date().toISOString(),
-    }
-    setTickets((prev) =>
-      prev.map((t) => (t.id === selected.id ? { ...t, replies: [...t.replies, newReply] } : t)),
-    )
-    setReply('')
-  }
+  const filtered = useMemo(() => {
+    if (statusFilter === 'all') return tickets
+    return tickets.filter((t) => t.status === statusFilter)
+  }, [tickets, statusFilter])
 
   function resetForm() {
     setSubject('')
@@ -115,7 +101,6 @@ export default function Support() {
       replies: [],
     }
     setTickets((prev) => [newTicket, ...prev])
-    setSelectedId(newTicket.id)
     resetForm()
     setDialogOpen(false)
   }
@@ -132,199 +117,113 @@ export default function Support() {
         }
       />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatsCard title="Open" value={stats.open} icon={Inbox} color="info" />
-        <StatsCard title="In Progress" value={stats.inProgress} icon={Loader2} color="warning" />
-        <StatsCard title="Resolved" value={stats.resolved} icon={CheckCircle2} color="success" />
-      </div>
+      <motion.div
+        variants={{ hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } }}
+        initial="hidden"
+        animate="show"
+        className="space-y-6"
+      >
+        {/* Horizontal Calendar */}
+        <motion.div variants={item}>
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <HorizontalCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+            </CardContent>
+          </Card>
+        </motion.div>
 
-      <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-        {/* LEFT — ticket list */}
-        <div className="flex flex-col rounded-2xl border border-[var(--border)] bg-[var(--card)]">
-          <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-              <LifeBuoy size={16} className="text-[var(--primary)]" /> My Tickets
-            </h3>
-            <span className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-xs font-medium text-[var(--muted-foreground)]">
-              {tickets.length}
-            </span>
-          </div>
+        {/* Stats */}
+        <motion.div variants={item} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatsCard title="Open" value={stats.open} icon={Inbox} color="info" />
+          <StatsCard title="In Progress" value={stats.inProgress} icon={Loader2} color="warning" />
+          <StatsCard title="Resolved" value={stats.resolved} icon={CheckCircle2} color="success" />
+        </motion.div>
 
-          <div className="flex-1 space-y-2 overflow-y-auto p-3 lg:max-h-[560px]">
-            {tickets.length === 0 ? (
-              <div className="py-12 text-center">
-                <Inbox size={28} className="mx-auto mb-2 text-[var(--muted-foreground)]" strokeWidth={1.5} />
-                <p className="text-sm text-[var(--muted-foreground)]">No tickets yet.</p>
-              </div>
-            ) : (
-              tickets.map((t) => {
-                const isSelected = selectedId === t.id
-                const subjectLine = t.description.split(/[.!?]/)[0].trim()
-                return (
-                  <motion.button
-                    key={t.id}
-                    layout
-                    whileHover={{ x: 2 }}
-                    onClick={() => setSelectedId(t.id)}
-                    className={cn(
-                      'w-full rounded-xl border p-3 text-left transition-colors',
-                      isSelected
-                        ? 'border-[var(--primary)] bg-[var(--primary)]/5 ring-1 ring-[var(--primary)]/30'
-                        : 'border-[var(--border)] hover:bg-[var(--muted)]/40',
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--foreground)]">
-                        {subjectLine}
-                      </p>
-                      <Badge variant={PRIORITY_VARIANT[t.priority]} className="flex-shrink-0 capitalize">
-                        {t.priority}
-                      </Badge>
-                    </div>
-                    <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{t.type}</p>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <StatusBadge status={t.status} size="sm" />
-                      <span className="text-[11px] text-[var(--muted-foreground)]">
-                        {formatDate(t.created_at, 'relative')}
-                      </span>
-                    </div>
-                  </motion.button>
-                )
-              })
-            )}
-          </div>
-        </div>
+        {/* Status filter pills */}
+        <motion.div variants={item} className="flex flex-wrap gap-2">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setStatusFilter(f.value)}
+              className={cn(
+                'inline-flex items-center rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors',
+                statusFilter === f.value
+                  ? 'border-[var(--primary)] bg-[var(--primary)] text-white'
+                  : 'border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--muted)]/60',
+              )}
+            >
+              {f.label}
+              <span className={cn(
+                'ml-2 rounded-full px-1.5 py-0.5 text-xs font-semibold',
+                statusFilter === f.value ? 'bg-white/20 text-white' : 'bg-[var(--muted)] text-[var(--muted-foreground)]',
+              )}>
+                {f.value === 'all' ? tickets.length : tickets.filter((t) => t.status === f.value).length}
+              </span>
+            </button>
+          ))}
+        </motion.div>
 
-        {/* RIGHT — detail panel */}
-        <div className="flex min-h-[480px] flex-col rounded-2xl border border-[var(--border)] bg-[var(--card)]">
-          {selected ? (
-            <>
-              <div className="border-b border-[var(--border)] p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-base font-bold text-[var(--foreground)]">{selected.id}</h2>
-                      <StatusBadge status={selected.status} size="sm" />
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
-                      <span className="flex items-center gap-1.5">
-                        <Tag size={12} className="text-[var(--primary)]" /> {selected.type}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <User size={12} className="text-[var(--primary)]" /> {selected.reporter_name}
-                      </span>
-                      <span>{formatDate(selected.created_at, 'datetime')}</span>
-                    </div>
-                  </div>
-                  <Badge variant={PRIORITY_VARIANT[selected.priority]} className="capitalize">
-                    {selected.priority} priority
-                  </Badge>
-                </div>
-                <div className="mt-3 flex items-center gap-2">
-                  <span className="text-xs font-medium text-[var(--muted-foreground)] whitespace-nowrap">
-                    Assign Driver:
-                  </span>
-                  <Select
-                    value={assignedDriver[selected.id] ?? ''}
-                    onValueChange={(driverId) =>
-                      setAssignedDriver((prev) => ({ ...prev, [selected.id]: driverId }))
-                    }
-                  >
-                    <SelectTrigger className="h-8 w-52 text-xs">
-                      <SelectValue placeholder="Assign a driver…">
-                        {assignedDriver[selected.id]
-                          ? schoolDrivers.find((d) => d.id === assignedDriver[selected.id])?.name
-                          : undefined}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {schoolDrivers.map((d) => (
-                        <SelectItem key={d.id} value={d.id}>
-                          {d.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* thread */}
-              <div className="flex-1 space-y-4 overflow-y-auto p-5 lg:max-h-[400px]">
-                {/* original description bubble */}
-                <div className="flex justify-end">
-                  <div className="max-w-[80%]">
-                    <div className="rounded-2xl rounded-br-sm bg-[var(--primary)] px-4 py-2.5 text-sm text-[var(--primary-foreground)]">
-                      {selected.description}
-                    </div>
-                    <p className="mt-1 text-right text-[11px] text-[var(--muted-foreground)]">
-                      {selected.reporter_name} · {formatDate(selected.created_at, 'time')}
-                    </p>
-                  </div>
-                </div>
-
-                {selected.replies.map((r) => {
-                  const fromSchool = r.user_role === 'school_admin' || r.user_role === 'parent' || r.user_role === 'driver'
-                  return (
-                    <div key={r.id} className={cn('flex', fromSchool ? 'justify-end' : 'justify-start')}>
-                      <div className={cn('max-w-[80%]', !fromSchool && 'flex items-start gap-2')}>
-                        {!fromSchool && (
-                          <Avatar className="h-7 w-7 flex-shrink-0">
-                            <AvatarFallback className="bg-[var(--muted)] text-[10px] font-semibold text-[var(--muted-foreground)]">
-                              {getInitials(r.user_name)}
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                        <div>
-                          <div
-                            className={cn(
-                              'px-4 py-2.5 text-sm',
-                              fromSchool
-                                ? 'rounded-2xl rounded-br-sm bg-[var(--primary)] text-[var(--primary-foreground)]'
-                                : 'rounded-2xl rounded-bl-sm bg-[var(--muted)] text-[var(--foreground)]',
-                            )}
-                          >
-                            {r.content}
-                          </div>
-                          <p className={cn('mt-1 text-[11px] text-[var(--muted-foreground)]', fromSchool && 'text-right')}>
-                            {r.user_name} · {formatDate(r.created_at, 'time')}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* reply box */}
-              <div className="border-t border-[var(--border)] p-4">
-                <div className="flex items-end gap-2">
-                  <Textarea
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                    placeholder="Write a reply…"
-                    className="min-h-[44px] flex-1"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                        e.preventDefault()
-                        sendReply()
-                      }
-                    }}
-                  />
-                  <Button onClick={sendReply} disabled={!reply.trim()} className="h-11">
-                    <Send size={16} /> Send
+        {/* Ticket list */}
+        <motion.div variants={item} className="flex flex-col gap-3">
+          {filtered.length === 0 ? (
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)]">
+              <EmptyState
+                icon={LifeBuoy}
+                title="No tickets found"
+                description="No support tickets match your filter. Raise a ticket to get started."
+                action={
+                  <Button onClick={() => setDialogOpen(true)}>
+                    <Plus size={16} /> Raise Ticket
                   </Button>
-                </div>
-              </div>
-            </>
+                }
+              />
+            </div>
           ) : (
-            <EmptyState
-              icon={MessageSquare}
-              title="Select a ticket"
-              description="Choose a ticket from the list to view its conversation and reply."
-            />
+            filtered.map((t) => {
+              const subjectLine = t.description.split(/[.!?]/)[0].trim()
+              return (
+                <motion.div
+                  key={t.id}
+                  variants={item}
+                  layout
+                  className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="text-xs font-mono text-[var(--muted-foreground)]">{t.id}</span>
+                        <StatusBadge status={t.status} size="sm" />
+                        <Badge variant={PRIORITY_VARIANT[t.priority]} className="capitalize text-xs">
+                          {t.priority}
+                        </Badge>
+                      </div>
+                      <p className="text-sm font-semibold text-[var(--foreground)] mb-1">{subjectLine}</p>
+                      <p className="text-xs text-[var(--muted-foreground)] line-clamp-2">{t.description}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-[var(--muted-foreground)]">
+                    <span className="flex items-center gap-1.5">
+                      <Tag size={11} className="text-[var(--primary)]" /> {t.type}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <User size={11} className="text-[var(--primary)]" /> {t.reporter_name}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Clock size={11} className="text-[var(--primary)]" /> {formatDate(t.created_at, 'datetime')}
+                    </span>
+                    {t.replies.length > 0 && (
+                      <span className="ml-auto rounded-full bg-[var(--muted)] px-2 py-0.5 text-[10px] font-medium">
+                        {t.replies.length} repl{t.replies.length === 1 ? 'y' : 'ies'}
+                      </span>
+                    )}
+                  </div>
+                </motion.div>
+              )
+            })
           )}
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
       {/* Raise ticket dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

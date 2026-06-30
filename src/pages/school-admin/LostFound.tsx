@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -22,11 +23,16 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Card, CardContent } from '@/components/ui/card'
 import { allLostFound, allBuses, allRoutes } from '@/lib/mockData'
 import { formatDate } from '@/lib/utils'
 import type { LostFoundItem, LostFoundStatus } from '@/types'
 
 const SCHOOL_ID = 'sch_001'
+
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 const GRADIENTS = [
   'from-violet-500/20 to-fuchsia-500/10',
@@ -114,6 +120,7 @@ export default function LostFound() {
     allLostFound.filter((l) => l.school_id === SCHOOL_ID),
   )
   const [tab, setTab] = useState<LostFoundStatus | 'all'>('all')
+  const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
   const [dialogOpen, setDialogOpen] = useState(false)
   const [viewingClaims, setViewingClaims] = useState<LostFoundItem | null>(null)
 
@@ -203,6 +210,14 @@ export default function LostFound() {
         animate="show"
         className="space-y-6"
       >
+        <motion.div variants={item}>
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <HorizontalCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+            </CardContent>
+          </Card>
+        </motion.div>
+
         <motion.div variants={item} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatsCard title="Reported" value={stats.reported} icon={PackageSearch} color="warning" subtitle="awaiting claim" />
           <StatsCard title="Claimed" value={stats.claimed} icon={PackageCheck} color="info" />

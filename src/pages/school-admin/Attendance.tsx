@@ -1,15 +1,17 @@
 import { useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 import {
   CalendarCheck, Download, UserCheck, UserX, CalendarOff,
-  Percent, QrCode, TrendingUp, ChevronLeft, ChevronRight,
+  Percent, QrCode, TrendingUp,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -77,6 +79,7 @@ function formatDisplayDate(dateStr: string): string {
 type DateFilter = 'today' | 'week' | 'all'
 
 export default function Attendance() {
+  const navigate = useNavigate()
   const [date, setDate] = useState('2026-06-23')
   const [filterBus, setFilterBus] = useState('all')
   const [filterClass, setFilterClass] = useState('all')
@@ -178,7 +181,12 @@ export default function Attendance() {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-[var(--foreground)]">{row.student_name}</p>
+            <button
+              onClick={(e) => { e.stopPropagation(); navigate(`/school-admin/students/${row.student_id}`) }}
+              className="truncate text-sm font-medium text-[var(--foreground)] hover:text-[var(--primary)] hover:underline transition-colors text-left"
+            >
+              {row.student_name}
+            </button>
             <p className="text-xs text-[var(--muted-foreground)]">{row.stop_name ?? 'No stop recorded'}</p>
           </div>
         </div>
@@ -238,35 +246,6 @@ export default function Attendance() {
         subtitle="Daily QR-based attendance"
         actions={
           <>
-            {/* Calendar navigation */}
-            <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)] px-1 py-1">
-              <button
-                onClick={() => setDate((d) => shiftDate(d, -1))}
-                className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
-                aria-label="Previous day"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span className="min-w-[160px] px-2 text-center text-sm font-medium text-[var(--foreground)]">
-                {formatDisplayDate(date)}
-              </span>
-              <button
-                onClick={() => setDate((d) => shiftDate(d, 1))}
-                className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
-                aria-label="Next day"
-              >
-                <ChevronRight size={16} />
-              </button>
-              {date !== today && (
-                <button
-                  onClick={() => setDate(today)}
-                  className="ml-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors"
-                >
-                  Today
-                </button>
-              )}
-            </div>
-
             {/* Export dropdown */}
             <div className="relative" ref={exportMenuRef}>
               <Button variant="outline" onClick={() => setShowExportMenu((v) => !v)}>
@@ -319,6 +298,13 @@ export default function Attendance() {
           </>
         }
       />
+
+      {/* Horizontal Calendar */}
+      <Card className="mb-5">
+        <CardContent className="pt-4 pb-3">
+          <HorizontalCalendar selectedDate={date} onSelectDate={setDate} />
+        </CardContent>
+      </Card>
 
       {/* Summary Cards */}
       <div className="mb-5 grid grid-cols-1 sm:grid-cols-2 gap-4">

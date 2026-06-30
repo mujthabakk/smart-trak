@@ -35,6 +35,7 @@ import Students from '@/pages/school-admin/Students'
 import AddEditStudent from '@/pages/school-admin/AddEditStudent'
 import StudentProfile from '@/pages/school-admin/StudentProfile'
 import Drivers from '@/pages/school-admin/Drivers'
+import DriverDetail from '@/pages/school-admin/DriverDetail'
 import Buses from '@/pages/school-admin/Buses'
 import BusDetail from '@/pages/school-admin/BusDetail'
 import AddBus from '@/pages/school-admin/AddBus'
@@ -50,6 +51,7 @@ import GuestDrivers from '@/pages/school-admin/GuestDrivers'
 import Support from '@/pages/school-admin/Support'
 import SchoolReports from '@/pages/school-admin/Reports'
 import SchoolAdminSettings from '@/pages/school-admin/Settings'
+import DocumentExpiry from '@/pages/school-admin/DocumentExpiry'
 
 // Shared
 import Profile from '@/pages/shared/Profile'
@@ -98,6 +100,8 @@ export const router = createHashRouter([
   { path: '/school-admin/students/:id/edit', element: <AddEditStudent /> },
   { path: '/school-admin/students/:id', element: <StudentProfile /> },
   { path: '/school-admin/drivers', element: <Drivers /> },
+  { path: '/school-admin/drivers/:id', element: <DriverDetail /> },
+  { path: '/school-admin/document-expiry', element: <DocumentExpiry /> },
   { path: '/school-admin/buses', element: <Buses /> },
   { path: '/school-admin/buses/add', element: <AddBus /> },
   { path: '/school-admin/buses/:id', element: <BusDetail /> },

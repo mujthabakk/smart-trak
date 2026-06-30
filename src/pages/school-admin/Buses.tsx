@@ -4,16 +4,19 @@ import { motion } from 'framer-motion'
 import {
   Plus, Bus as BusIcon, Navigation, MapPin, MoreVertical,
   Pencil, Ban, LayoutGrid, List, User, Clock, Users, Download, Upload, QrCode, Phone,
+  AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import PageHeader from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import DataTable, { type Column } from '@/components/shared/DataTable'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuSeparator,
@@ -22,7 +25,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog'
 import { cn, downloadCSV } from '@/lib/utils'
-import { allBuses, allRoutes } from '@/lib/mockData'
+import { allBuses, allRoutes, allTrips } from '@/lib/mockData'
 import type { Bus } from '@/types'
 
 const SCHOOL_ID = 'sch_001'
@@ -43,6 +46,24 @@ function occupancyFor(bus: Bus): number {
 
 function routeForBus(busId: string): string | undefined {
   return allRoutes.find((r) => r.bus_id === busId)?.name
+}
+
+function routeTypeForBus(busId: string): 'pickup' | 'drop' | null {
+  const route = allRoutes.find((r) => r.bus_id === busId)
+  return route?.type ?? null
+}
+
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Returns true if the bus has been running for > 1 hour based on its current trip
+function isOverdueTrip(busId: string): boolean {
+  const trip = allTrips.find((t) => t.bus_id === busId && t.status === 'in_progress')
+  if (!trip?.started_at) return false
+  const elapsed = (Date.now() - new Date(trip.started_at).getTime()) / (1000 * 60 * 60)
+  // For demo: treat trips started > 1 day ago as overdue (since mock data uses past dates)
+  return elapsed > 1
 }
 
 function downloadBusQR(bus: Bus) {
@@ -372,9 +393,10 @@ const STATUS_FILTER_PILLS: { label: string; value: StatusFilter }[] = [
 // --- Main page ---
 export default function Buses() {
   const navigate = useNavigate()
-  const [view, setView] = useState<'grid' | 'table'>('grid')
+  const [view, setView] = useState<'grid' | 'table'>('table')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
+  const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
 
   // Local bus list (starts from mock data filtered for this school)
   const [buses, setBuses] = useState<Bus[]>(() =>
@@ -505,17 +527,26 @@ export default function Buses() {
       header: 'Bus',
       sortable: true,
       accessor: (b) => b.bus_number,
-      render: (b) => (
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center flex-shrink-0">
-            <BusIcon size={16} className="text-[var(--primary)]" />
+      render: (b) => {
+        const overdue = isOverdueTrip(b.id)
+        return (
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              'h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0',
+              overdue ? 'bg-red-100 dark:bg-red-900/30' : 'bg-[var(--primary)]/10',
+            )}>
+              <BusIcon size={16} className={overdue ? 'text-red-600 dark:text-red-400' : 'text-[var(--primary)]'} />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <p className="font-medium text-[var(--foreground)]">{b.bus_number}</p>
+                {overdue && <AlertCircle size={13} className="text-red-500" />}
+              </div>
+              <p className="text-xs text-[var(--muted-foreground)]">{b.make_model ?? '—'}</p>
+            </div>
           </div>
-          <div>
-            <p className="font-medium text-[var(--foreground)]">{b.bus_number}</p>
-            <p className="text-xs text-[var(--muted-foreground)]">{b.make_model ?? '—'}</p>
-          </div>
-        </div>
-      ),
+        )
+      },
     },
     {
       key: 'driver_name',
@@ -539,6 +570,24 @@ export default function Buses() {
       },
     },
     {
+      key: 'type',
+      header: 'Type',
+      render: (b) => {
+        const type = routeTypeForBus(b.id)
+        if (!type) return <span className="text-sm text-[var(--muted-foreground)]">—</span>
+        return (
+          <span className={cn(
+            'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold',
+            type === 'pickup'
+              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+              : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+          )}>
+            {type === 'pickup' ? 'Pickup' : 'Drop'}
+          </span>
+        )
+      },
+    },
+    {
       key: 'capacity',
       header: 'Occupancy',
       render: (b) => {
@@ -556,7 +605,19 @@ export default function Buses() {
     {
       key: 'status',
       header: 'Status',
-      render: (b) => <StatusBadge status={b.status ?? 'offline'} />,
+      render: (b) => {
+        const overdue = isOverdueTrip(b.id)
+        return (
+          <div className="flex items-center gap-2">
+            <StatusBadge status={b.status ?? 'offline'} />
+            {overdue && (
+              <span className="text-[10px] font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-full px-1.5 py-0.5">
+                &gt;1hr
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'actions',
@@ -626,6 +687,18 @@ export default function Buses() {
           <StatsCard title="Offline" value={stats.offline} icon={Ban} color="danger" />
         </motion.div>
 
+        {/* Horizontal Calendar */}
+        <motion.div variants={item} className="mb-4">
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <HorizontalCalendar
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+              />
+            </CardContent>
+          </Card>
+        </motion.div>
+
         {/* Filter pills + Search */}
         <motion.div variants={item} className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-5">
           {/* Status filter pills */}
@@ -664,16 +737,28 @@ export default function Buses() {
             {filteredBuses.map((bus) => {
               const occ = occupancyFor(bus)
               const route = routeForBus(bus.id)
+              const routeType = routeTypeForBus(bus.id)
               const status = bus.status ?? 'offline'
+              const overdue = isOverdueTrip(bus.id)
               return (
                 <motion.div
                   key={bus.id}
                   variants={card}
                   whileHover={{ y: -3 }}
-                  className="rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-sm overflow-hidden flex flex-col"
+                  className={cn(
+                    'rounded-2xl border shadow-sm overflow-hidden flex flex-col',
+                    overdue
+                      ? 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/20'
+                      : 'border-[var(--border)] bg-[var(--card)]',
+                  )}
                 >
                   {/* Gradient header */}
-                  <div className="relative bg-gradient-to-br from-[var(--primary)] to-[color-mix(in_srgb,var(--primary)_70%,black)] p-5 text-white">
+                  <div className={cn(
+                    'relative p-5 text-white',
+                    overdue
+                      ? 'bg-gradient-to-br from-red-600 to-red-800'
+                      : 'bg-gradient-to-br from-[var(--primary)] to-[color-mix(in_srgb,var(--primary)_70%,black)]',
+                  )}>
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
                         <div className="h-11 w-11 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
@@ -707,8 +792,18 @@ export default function Buses() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                    <div className="mt-3">
+                    <div className="mt-3 flex items-center gap-2">
                       <StatusBadge status={status} className="bg-white/20 text-white" />
+                      {routeType && (
+                        <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold text-white">
+                          {routeType === 'pickup' ? 'Pickup' : 'Drop'}
+                        </span>
+                      )}
+                      {overdue && (
+                        <span className="rounded-full bg-white/30 px-2 py-0.5 text-[11px] font-bold text-white flex items-center gap-1">
+                          <AlertCircle size={10} /> &gt;1hr
+                        </span>
+                      )}
                     </div>
                   </div>
 

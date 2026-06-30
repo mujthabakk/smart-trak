@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   ArrowLeftRight, Plus, Activity, CheckCircle2, Users,
@@ -6,6 +7,7 @@ import {
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -15,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Progress } from '@/components/ui/progress'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter, DialogClose,
@@ -27,6 +30,10 @@ import { formatDate } from '@/lib/utils'
 import type { BusTransfer as BusTransferType, TransferStatus } from '@/types'
 
 const SCHOOL_ID = 'sch_001'
+
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 const TRANSFER_REASONS = [
   { value: 'breakdown', label: 'Bus Breakdown' },
@@ -43,7 +50,7 @@ const PROGRESS_BY_STATUS: Record<TransferStatus, number> = {
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
-function BusChip({ label, tone }: { label: string; tone: 'from' | 'to' }) {
+function BusChip({ label, tone, busId, onNavigate }: { label: string; tone: 'from' | 'to'; busId?: string; onNavigate?: (id: string) => void }) {
   const isFrom = tone === 'from'
   return (
     <div
@@ -66,13 +73,22 @@ function BusChip({ label, tone }: { label: string; tone: 'from' | 'to' }) {
         <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
           {isFrom ? 'From' : 'To'}
         </p>
-        <p className="truncate text-sm font-bold text-[var(--foreground)]">{label}</p>
+        {busId && onNavigate ? (
+          <button
+            onClick={() => onNavigate(busId)}
+            className="truncate text-sm font-bold text-[var(--foreground)] hover:text-[var(--primary)] hover:underline transition-colors text-left"
+          >
+            {label}
+          </button>
+        ) : (
+          <p className="truncate text-sm font-bold text-[var(--foreground)]">{label}</p>
+        )}
       </div>
     </div>
   )
 }
 
-function TransferRow({ transfer, index }: { transfer: BusTransferType; index: number }) {
+function TransferRow({ transfer, index, onNavigateBus }: { transfer: BusTransferType; index: number; onNavigateBus: (id: string) => void }) {
   const progress = PROGRESS_BY_STATUS[transfer.status]
   return (
     <motion.div
@@ -92,7 +108,12 @@ function TransferRow({ transfer, index }: { transfer: BusTransferType; index: nu
           {/* From → To visualization */}
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
             <div className="flex-1">
-              <BusChip label={transfer.original_bus_number} tone="from" />
+              <BusChip
+                label={transfer.original_bus_number}
+                tone="from"
+                busId={transfer.original_bus_id}
+                onNavigate={onNavigateBus}
+              />
             </div>
             <div className="flex items-center justify-center">
               <motion.div
@@ -105,7 +126,12 @@ function TransferRow({ transfer, index }: { transfer: BusTransferType; index: nu
               </motion.div>
             </div>
             <div className="flex-1">
-              <BusChip label={transfer.new_bus_number} tone="to" />
+              <BusChip
+                label={transfer.new_bus_number}
+                tone="to"
+                busId={transfer.new_bus_id || undefined}
+                onNavigate={onNavigateBus}
+              />
             </div>
           </div>
 
@@ -147,7 +173,9 @@ function TransferRow({ transfer, index }: { transfer: BusTransferType; index: nu
 }
 
 export default function BusTransfer() {
+  const navigate = useNavigate()
   const buses = useMemo(() => allBuses.filter((b) => b.school_id === SCHOOL_ID), [])
+  const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
 
   const [transfers, setTransfers] = useState<BusTransferType[]>(() =>
     allBusTransfers.filter((t) => t.school_id === SCHOOL_ID),
@@ -247,6 +275,14 @@ export default function BusTransfer() {
         animate="show"
         className="space-y-6"
       >
+        <motion.div variants={item}>
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <HorizontalCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+            </CardContent>
+          </Card>
+        </motion.div>
+
         <motion.div variants={item} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatsCard title="Active Transfers" value={stats.active} icon={Activity} color="info" subtitle="in progress now" />
           <StatsCard title="Completed Today" value={stats.completedToday} icon={CheckCircle2} color="success" />
@@ -275,7 +311,7 @@ export default function BusTransfer() {
           ) : (
             <div className="space-y-4">
               {sorted.map((t, i) => (
-                <TransferRow key={t.id} transfer={t} index={i} />
+                <TransferRow key={t.id} transfer={t} index={i} onNavigateBus={(id) => navigate(`/school-admin/buses/${id}`)} />
               ))}
             </div>
           )}

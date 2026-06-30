@@ -1,4 +1,5 @@
 import { useMemo, useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Plus, UserCheck, Users, Navigation, AlertTriangle, MoreVertical,
@@ -66,6 +67,7 @@ type EditForm = {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function Drivers() {
+  const navigate = useNavigate()
   const [drivers, setDrivers] = useState<Driver[]>(allDrivers)
 
   // Add dialog
@@ -246,8 +248,8 @@ export default function Drivers() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setViewDriver(d)}>
-                <Eye size={14} /> View
+              <DropdownMenuItem onClick={() => navigate(`/school-admin/drivers/${d.id}`)}>
+                <Eye size={14} /> View Profile
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => openEdit(d)}>
                 <Pencil size={14} /> Edit
@@ -300,7 +302,7 @@ export default function Drivers() {
             searchable
             searchKeys={['name', 'phone', 'license_number', 'employee_id']}
             searchPlaceholder="Search drivers by name, phone or license…"
-            onRowClick={(d) => setViewDriver(d)}
+            onRowClick={(d) => navigate(`/school-admin/drivers/${d.id}`)}
             emptyTitle="No drivers found"
             emptyDescription="Add a driver to start assigning routes."
           />

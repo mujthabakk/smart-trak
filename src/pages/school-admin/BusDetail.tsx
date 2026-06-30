@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, Phone, Pencil, ChevronDown, ChevronUp,
-  Bus as BusIcon, Clock, Users, Navigation, User,
+  Bus as BusIcon, Clock, Users, Navigation, User, MapPin,
+  CheckCircle2,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -18,54 +20,61 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { allBuses, allRoutes } from '@/lib/mockData'
-import { getInitials } from '@/lib/utils'
-import { cn } from '@/lib/utils'
+import { getInitials, formatDate, cn } from '@/lib/utils'
 
 // ─── Animation variants ──────────────────────────────────────────────────────
-const container = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.07 } },
-}
+const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.07 } } }
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
-// ─── Mock data for this detail page ─────────────────────────────────────────
+// ─── Mock data helpers ───────────────────────────────────────────────────────
 const MOCK_DRIVER_PHONE = '+971 55 123 4567'
 
-const MOCK_ON_BOARD = [
-  { id: 's1', name: 'Ahmed Hassan Al-Rashid', classDiv: 'Class 5 - A' },
-  { id: 's2', name: 'Mohammed Khalid Ibrahim', classDiv: 'Class 7 - A' },
-  { id: 's3', name: 'Yousef Mahmoud Qassim', classDiv: 'Class 4 - A' },
-  { id: 's4', name: 'Omar Abdullah Malik', classDiv: 'Class 9 - A' },
-]
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
-const MOCK_ABSENT = [
-  { id: 's5', name: 'Sara Ali Hassan', classDiv: 'Class 6 - B' },
-  { id: 's6', name: 'Maryam Tariq Hussain', classDiv: 'Class 8 - B' },
-]
+const TODAY = toLocalDateStr(new Date())
 
-const MOCK_YET_TO_BOARD = [
-  { id: 's7', name: 'Fatima Noor Al-Zahra', classDiv: 'Class 3 - B' },
-  { id: 's8', name: 'Aisha Rahman Siddiqui', classDiv: 'Class 2 - C' },
+// Mock students per location/stop
+const MOCK_STOP_STUDENTS: { stop: string; type: 'pickup' | 'drop'; students: Array<{ id: string; name: string; class: string; pickupTime?: string; dropTime?: string; location: string; status: 'present' | 'absent' | 'pending' }> }[] = [
+  {
+    stop: 'Al Barsha Heights',
+    type: 'pickup',
+    students: [
+      { id: 'std_001', name: 'Ahmed Hassan Al-Rashid', class: 'Class 5 - A', pickupTime: '7:15 AM', location: 'Al Barsha Heights', status: 'present' },
+      { id: 'std_003', name: 'Mohammed Khalid Ibrahim', class: 'Class 7 - A', pickupTime: '7:15 AM', location: 'Al Barsha Heights', status: 'present' },
+    ],
+  },
+  {
+    stop: 'JLT Cluster T',
+    type: 'pickup',
+    students: [
+      { id: 'std_005', name: 'Omar Abdullah Malik', class: 'Class 9 - A', pickupTime: '7:30 AM', location: 'JLT Cluster T', status: 'pending' },
+      { id: 'std_007', name: 'Yousef Mahmoud Qassim', class: 'Class 4 - A', pickupTime: '7:30 AM', location: 'JLT Cluster T', status: 'absent' },
+    ],
+  },
+  {
+    stop: 'Al Barsha South 1',
+    type: 'drop',
+    students: [
+      { id: 'std_002', name: 'Fatima Noor Al-Zahra', class: 'Class 3 - B', dropTime: '3:00 PM', location: 'Al Barsha South 1', status: 'present' },
+      { id: 'std_008', name: 'Maryam Tariq Hussain', class: 'Class 8 - B', dropTime: '3:05 PM', location: 'Al Barsha South 1', status: 'pending' },
+    ],
+  },
 ]
 
 const MOCK_SCHEDULE = [
-  {
-    id: 'sch1',
-    label: 'Morning Trip',
-    time: '7:00 AM – 8:30 AM',
-    route: 'Route A - Pickup',
-    students: 28,
-    type: 'pickup',
-  },
-  {
-    id: 'sch2',
-    label: 'Afternoon Trip',
-    time: '2:30 PM – 3:45 PM',
-    route: 'Route A - Drop',
-    students: 25,
-    type: 'drop',
-  },
+  { id: 'sch1', label: 'Morning Trip', time: '7:00 AM – 8:30 AM', route: 'Route A - Pickup', students: 28, type: 'pickup', completedAt: '8:28 AM', duration: '88 min' },
+  { id: 'sch2', label: 'Afternoon Trip', time: '2:30 PM – 3:45 PM', route: 'Route A - Drop', students: 25, type: 'drop', completedAt: '3:47 PM', duration: '77 min' },
 ]
+
+// Mock history
+function makeBusHistory(busId: string) {
+  return Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - i)
+    return { date: toLocalDateStr(d), dot: (i % 5 === 3 ? 'amber' : 'green') as 'green' | 'amber' }
+  })
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function isExpired(dateStr?: string): boolean {
@@ -73,26 +82,19 @@ function isExpired(dateStr?: string): boolean {
   return new Date(dateStr) < new Date()
 }
 
-function formatDate(dateStr?: string): string {
-  if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  })
-}
-
-// ─── Collapsible section ──────────────────────────────────────────────────────
-interface CollapsibleSectionProps {
-  title: string
-  count: number
-  accentColor: string
+// ─── Accordion stop section ──────────────────────────────────────────────────
+interface StopAccordionProps {
+  stop: string
+  type: 'pickup' | 'drop'
+  students: typeof MOCK_STOP_STUDENTS[0]['students']
   defaultOpen?: boolean
-  children: React.ReactNode
+  onStudentClick: (id: string) => void
 }
 
-function CollapsibleSection({
-  title, count, accentColor, defaultOpen = true, children,
-}: CollapsibleSectionProps) {
+function StopAccordion({ stop, type, students, defaultOpen = true, onStudentClick }: StopAccordionProps) {
   const [open, setOpen] = useState(defaultOpen)
+  const presentCount = students.filter((s) => s.status === 'present').length
+
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
       <button
@@ -100,82 +102,69 @@ function CollapsibleSection({
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-[var(--muted)]/40 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm text-[var(--foreground)]">{title}</span>
-          <span
-            className={cn(
-              'inline-flex items-center justify-center text-xs font-bold rounded-full h-5 min-w-[20px] px-1.5',
-              accentColor,
-            )}
-          >
-            {count}
+          <MapPin size={14} className={type === 'pickup' ? 'text-blue-500' : 'text-purple-500'} />
+          <span className="font-semibold text-sm text-[var(--foreground)]">{stop}</span>
+          <span className={cn(
+            'text-[10px] font-semibold rounded-full px-2 py-0.5',
+            type === 'pickup' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+          )}>
+            {type === 'pickup' ? 'Pickup' : 'Drop'}
           </span>
+          <span className="text-xs text-[var(--muted-foreground)]">{presentCount}/{students.length}</span>
         </div>
-        {open ? (
-          <ChevronUp size={16} className="text-[var(--muted-foreground)]" />
-        ) : (
-          <ChevronDown size={16} className="text-[var(--muted-foreground)]" />
-        )}
+        {open ? <ChevronUp size={16} className="text-[var(--muted-foreground)]" /> : <ChevronDown size={16} className="text-[var(--muted-foreground)]" />}
       </button>
       {open && (
         <div className="divide-y divide-[var(--border)]">
-          {children}
+          {students.map((s) => (
+            <div key={s.id} className="flex items-center gap-3 px-4 py-3">
+              <Avatar className="h-9 w-9 flex-shrink-0">
+                <AvatarFallback className="text-xs font-semibold bg-[var(--primary)]/10 text-[var(--primary)]">
+                  {getInitials(s.name)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <button
+                  onClick={() => onStudentClick(s.id)}
+                  className="text-sm font-medium text-[var(--foreground)] hover:text-[var(--primary)] hover:underline transition-colors text-left"
+                >
+                  {s.name}
+                </button>
+                <p className="text-xs text-[var(--muted-foreground)]">{s.class}</p>
+                <div className="flex items-center gap-3 mt-0.5">
+                  {s.pickupTime && (
+                    <span className="flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400">
+                      <Clock size={10} /> Pickup: {s.pickupTime}
+                    </span>
+                  )}
+                  {s.dropTime && (
+                    <span className="flex items-center gap-1 text-[11px] text-purple-600 dark:text-purple-400">
+                      <Clock size={10} /> Drop: {s.dropTime}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
+                    <MapPin size={10} /> {s.location}
+                  </span>
+                </div>
+              </div>
+              <span className={cn(
+                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap flex-shrink-0',
+                s.status === 'present' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                : s.status === 'absent' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+              )}>
+                {s.status === 'present' ? 'Present' : s.status === 'absent' ? 'Absent' : 'Pending'}
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-// ─── Student row ──────────────────────────────────────────────────────────────
-interface StudentRowProps {
-  name: string
-  classDiv: string
-  status: 'present' | 'absent' | 'pending'
-}
-
-const STATUS_BADGE_CLASSES: Record<StudentRowProps['status'], string> = {
-  present: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  absent: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-}
-
-const STATUS_LABELS: Record<StudentRowProps['status'], string> = {
-  present: 'Present',
-  absent: 'Absent',
-  pending: 'Yet to Board',
-}
-
-function StudentRow({ name, classDiv, status }: StudentRowProps) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3">
-      <Avatar className="h-9 w-9 flex-shrink-0">
-        <AvatarFallback className="text-xs font-semibold bg-[var(--primary)]/10 text-[var(--primary)]">
-          {getInitials(name)}
-        </AvatarFallback>
-      </Avatar>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-[var(--foreground)] truncate">{name}</p>
-        <p className="text-xs text-[var(--muted-foreground)]">{classDiv}</p>
-      </div>
-      <span
-        className={cn(
-          'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap flex-shrink-0',
-          STATUS_BADGE_CLASSES[status],
-        )}
-      >
-        {STATUS_LABELS[status]}
-      </span>
-    </div>
-  )
-}
-
 // ─── Stat card ────────────────────────────────────────────────────────────────
-interface StatCardProps {
-  icon: React.ElementType
-  label: string
-  value: string | number
-}
-
-function StatCard({ icon: Icon, label, value }: StatCardProps) {
+function StatCard({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string | number }) {
   return (
     <Card>
       <CardContent className="p-4 flex items-center gap-3">
@@ -192,14 +181,7 @@ function StatCard({ icon: Icon, label, value }: StatCardProps) {
 }
 
 // ─── Detail row ───────────────────────────────────────────────────────────────
-interface DetailRowProps {
-  label: string
-  value?: string | number
-  danger?: boolean
-  children?: React.ReactNode
-}
-
-function DetailRow({ label, value, danger, children }: DetailRowProps) {
+function DetailRow({ label, value, danger, children }: { label: string; value?: string | number; danger?: boolean; children?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between py-2.5 border-b border-[var(--border)] last:border-0">
       <span className="text-sm text-[var(--muted-foreground)]">{label}</span>
@@ -218,11 +200,12 @@ export default function BusDetail() {
   const navigate = useNavigate()
   const [callDialogOpen, setCallDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [selectedDate, setSelectedDate] = useState(TODAY)
 
   const bus = allBuses.find((b) => b.id === id)
   const route = allRoutes.find((r) => r.bus_id === id)
+  const dayMeta = useMemo(() => makeBusHistory(id ?? ''), [id])
 
-  // Deterministic occupancy (same logic as Buses.tsx)
   function occupancyFor(): number {
     if (!bus) return 0
     if (bus.status === 'offline' || !bus.status) return 0
@@ -236,9 +219,6 @@ export default function BusDetail() {
         <div className="flex flex-col items-center justify-center min-h-64 gap-4">
           <BusIcon size={48} className="text-[var(--muted-foreground)]" />
           <p className="text-lg font-semibold text-[var(--foreground)]">Bus not found</p>
-          <p className="text-sm text-[var(--muted-foreground)]">
-            The bus you are looking for does not exist or has been removed.
-          </p>
           <Button onClick={() => navigate('/school-admin/buses')}>
             <ArrowLeft size={16} /> Back to Buses
           </Button>
@@ -277,14 +257,8 @@ export default function BusDetail() {
           />
         </motion.div>
 
-        {/* Back button row */}
         <motion.div variants={item} className="-mt-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] -ml-2"
-            onClick={() => navigate('/school-admin/buses')}
-          >
+          <Button variant="ghost" size="sm" className="text-[var(--muted-foreground)] -ml-2" onClick={() => navigate('/school-admin/buses')}>
             <ArrowLeft size={15} /> Back to Buses
           </Button>
         </motion.div>
@@ -297,6 +271,19 @@ export default function BusDetail() {
           <StatCard icon={User} label="Driver" value={bus.driver_name ?? 'Unassigned'} />
         </motion.div>
 
+        {/* Horizontal Calendar */}
+        <motion.div variants={item}>
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <HorizontalCalendar
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+                dayMeta={dayMeta}
+              />
+            </CardContent>
+          </Card>
+        </motion.div>
+
         {/* Tabs */}
         <motion.div variants={item}>
           <Tabs defaultValue="students">
@@ -306,37 +293,20 @@ export default function BusDetail() {
               <TabsTrigger value="details">Details</TabsTrigger>
             </TabsList>
 
-            {/* ── Students tab ────────────────────────────────────────── */}
-            <TabsContent value="students" className="flex flex-col gap-4">
-              <CollapsibleSection
-                title="On Board / Present"
-                count={MOCK_ON_BOARD.length}
-                accentColor="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-              >
-                {MOCK_ON_BOARD.map((s) => (
-                  <StudentRow key={s.id} name={s.name} classDiv={s.classDiv} status="present" />
-                ))}
-              </CollapsibleSection>
-
-              <CollapsibleSection
-                title="Absent Today"
-                count={MOCK_ABSENT.length}
-                accentColor="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-              >
-                {MOCK_ABSENT.map((s) => (
-                  <StudentRow key={s.id} name={s.name} classDiv={s.classDiv} status="absent" />
-                ))}
-              </CollapsibleSection>
-
-              <CollapsibleSection
-                title="Yet to Board"
-                count={MOCK_YET_TO_BOARD.length}
-                accentColor="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-              >
-                {MOCK_YET_TO_BOARD.map((s) => (
-                  <StudentRow key={s.id} name={s.name} classDiv={s.classDiv} status="pending" />
-                ))}
-              </CollapsibleSection>
+            {/* ── Students tab — accordion by location ─────────────────── */}
+            <TabsContent value="students" className="flex flex-col gap-3">
+              <p className="text-xs text-[var(--muted-foreground)] px-1">
+                {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </p>
+              {MOCK_STOP_STUDENTS.map((group) => (
+                <StopAccordion
+                  key={group.stop}
+                  stop={group.stop}
+                  type={group.type}
+                  students={group.students}
+                  onStudentClick={(sid) => navigate(`/school-admin/students/${sid}`)}
+                />
+              ))}
             </TabsContent>
 
             {/* ── Schedule tab ─────────────────────────────────────────── */}
@@ -375,6 +345,11 @@ export default function BusDetail() {
                       <Users size={14} className="text-[var(--muted-foreground)]" />
                       <span>{trip.students} students</span>
                     </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <CheckCircle2 size={14} className="text-green-500" />
+                      <span className="text-[var(--foreground)]">Completed at <strong>{trip.completedAt}</strong></span>
+                      <span className="text-[var(--muted-foreground)] text-xs">({trip.duration})</span>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -383,12 +358,9 @@ export default function BusDetail() {
             {/* ── Details tab ──────────────────────────────────────────── */}
             <TabsContent value="details">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {/* Bus info */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">
-                      Bus Information
-                    </CardTitle>
+                    <CardTitle className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Bus Information</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <DetailRow label="Bus Number" value={bus.bus_number} />
@@ -397,12 +369,12 @@ export default function BusDetail() {
                     <DetailRow label="Seat Capacity" value={bus.seat_capacity} />
                     <DetailRow
                       label="Insurance Expiry"
-                      value={formatDate(bus.insurance_expiry)}
+                      value={bus.insurance_expiry ? formatDate(bus.insurance_expiry, 'short') : '—'}
                       danger={isExpired(bus.insurance_expiry)}
                     />
                     <DetailRow
                       label="Fitness Cert Expiry"
-                      value={formatDate(bus.fitness_cert_expiry)}
+                      value={bus.fitness_cert_expiry ? formatDate(bus.fitness_cert_expiry, 'short') : '—'}
                       danger={isExpired(bus.fitness_cert_expiry)}
                     />
                     {bus.safety_qr_code && (
@@ -411,29 +383,51 @@ export default function BusDetail() {
                   </CardContent>
                 </Card>
 
-                {/* Driver & assignment info */}
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">
-                      Driver &amp; Assignment
-                    </CardTitle>
+                    <CardTitle className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Driver &amp; Assignment</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <DetailRow label="Driver Assigned" value={bus.driver_name ?? 'Unassigned'} />
+                    <DetailRow label="Driver Assigned">
+                      {bus.driver_id ? (
+                        <button
+                          onClick={() => navigate(`/school-admin/drivers/${bus.driver_id}`)}
+                          className="text-sm font-medium text-[var(--primary)] hover:underline"
+                        >
+                          {bus.driver_name ?? 'Unassigned'}
+                        </button>
+                      ) : <span className="text-sm text-[var(--muted-foreground)]">Unassigned</span>}
+                    </DetailRow>
                     <DetailRow label="Driver Phone">
                       <div className="flex items-center gap-1.5">
                         <Phone size={13} className="text-[var(--muted-foreground)]" />
-                        <span className="text-sm font-medium text-[var(--foreground)]">
-                          {MOCK_DRIVER_PHONE}
-                        </span>
+                        <span className="text-sm font-medium text-[var(--foreground)]">{MOCK_DRIVER_PHONE}</span>
                       </div>
                     </DetailRow>
-                    <DetailRow label="Route" value={route?.name ?? 'Unassigned'} />
+                    <DetailRow label="Route">
+                      {route ? (
+                        <button
+                          onClick={() => navigate(`/school-admin/routes/${route.id}`)}
+                          className="text-sm font-medium text-[var(--primary)] hover:underline"
+                        >
+                          {route.name}
+                        </button>
+                      ) : <span className="text-sm text-[var(--muted-foreground)]">Unassigned</span>}
+                    </DetailRow>
+                    <DetailRow label="Route Type">
+                      {route ? (
+                        <span className={cn(
+                          'rounded-full px-2.5 py-0.5 text-xs font-semibold',
+                          route.type === 'pickup'
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                            : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+                        )}>
+                          {route.type === 'pickup' ? 'Pickup' : 'Drop'}
+                        </span>
+                      ) : '—'}
+                    </DetailRow>
                     <DetailRow label="School" value="Al-Noor International School" />
-                    <DetailRow label="Registration" value={bus.bus_number} />
-                    <DetailRow
-                      label="Status"
-                    >
+                    <DetailRow label="Status">
                       <StatusBadge status={status} size="sm" />
                     </DetailRow>
                   </CardContent>
@@ -452,9 +446,7 @@ export default function BusDetail() {
               <Phone size={18} className="text-[var(--primary)]" />
               Call Driver
             </DialogTitle>
-            <DialogDescription>
-              Contact the driver assigned to {bus.bus_number}.
-            </DialogDescription>
+            <DialogDescription>Contact the driver assigned to {bus.bus_number}.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col items-center gap-3 py-4">
             <Avatar className="h-16 w-16">
@@ -463,23 +455,18 @@ export default function BusDetail() {
               </AvatarFallback>
             </Avatar>
             <p className="font-semibold text-[var(--foreground)]">{bus.driver_name ?? 'Unassigned'}</p>
-            <a
-              href={`tel:${MOCK_DRIVER_PHONE.replace(/\s/g, '')}`}
-              className="inline-flex items-center gap-2 text-lg font-bold text-[var(--primary)] hover:underline"
-            >
-              <Phone size={18} />
-              {MOCK_DRIVER_PHONE}
+            <a href={`tel:${MOCK_DRIVER_PHONE.replace(/\s/g, '')}`} className="inline-flex items-center gap-2 text-lg font-bold text-[var(--primary)] hover:underline">
+              <Phone size={18} /> {MOCK_DRIVER_PHONE}
             </a>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCallDialogOpen(false)}>
-              Close
-            </Button>
-            <Button asChild>
-              <a href={`tel:${MOCK_DRIVER_PHONE.replace(/\s/g, '')}`}>
-                <Phone size={15} /> Call Now
-              </a>
-            </Button>
+            <Button variant="outline" onClick={() => setCallDialogOpen(false)}>Close</Button>
+            <a
+              href={`tel:${MOCK_DRIVER_PHONE.replace(/\s/g, '')}`}
+              className="inline-flex items-center gap-2 h-9 px-4 py-2 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] text-sm font-medium hover:opacity-90"
+            >
+              <Phone size={15} /> Call Now
+            </a>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -489,20 +476,11 @@ export default function BusDetail() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Edit Bus</DialogTitle>
-            <DialogDescription>
-              Edit details for {bus.bus_number}. Use the Buses list page for full edit functionality.
-            </DialogDescription>
+            <DialogDescription>Edit details for {bus.bus_number}. Use the Buses list page for full edit functionality.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Close</Button>
-            <Button
-              onClick={() => {
-                setEditDialogOpen(false)
-                navigate('/school-admin/buses')
-              }}
-            >
-              Go to Buses
-            </Button>
+            <Button onClick={() => { setEditDialogOpen(false); navigate('/school-admin/buses') }}>Go to Buses</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
