@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
+import { AIAssistant } from '@/components/shared/AIAssistant'
 import { useAuthStore } from '@/store/authStore'
 import { useAppStore } from '@/store/appStore'
 import { cn } from '@/lib/utils'
@@ -34,6 +35,7 @@ export function Layout({ children }: LayoutProps) {
           {children ?? <Outlet />}
         </main>
       </div>
+      <AIAssistant />
     </div>
   )
 }

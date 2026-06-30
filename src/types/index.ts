@@ -34,6 +34,7 @@ export interface Plan {
   label: string
   price_monthly: number
   price_annual: number
+  price_per_student: number
   billing_cycle: 'monthly' | 'annual'
   max_students: number
   max_buses: number
@@ -48,8 +49,11 @@ export interface School {
   address: string
   city: string
   state: string
+  post_code?: string
+  country?: string
   phone: string
   email: string
+  website?: string
   plan_id: string
   plan_name: string
   status: SchoolStatus

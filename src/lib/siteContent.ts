@@ -121,6 +121,8 @@ export interface Plan {
   name: string
   tagline: string
   monthly: number
+  pricePerStudent: number
+  maxStudents: number
   popular?: boolean
   limits: { students: string; buses: string; drivers: string }
   features: string[]
@@ -132,6 +134,8 @@ export const PLANS: Plan[] = [
     name: 'Basic',
     tagline: 'For small schools getting started with tracking.',
     monthly: 49,
+    pricePerStudent: 0.50,
+    maxStudents: 200,
     limits: { students: '200', buses: '5', drivers: '10' },
     features: [
       'Real-time GPS tracking',
@@ -147,6 +151,8 @@ export const PLANS: Plan[] = [
     name: 'Standard',
     tagline: 'For growing fleets that need automation.',
     monthly: 99,
+    pricePerStudent: 0.80,
+    maxStudents: 500,
     popular: true,
     limits: { students: '500', buses: '15', drivers: '25' },
     features: [
@@ -165,6 +171,8 @@ export const PLANS: Plan[] = [
     name: 'Premium',
     tagline: 'For large districts that need it all.',
     monthly: 199,
+    pricePerStudent: 1.20,
+    maxStudents: 999999,
     limits: { students: 'Unlimited', buses: 'Unlimited', drivers: 'Unlimited' },
     features: [
       'Everything in Standard',

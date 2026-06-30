@@ -1,9 +1,11 @@
 import React, { useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Route as RouteIcon, Plus, Bus, MapPin, Clock, Users, Map as MapIcon,
   Pencil, ArrowRight, CircleDot, Navigation, X, Download, Upload, QrCode,
-  LayoutGrid, List, UserPlus, PlusCircle, ChevronDown, ChevronUp,
+  LayoutGrid, List, UserPlus, PlusCircle, ChevronDown, ChevronUp, Trash2,
+  Eye,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -17,6 +19,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter, DialogClose,
 } from '@/components/ui/dialog'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -631,11 +636,12 @@ interface RouteCardProps {
   onDownloadQR: (route: RouteType) => void
   onAddStudent: (routeId: string, student: Student) => void
   onAddStop: (routeId: string, stop: Stop) => void
+  onViewDetails: (route: RouteType) => void
 }
 
 function RouteCard({
   route, studentsOnRoute, unassignedStudents,
-  onEdit, onViewMap, onDownloadQR, onAddStudent, onAddStop,
+  onEdit, onViewMap, onDownloadQR, onAddStudent, onAddStop, onViewDetails,
 }: RouteCardProps) {
   const activeTrip = getActiveTrip(route.id)
   const isRunning = !!activeTrip
@@ -769,6 +775,9 @@ function RouteCard({
 
         {/* Actions */}
         <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button variant="default" size="sm" className="flex-1" onClick={() => onViewDetails(route)}>
+            <Eye size={14} /> View Details
+          </Button>
           <Button variant="outline" size="sm" className="flex-1" onClick={() => onEdit(route)}>
             <Pencil size={14} /> Edit
           </Button>
@@ -792,6 +801,67 @@ function RouteCard({
   )
 }
 
+// ─── Mock names for Kanban boarding point cards ───────────────────────────────
+const MOCK_STOP_NAMES = [
+  ['Ahmed Hassan', 'Fatima Noor', 'Mohammed Khalid'],
+  ['Aisha Rahman', 'Omar Abdullah', 'Sara Ali'],
+  ['Yousef Mahmoud', 'Maryam Tariq', 'Ibrahim Yusuf'],
+  ['Noor Hussain', 'Layla Hassan', 'Khalil Ahmad'],
+]
+
+// ─── Boarding Point Card (Kanban) ─────────────────────────────────────────────
+interface BoardingPointCardProps {
+  stop: Stop
+  stopIndex: number
+}
+
+function BoardingPointCard({ stop, stopIndex }: BoardingPointCardProps) {
+  const initialNames = MOCK_STOP_NAMES[stopIndex % MOCK_STOP_NAMES.length]
+  const [students, setStudents] = useState<string[]>(initialNames)
+
+  function removeStudent(name: string) {
+    setStudents((prev) => prev.filter((n) => n !== name))
+  }
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-sm">
+      {/* Stop header */}
+      <div className="flex items-center gap-2 mb-2">
+        <CircleDot size={13} className="flex-shrink-0 text-[var(--primary)]" />
+        <p className="truncate text-xs font-semibold text-[var(--foreground)]">{stop.name}</p>
+        {stop.estimated_time && (
+          <span className="ml-auto flex-shrink-0 flex items-center gap-0.5 text-[10px] text-[var(--muted-foreground)]">
+            <Clock size={10} /> {stop.estimated_time}
+          </span>
+        )}
+      </div>
+      {/* Student list */}
+      {students.length === 0 ? (
+        <p className="text-[10px] text-[var(--muted-foreground)] pl-1">No students at this stop</p>
+      ) : (
+        <ul className="space-y-1">
+          {students.map((name) => (
+            <li key={name} className="flex items-center gap-1.5">
+              <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/10 text-[9px] font-bold text-[var(--primary)]">
+                {name.charAt(0)}
+              </span>
+              <span className="flex-1 truncate text-[11px] text-[var(--foreground)]">{name}</span>
+              <button
+                type="button"
+                onClick={() => removeStudent(name)}
+                title="Remove student from stop"
+                className="flex-shrink-0 rounded p-0.5 text-[var(--muted-foreground)] hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 transition-colors"
+              >
+                <Trash2 size={11} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 // ─── Kanban Board View ────────────────────────────────────────────────────────
 interface KanbanBoardProps {
   routes: RouteType[]
@@ -803,6 +873,27 @@ interface KanbanBoardProps {
 function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardProps) {
   const [dragStudentId, setDragStudentId] = useState<string | null>(null)
   const [dragOverRouteId, setDragOverRouteId] = useState<string | null>(null)
+
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const allStopNames = useMemo(() => {
+    const names = new Set<string>()
+    routes.forEach((r) => (r.stops ?? []).forEach((s) => names.add(s.name)))
+    return Array.from(names).sort()
+  }, [routes])
+
+  const [filterFrom, setFilterFrom] = useState<string>('all')
+  const [filterTo, setFilterTo] = useState<string>('all')
+
+  const filteredRoutes = useMemo(() => {
+    return routes.filter((r) => {
+      const stops = r.stops ?? []
+      const fromOk =
+        filterFrom === 'all' || stops.some((s) => s.name === filterFrom)
+      const toOk =
+        filterTo === 'all' || stops.some((s) => s.name === filterTo)
+      return fromOk && toOk
+    })
+  }, [routes, filterFrom, filterTo])
 
   function handleDragStart(e: React.DragEvent, studentId: string) {
     setDragStudentId(studentId)
@@ -835,12 +926,50 @@ function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardPro
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Back button */}
-      <div className="flex items-center gap-3">
+      {/* Top bar: back button + filter bar */}
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" size="sm" onClick={onBack}>
           <List size={15} /> List View
         </Button>
-        <p className="text-sm text-[var(--muted-foreground)]">
+
+        {/* Filter dropdowns */}
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-[var(--muted-foreground)] font-medium whitespace-nowrap">From stop:</span>
+            <Select value={filterFrom} onValueChange={setFilterFrom}>
+              <SelectTrigger className="h-8 w-44 text-xs">
+                <SelectValue placeholder="All stops" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All stops</SelectItem>
+                {allStopNames.map((name) => (
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-[var(--muted-foreground)] font-medium whitespace-nowrap">To stop:</span>
+            <Select value={filterTo} onValueChange={setFilterTo}>
+              <SelectTrigger className="h-8 w-44 text-xs">
+                <SelectValue placeholder="All stops" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All stops</SelectItem>
+                {allStopNames.map((name) => (
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {(filterFrom !== 'all' || filterTo !== 'all') && (
+            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { setFilterFrom('all'); setFilterTo('all') }}>
+              <X size={13} /> Clear
+            </Button>
+          )}
+        </div>
+
+        <p className="text-sm text-[var(--muted-foreground)] w-full sm:w-auto">
           Drag students between columns to reassign routes.
         </p>
       </div>
@@ -902,7 +1031,7 @@ function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardPro
           )
         })()}
 
-        {routes.map((route) => {
+        {filteredRoutes.map((route) => {
           const activeTrip = getActiveTrip(route.id)
           const isRunning = !!activeTrip
           const isDragOver = dragOverRouteId === route.id
@@ -911,11 +1040,12 @@ function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardPro
           )
           const pickupStudents = routeStudents
           const dropStudents: Student[] = []
+          const orderedStops = [...(route.stops ?? [])].sort((a, b) => a.order_index - b.order_index)
 
           return (
             <div
               key={route.id}
-              className={`flex w-72 flex-shrink-0 flex-col rounded-2xl border-2 transition-colors ${
+              className={`flex w-80 flex-shrink-0 flex-col rounded-2xl border-2 transition-colors ${
                 isDragOver
                   ? 'border-[var(--primary)] bg-[var(--primary)]/5'
                   : 'border-[var(--border)] bg-[var(--muted)]/20'
@@ -954,6 +1084,18 @@ function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardPro
                   </div>
                 </div>
               </div>
+
+              {/* Boarding point cards */}
+              {orderedStops.length > 0 && (
+                <div className="px-3 pt-3 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)] px-0.5">
+                    Boarding Points
+                  </p>
+                  {orderedStops.map((stop, idx) => (
+                    <BoardingPointCard key={stop.id} stop={stop} stopIndex={idx} />
+                  ))}
+                </div>
+              )}
 
               {/* Pickup/Drop tabs within column */}
               <div className="px-3 pt-3">
@@ -1049,6 +1191,7 @@ function KanbanStudentCard({ student, isDragging, onDragStart, onDragEnd }: Kanb
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Routes() {
+  const navigate = useNavigate()
   const [routes, setRoutes] = useState<RouteType[]>(
     allRoutes.filter((r) => r.school_id === SCHOOL_ID),
   )
@@ -1225,6 +1368,7 @@ export default function Routes() {
                   onDownloadQR={downloadRouteQR}
                   onAddStudent={handleAddStudent}
                   onAddStop={handleAddStop}
+                  onViewDetails={(r) => navigate(`/school-admin/routes/${r.id}`)}
                 />
               </motion.div>
             )

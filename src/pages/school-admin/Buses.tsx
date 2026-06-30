@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Plus, Bus as BusIcon, Navigation, MapPin, MoreVertical,
-  Pencil, Ban, LayoutGrid, List, User, Clock, Users, Download, Upload, QrCode,
+  Pencil, Ban, LayoutGrid, List, User, Clock, Users, Download, Upload, QrCode, Phone,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import PageHeader from '@/components/shared/PageHeader'
@@ -360,10 +360,21 @@ function BulkImportDialog({ open, onOpenChange, onImport }: BulkImportDialogProp
   )
 }
 
+type StatusFilter = 'all' | 'running' | 'idle' | 'offline'
+
+const STATUS_FILTER_PILLS: { label: string; value: StatusFilter }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Running', value: 'running' },
+  { label: 'Idle', value: 'idle' },
+  { label: 'Offline', value: 'offline' },
+]
+
 // --- Main page ---
 export default function Buses() {
   const navigate = useNavigate()
   const [view, setView] = useState<'grid' | 'table'>('grid')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [search, setSearch] = useState('')
 
   // Local bus list (starts from mock data filtered for this school)
   const [buses, setBuses] = useState<Bus[]>(() =>
@@ -382,6 +393,26 @@ export default function Buses() {
     const offline = buses.filter((b) => !b.status || b.status === 'offline').length
     return { total, running, idle, offline }
   }, [buses])
+
+  const filteredBuses = useMemo(() => {
+    let result = buses
+    if (statusFilter !== 'all') {
+      result = result.filter((b) => {
+        const st = b.status ?? 'offline'
+        return st === statusFilter
+      })
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(
+        (b) =>
+          b.bus_number.toLowerCase().includes(q) ||
+          (b.make_model ?? '').toLowerCase().includes(q) ||
+          (b.driver_name ?? '').toLowerCase().includes(q),
+      )
+    }
+    return result
+  }, [buses, statusFilter, search])
 
   function handleAdd(data: BusFormData) {
     const newBus: Bus = {
@@ -447,6 +478,9 @@ export default function Buses() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => navigate(`/school-admin/buses/${bus.id}`)}>
+            <BusIcon size={14} /> View Details
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => navigate('/school-admin/live-map')}>
             <Navigation size={14} /> Track
           </DropdownMenuItem>
@@ -592,10 +626,42 @@ export default function Buses() {
           <StatsCard title="Offline" value={stats.offline} icon={Ban} color="danger" />
         </motion.div>
 
+        {/* Filter pills + Search */}
+        <motion.div variants={item} className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-5">
+          {/* Status filter pills */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {STATUS_FILTER_PILLS.map((pill) => (
+              <button
+                key={pill.value}
+                onClick={() => setStatusFilter(pill.value)}
+                className={cn(
+                  'px-3 py-1 rounded-full text-sm font-medium transition-colors',
+                  statusFilter === pill.value
+                    ? 'bg-[var(--primary)] text-[var(--primary-foreground)]'
+                    : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]',
+                )}
+              >
+                {pill.label}
+              </button>
+            ))}
+          </div>
+          {/* Search (grid view only — table view has its own search) */}
+          {view === 'grid' && (
+            <div className="sm:ml-auto">
+              <Input
+                placeholder="Search buses…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-56"
+              />
+            </div>
+          )}
+        </motion.div>
+
         {/* Grid or Table */}
         {view === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {buses.map((bus) => {
+            {filteredBuses.map((bus) => {
               const occ = occupancyFor(bus)
               const route = routeForBus(bus.id)
               const status = bus.status ?? 'offline'
@@ -672,13 +738,22 @@ export default function Buses() {
                       <Progress value={(occ / bus.seat_capacity) * 100} />
                     </div>
 
-                    <div className="mt-auto pt-3 flex items-center justify-between border-t border-[var(--border)]">
-                      <span className="text-[11px] text-[var(--muted-foreground)]">
+                    <div className="mt-auto pt-3 flex items-center justify-between gap-2 border-t border-[var(--border)]">
+                      <span className="text-[11px] text-[var(--muted-foreground)] truncate">
                         {route ?? 'Unassigned route'}
                       </span>
-                      <Button size="sm" variant="outline" onClick={() => navigate('/school-admin/live-map')}>
-                        <Navigation size={13} /> Track
-                      </Button>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate(`/school-admin/buses/${bus.id}`)}
+                        >
+                          View Details
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => navigate('/school-admin/live-map')}>
+                          <Navigation size={13} /> Track
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -689,7 +764,7 @@ export default function Buses() {
           <motion.div variants={item}>
             <DataTable
               columns={columns}
-              data={buses}
+              data={filteredBuses}
               keyField="id"
               searchable
               searchKeys={['bus_number', 'make_model', 'driver_name']}

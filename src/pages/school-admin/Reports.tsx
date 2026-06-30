@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import {
   Download, BarChart3, Users, UserCheck, UserX, Percent,
   Bus as BusIcon, Route as RouteIcon, UserCog, Activity, Clock,
+  CalendarDays,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -17,11 +18,13 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   mockAttendance, mockExtraAttendance,
   mockBuses, mockRoutes, mockDrivers,
   mockTrips, mockExtraTrips,
   mockExtraBuses, mockExtraRoutes, mockExtraDrivers,
+  allStudents,
 } from '@/lib/mockData'
 import { formatDate, getInitials, downloadCSV } from '@/lib/utils'
 import type { AttendanceRecord, Bus, Route, Driver, Trip } from '@/types'
@@ -736,6 +739,99 @@ export default function SchoolReports() {
     setFilterStatus('all')
   }
 
+  // ── Daily Report state + data ─────────────────────────────────────────────
+  const [dailyDate, setDailyDate] = useState(today)
+
+  const schoolStudents = useMemo(
+    () => allStudents.filter((s) => s.school_id === SCHOOL_ID),
+    [],
+  )
+
+  // Attendance records for the selected day (school-scoped via route lookup)
+  const dailyAttendance = useMemo<AttendanceRecord[]>(() => {
+    return allAttendance.filter((a) => a.date === dailyDate)
+  }, [allAttendance, dailyDate])
+
+  const presentStudents = useMemo(
+    () => dailyAttendance.filter((a) => a.status === 'present'),
+    [dailyAttendance],
+  )
+  const absentStudents = useMemo(
+    () => dailyAttendance.filter((a) => a.status === 'absent'),
+    [dailyAttendance],
+  )
+
+  const dailyStats = useMemo(() => {
+    const total = dailyAttendance.length || 1
+    const present = presentStudents.length
+    const absent = absentStudents.length
+    const pct = Math.round((present / total) * 100)
+    return { total: dailyAttendance.length, present, absent, pct }
+  }, [dailyAttendance, presentStudents, absentStudents])
+
+  function exportDailyCSV() {
+    const rows = [
+      ...presentStudents.map((a) => ({
+        status: 'Present',
+        student_name: a.student_name,
+        class: a.student_class ?? '',
+        route: a.route_name ?? '',
+        scan_time: a.pickup_time ? formatDate(a.pickup_time, 'time') : '',
+      })),
+      ...absentStudents.map((a) => ({
+        status: 'Absent',
+        student_name: a.student_name,
+        class: a.student_class ?? '',
+        route: a.route_name ?? '',
+        scan_time: '',
+      })),
+    ]
+    downloadCSV(rows, `daily-report-${dailyDate}`)
+  }
+
+  const dailyStudentColumns: Column<AttendanceRecord>[] = [
+    {
+      key: 'student_name',
+      header: 'Student Name',
+      sortable: true,
+      render: (row) => (
+        <div className="flex items-center gap-3">
+          <Avatar className="h-8 w-8 flex-shrink-0">
+            <AvatarFallback className="bg-[var(--primary)]/10 text-xs font-semibold text-[var(--primary)]">
+              {getInitials(row.student_name)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="text-sm font-medium text-[var(--foreground)] truncate max-w-[180px]">
+            {row.student_name}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'student_class',
+      header: 'Class',
+      render: (row) => <Badge variant="muted">{row.student_class ?? '—'}</Badge>,
+    },
+    {
+      key: 'route_name',
+      header: 'Route',
+      render: (row) => (
+        <span className="text-sm text-[var(--foreground)]">{row.route_name ?? '—'}</span>
+      ),
+    },
+    {
+      key: 'pickup_time',
+      header: 'Scan Time',
+      render: (row) => (
+        <span className="text-sm tabular-nums text-[var(--foreground)]">
+          {row.pickup_time
+            ? formatDate(row.pickup_time, 'time')
+            : <span className="text-[var(--muted-foreground)]">—</span>}
+        </span>
+      ),
+    },
+  ]
+
   return (
     <Layout>
       {/* ── Page Header ── */}
@@ -749,6 +845,134 @@ export default function SchoolReports() {
           </Button>
         }
       />
+
+      {/* ── Top-level tab switcher ── */}
+      <Tabs defaultValue="standard" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="standard" className="gap-1.5">
+            <BarChart3 size={14} /> Standard Reports
+          </TabsTrigger>
+          <TabsTrigger value="daily" className="gap-1.5">
+            <CalendarDays size={14} /> Daily Report
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ══ Daily Report tab ══ */}
+        <TabsContent value="daily" className="space-y-6">
+          {/* Date picker + export */}
+          <motion.div
+            variants={container}
+            initial="hidden"
+            animate="show"
+            className="space-y-6"
+          >
+            <motion.div variants={item}>
+              <Card>
+                <CardHeader className="pb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                      <CalendarDays size={16} className="text-[var(--primary)]" />
+                      Select Date
+                    </CardTitle>
+                    <Button variant="outline" size="sm" onClick={exportDailyCSV} className="gap-1.5">
+                      <Download size={14} /> Export CSV
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="flex items-center gap-3">
+                    <Label className="text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide whitespace-nowrap">
+                      Date
+                    </Label>
+                    <input
+                      type="date"
+                      value={dailyDate}
+                      onChange={(e) => setDailyDate(e.target.value)}
+                      className="h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Daily stats */}
+            <motion.div variants={container} className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+              <motion.div variants={item}>
+                <StatsCard title="Total Scanned" value={dailyStats.total} icon={Users} color="primary" />
+              </motion.div>
+              <motion.div variants={item}>
+                <StatsCard title="Present" value={dailyStats.present} icon={UserCheck} color="success" />
+              </motion.div>
+              <motion.div variants={item}>
+                <StatsCard title="Absent" value={dailyStats.absent} icon={UserX} color="danger" />
+              </motion.div>
+              <motion.div variants={item}>
+                <StatsCard title="Attendance %" value={`${dailyStats.pct}%`} icon={Percent} color="info" subtitle="of scanned records" />
+              </motion.div>
+            </motion.div>
+
+            {/* Present students table */}
+            <motion.div variants={item}>
+              <Card>
+                <CardHeader className="pb-0">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <UserCheck size={18} className="text-green-500" />
+                    Present Students
+                    <Badge variant="muted" className="ml-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                      {presentStudents.length}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0 pt-4">
+                  <DataTable
+                    columns={dailyStudentColumns}
+                    data={presentStudents}
+                    keyField="id"
+                    searchable
+                    searchKeys={['student_name', 'student_class', 'route_name'] as (keyof AttendanceRecord)[]}
+                    searchPlaceholder="Search present students…"
+                    pageSize={10}
+                    emptyTitle="No present students"
+                    emptyDescription="No students were scanned as present on this date."
+                    className="border-0 rounded-none shadow-none"
+                  />
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Absent students table */}
+            <motion.div variants={item}>
+              <Card>
+                <CardHeader className="pb-0">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <UserX size={18} className="text-red-500" />
+                    Absent Students
+                    <Badge variant="muted" className="ml-1 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                      {absentStudents.length}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0 pt-4">
+                  <DataTable
+                    columns={dailyStudentColumns}
+                    data={absentStudents}
+                    keyField="id"
+                    searchable
+                    searchKeys={['student_name', 'student_class', 'route_name'] as (keyof AttendanceRecord)[]}
+                    searchPlaceholder="Search absent students…"
+                    pageSize={10}
+                    emptyTitle="No absent students"
+                    emptyDescription="No students were marked absent on this date."
+                    className="border-0 rounded-none shadow-none"
+                  />
+                </CardContent>
+              </Card>
+            </motion.div>
+          </motion.div>
+        </TabsContent>
+
+        {/* ══ Standard Reports tab ══ */}
+        <TabsContent value="standard">
 
       {/* ── Filter Card ── */}
       <motion.div
@@ -962,6 +1186,9 @@ export default function SchoolReports() {
           </Card>
         </motion.div>
       </motion.div>
+
+        </TabsContent>
+      </Tabs>
     </Layout>
   )
 }

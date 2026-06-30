@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   School as SchoolIcon, Plus, Upload, CheckCircle, Clock, Ban, Download, FileSpreadsheet,
-  MoreHorizontal, Eye, Pencil, Power, Trash2, Users, Bus,
+  MoreHorizontal, Eye, Pencil, Power, Trash2, Users, Bus, Bell, FileText, Send,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -22,8 +22,8 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
-import { formatDate, formatNumber, getInitials, generateId } from '@/lib/utils'
-import { mockSchools } from '@/lib/mockData'
+import { formatDate, formatNumber, getInitials, generateId, formatCurrency } from '@/lib/utils'
+import { mockSchools, mockPlans } from '@/lib/mockData'
 import type { School } from '@/types'
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } }
@@ -34,9 +34,26 @@ const PLAN_VARIANT: Record<string, 'muted' | 'info' | 'secondary'> = { basic: 'm
 const TEMPLATE = mockSchools[0]
 
 interface FormState {
-  name: string; admin_email: string; plan_name: string; city: string; student_count: string; bus_count: string
+  name: string
+  admin_name: string
+  admin_email: string
+  phone: string
+  website: string
+  plan_name: string
+  address: string
+  city: string
+  state: string
+  post_code: string
+  country: string
+  student_count: string
+  bus_count: string
+  driver_count: string
 }
-const EMPTY_FORM: FormState = { name: '', admin_email: '', plan_name: 'standard', city: '', student_count: '', bus_count: '' }
+const EMPTY_FORM: FormState = {
+  name: '', admin_name: '', admin_email: '', phone: '', website: '',
+  plan_name: 'standard', address: '', city: '', state: '', post_code: '', country: 'UAE',
+  student_count: '', bus_count: '', driver_count: '',
+}
 
 function MiniStat({ label, value, icon: Icon, accent }: { label: string; value: number; icon: typeof SchoolIcon; accent: string }) {
   return (
@@ -53,14 +70,17 @@ function MiniStat({ label, value, icon: Icon, accent }: { label: string; value: 
 export default function Schools() {
   const navigate = useNavigate()
   const [schools, setSchools] = useState<School[]>(mockSchools)
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [planFilter, setPlanFilter] = useState('all')
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [importOpen, setImportOpen] = useState(false)
   const [importMsg, setImportMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Payment / Invoice dialog state
+  const [paymentTarget, setPaymentTarget] = useState<School | null>(null)
+  const [paymentMode, setPaymentMode] = useState<'alert' | 'invoice' | null>(null)
+  const [paymentSent, setPaymentSent] = useState(false)
 
   const counts = useMemo(() => ({
     total: schools.length,
@@ -69,38 +89,88 @@ export default function Schools() {
     suspended: schools.filter((s) => s.status === 'suspended').length,
   }), [schools])
 
+  // Live cost calculation for the add/edit form
+  const selectedPlan = useMemo(
+    () => mockPlans.find((p) => p.name === form.plan_name) ?? null,
+    [form.plan_name],
+  )
+  const estimatedCost = useMemo(() => {
+    const n = parseInt(form.student_count) || 0
+    if (!selectedPlan || n <= 0) return null
+    const studentCost = n * selectedPlan.price_per_student
+    const monthly = selectedPlan.price_monthly + studentCost
+    const annual = selectedPlan.price_annual + studentCost * 12
+    return { monthly, annual, studentCost, base: selectedPlan.price_monthly, n, rate: selectedPlan.price_per_student }
+  }, [form.student_count, selectedPlan])
+
+  // Invoice amount for the selected school
+  const invoiceAmount = useMemo(() => {
+    if (!paymentTarget) return 0
+    const plan = mockPlans.find((p) => p.name.toLowerCase() === paymentTarget.plan_name.toLowerCase())
+    if (!plan) return 0
+    const studentCost = (paymentTarget.student_count ?? 0) * plan.price_per_student
+    return plan.price_monthly + studentCost
+  }, [paymentTarget])
+
   function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setFormOpen(true) }
   function openEdit(row: School) {
     setEditingId(row.id)
     setForm({
-      name: row.name, admin_email: row.admin_email ?? row.email ?? '', plan_name: row.plan_name?.toLowerCase() ?? 'standard',
-      city: row.city ?? '', student_count: String(row.student_count ?? ''), bus_count: String(row.bus_count ?? ''),
+      name: row.name,
+      admin_name: row.admin_name ?? '',
+      admin_email: row.admin_email ?? row.email ?? '',
+      phone: row.phone ?? '',
+      website: row.website ?? '',
+      plan_name: row.plan_name?.toLowerCase() ?? 'standard',
+      address: row.address ?? '',
+      city: row.city ?? '',
+      state: row.state ?? '',
+      post_code: row.post_code ?? '',
+      country: row.country ?? 'UAE',
+      student_count: String(row.student_count ?? ''),
+      bus_count: String(row.bus_count ?? ''),
+      driver_count: String(row.driver_count ?? ''),
     })
     setFormOpen(true)
   }
+
+  function openPayment(row: School, mode: 'alert' | 'invoice') {
+    setPaymentTarget(row)
+    setPaymentMode(mode)
+    setPaymentSent(false)
+  }
+  function closePayment() { setPaymentTarget(null); setPaymentMode(null); setPaymentSent(false) }
+  function confirmSend() { setPaymentSent(true) }
 
   function saveSchool(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim() || !form.admin_email.trim()) return
     const planLabel = form.plan_name.charAt(0).toUpperCase() + form.plan_name.slice(1)
+    const commonFields = {
+      name: form.name,
+      admin_name: form.admin_name || undefined,
+      admin_email: form.admin_email,
+      email: form.admin_email,
+      phone: form.phone || '—',
+      website: form.website || undefined,
+      plan_name: planLabel,
+      address: form.address || '—',
+      city: form.city || '—',
+      state: form.state || '—',
+      post_code: form.post_code || undefined,
+      country: form.country || 'UAE',
+      student_count: Number(form.student_count) || 0,
+      bus_count: Number(form.bus_count) || 0,
+      driver_count: Number(form.driver_count) || 0,
+    }
     if (editingId) {
-      setSchools((list) => list.map((s) => s.id === editingId ? {
-        ...s, name: form.name, admin_email: form.admin_email, email: form.admin_email,
-        plan_name: planLabel, city: form.city,
-        student_count: Number(form.student_count) || 0, bus_count: Number(form.bus_count) || 0,
-      } : s))
+      setSchools((list) => list.map((s) => s.id === editingId ? { ...s, ...commonFields } : s))
     } else {
       const created: School = {
         ...TEMPLATE,
+        ...commonFields,
         id: `SCH-${generateId()}`,
-        name: form.name,
-        admin_email: form.admin_email,
-        email: form.admin_email,
-        plan_name: planLabel,
         status: 'pending',
-        city: form.city || '—',
-        student_count: Number(form.student_count) || 0,
-        bus_count: Number(form.bus_count) || 0,
         created_at: new Date().toISOString(),
       }
       setSchools((list) => [created, ...list])
@@ -119,9 +189,9 @@ export default function Schools() {
 
   function downloadTemplate() {
     const csv = [
-      'name,admin_email,plan,city,student_count,bus_count',
-      'Riverside Public School,admin@riverside.ae,standard,Dubai,420,12',
-      'Oakwood Academy,admin@oakwood.ae,premium,Abu Dhabi,880,20',
+      'name,admin_email,plan,city,address,student_count,bus_count',
+      'Riverside Public School,admin@riverside.ae,standard,Dubai,45 Sheikh Zayed Road,420,12',
+      'Oakwood Academy,admin@oakwood.ae,premium,Abu Dhabi,12 Knowledge Village,880,20',
     ].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -139,10 +209,10 @@ export default function Schools() {
     reader.onload = () => {
       const text = String(reader.result ?? '')
       const lines = text.split(/\r?\n/).filter((l) => l.trim())
-      const rows = lines.slice(1) // skip header
+      const rows = lines.slice(1)
       const created: School[] = rows.map((line) => {
-        const [name, email, plan, city, students, buses] = line.split(',').map((c) => c.trim())
-        const planLabel = (plan || 'basic');
+        const [name, email, plan, city, address, students, buses] = line.split(',').map((c) => c.trim())
+        const planLabel = (plan || 'basic')
         return {
           ...TEMPLATE,
           id: `SCH-${generateId()}`,
@@ -152,6 +222,7 @@ export default function Schools() {
           plan_name: planLabel.charAt(0).toUpperCase() + planLabel.slice(1),
           status: 'pending',
           city: city || '—',
+          address: address || '—',
           student_count: Number(students) || 0,
           bus_count: Number(buses) || 0,
           created_at: new Date().toISOString(),
@@ -179,6 +250,15 @@ export default function Schools() {
         </div>
       ),
     },
+    {
+      key: 'address', header: 'Address', accessor: (row) => row.address,
+      render: (row) => (
+        <div className="min-w-0 max-w-[180px]">
+          <p className="text-sm text-[var(--foreground)] truncate">{row.address || '—'}</p>
+          <p className="text-xs text-[var(--muted-foreground)] truncate">{row.city}{row.state && row.state !== row.city ? `, ${row.state}` : ''}</p>
+        </div>
+      ),
+    },
     { key: 'plan_name', header: 'Plan', sortable: true, accessor: (row) => row.plan_name, render: (row) => <Badge variant={PLAN_VARIANT[row.plan_name.toLowerCase()] ?? 'muted'}>{row.plan_name}</Badge> },
     { key: 'status', header: 'Status', sortable: true, accessor: (row) => row.status, render: (row) => <StatusBadge status={row.status} /> },
     { key: 'student_count', header: 'Students', sortable: true, accessor: (row) => row.student_count, render: (row) => <span className="inline-flex items-center gap-1.5 text-[var(--foreground)] tabular-nums"><Users size={14} className="text-[var(--muted-foreground)]" />{formatNumber(row.student_count)}</span> },
@@ -190,11 +270,14 @@ export default function Schools() {
         <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal size={16} /></Button></DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => navigate(`/super-admin/schools/${row.id}`)}><Eye size={14} /> View Profile</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => openEdit(row)}><Pencil size={14} /> Edit</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate(`/super-admin/schools/${row.id}`)}><Pencil size={14} /> Edit</DropdownMenuItem>
               <DropdownMenuItem onClick={() => toggleSuspend(row)}><Power size={14} />{row.status === 'suspended' ? 'Reactivate' : 'Suspend'}</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => openPayment(row, 'alert')}><Bell size={14} /> Send Payment Alert</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openPayment(row, 'invoice')}><FileText size={14} /> Send Invoice</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem destructive onClick={() => removeSchool(row)}><Trash2 size={14} /> Delete</DropdownMenuItem>
             </DropdownMenuContent>
@@ -231,7 +314,7 @@ export default function Schools() {
             data={schools}
             keyField="id"
             searchable
-            searchKeys={['name', 'admin_email', 'email', 'city']}
+            searchKeys={['name', 'admin_email', 'email', 'city', 'address']}
             searchPlaceholder="Search schools…"
             onRowClick={(row) => navigate(`/super-admin/schools/${row.id}`)}
             emptyTitle="No schools found"
@@ -240,47 +323,133 @@ export default function Schools() {
         </motion.div>
       </motion.div>
 
-      {/* Add / Edit School */}
+      {/* ── Add / Edit School Dialog ─────────────────────────────────── */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit School' : 'Add School'}</DialogTitle>
-            <DialogDescription>{editingId ? 'Update the school details.' : 'Manually onboard a school. It starts as pending until approved.'}</DialogDescription>
+            <DialogDescription>
+              {editingId ? 'Update the school details.' : 'Manually onboard a school. It starts as pending until approved.'}
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={saveSchool} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="sc-name">School name *</Label>
-              <Input id="sc-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Greenfield Academy" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sc-email">Admin email *</Label>
-              <Input id="sc-email" type="email" value={form.admin_email} onChange={(e) => setForm((f) => ({ ...f, admin_email: e.target.value }))} placeholder="admin@school.ae" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Plan</Label>
-                <Select value={form.plan_name} onValueChange={(v) => setForm((f) => ({ ...f, plan_name: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="basic">Basic</SelectItem>
-                    <SelectItem value="standard">Standard</SelectItem>
-                    <SelectItem value="premium">Premium</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="sc-city">City</Label>
-                <Input id="sc-city" value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} placeholder="Dubai" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="sc-students">Students</Label>
-                <Input id="sc-students" type="number" value={form.student_count} onChange={(e) => setForm((f) => ({ ...f, student_count: e.target.value }))} placeholder="350" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="sc-buses">Buses</Label>
-                <Input id="sc-buses" type="number" value={form.bus_count} onChange={(e) => setForm((f) => ({ ...f, bus_count: e.target.value }))} placeholder="8" />
+          <form onSubmit={saveSchool} className="space-y-5">
+
+            {/* ── School Info ── */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">School Information</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 space-y-1.5">
+                  <Label htmlFor="sc-name">School name *</Label>
+                  <Input id="sc-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Greenfield Academy" required />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-phone">Phone number</Label>
+                  <Input id="sc-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="+971-4-555-0100" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-website">Website</Label>
+                  <Input id="sc-website" value={form.website} onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))} placeholder="www.school.ae" />
+                </div>
               </div>
             </div>
+
+            <div className="border-t border-[var(--border)]" />
+
+            {/* ── Admin Contact ── */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Admin Contact</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-admin-name">Admin name</Label>
+                  <Input id="sc-admin-name" value={form.admin_name} onChange={(e) => setForm((f) => ({ ...f, admin_name: e.target.value }))} placeholder="Hassan Al-Rashid" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-email">Admin email *</Label>
+                  <Input id="sc-email" type="email" value={form.admin_email} onChange={(e) => setForm((f) => ({ ...f, admin_email: e.target.value }))} placeholder="admin@school.ae" required />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--border)]" />
+
+            {/* ── Address Details ── */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Address Details</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 space-y-1.5">
+                  <Label htmlFor="sc-address">Street address</Label>
+                  <Input id="sc-address" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} placeholder="45 Sheikh Zayed Road" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-city">City</Label>
+                  <Input id="sc-city" value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} placeholder="Dubai" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-state">State / Emirate</Label>
+                  <Input id="sc-state" value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))} placeholder="Dubai" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-postcode">Post / ZIP code</Label>
+                  <Input id="sc-postcode" value={form.post_code} onChange={(e) => setForm((f) => ({ ...f, post_code: e.target.value }))} placeholder="00000" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-country">Country</Label>
+                  <Input id="sc-country" value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))} placeholder="UAE" />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--border)]" />
+
+            {/* ── Plan & Capacity ── */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Plan & Capacity</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Plan</Label>
+                  <Select value={form.plan_name} onValueChange={(v) => setForm((f) => ({ ...f, plan_name: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="basic">Basic</SelectItem>
+                      <SelectItem value="standard">Standard</SelectItem>
+                      <SelectItem value="premium">Premium</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-students">Students</Label>
+                  <Input id="sc-students" type="number" min={0} value={form.student_count} onChange={(e) => setForm((f) => ({ ...f, student_count: e.target.value }))} placeholder="350" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-buses">Buses</Label>
+                  <Input id="sc-buses" type="number" min={0} value={form.bus_count} onChange={(e) => setForm((f) => ({ ...f, bus_count: e.target.value }))} placeholder="8" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sc-drivers">Drivers</Label>
+                  <Input id="sc-drivers" type="number" min={0} value={form.driver_count} onChange={(e) => setForm((f) => ({ ...f, driver_count: e.target.value }))} placeholder="6" />
+                </div>
+              </div>
+            </div>
+
+            {/* Live cost preview */}
+            {estimatedCost && (
+              <div className="rounded-xl border border-[var(--primary)]/30 bg-[var(--primary)]/5 p-3 space-y-1.5">
+                <p className="text-xs font-semibold text-[var(--primary)] uppercase tracking-wide">Estimated Cost Preview</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                  <span className="text-[var(--muted-foreground)]">Base price</span>
+                  <span className="text-[var(--foreground)] tabular-nums font-medium">{formatCurrency(estimatedCost.base)}/mo</span>
+                  <span className="text-[var(--muted-foreground)]">Student cost</span>
+                  <span className="text-[var(--foreground)] tabular-nums font-medium">
+                    {estimatedCost.n} × {formatCurrency(estimatedCost.rate)} = {formatCurrency(estimatedCost.studentCost)}/mo
+                  </span>
+                  <span className="text-[var(--muted-foreground)] font-semibold">Total monthly</span>
+                  <span className="text-[var(--primary)] tabular-nums font-bold">{formatCurrency(estimatedCost.monthly)}</span>
+                  <span className="text-[var(--muted-foreground)] font-semibold">Total annual</span>
+                  <span className="text-[var(--foreground)] tabular-nums font-semibold">{formatCurrency(estimatedCost.annual)}</span>
+                </div>
+              </div>
+            )}
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
               <Button type="submit">{editingId ? 'Save Changes' : 'Add School'}</Button>
@@ -289,7 +458,106 @@ export default function Schools() {
         </DialogContent>
       </Dialog>
 
-      {/* Bulk Import */}
+      {/* ── Payment Alert Dialog ─────────────────────────────────────── */}
+      <Dialog open={paymentMode === 'alert' && !!paymentTarget} onOpenChange={(o) => { if (!o) closePayment() }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Bell size={18} className="text-amber-500" /> Send Payment Alert</DialogTitle>
+            <DialogDescription>Send a payment reminder to the school admin.</DialogDescription>
+          </DialogHeader>
+          {!paymentSent ? (
+            <>
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 p-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-[var(--muted-foreground)]">School</span>
+                  <span className="font-medium text-[var(--foreground)]">{paymentTarget?.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--muted-foreground)]">Admin email</span>
+                  <span className="font-medium text-[var(--foreground)]">{paymentTarget?.admin_email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--muted-foreground)]">Amount due</span>
+                  <span className="font-bold text-amber-600">{formatCurrency(invoiceAmount)}/mo</span>
+                </div>
+              </div>
+              <p className="text-xs text-[var(--muted-foreground)]">An email notification will be sent to the school admin reminding them of the outstanding payment.</p>
+              <DialogFooter>
+                <Button variant="outline" onClick={closePayment}>Cancel</Button>
+                <Button onClick={confirmSend} className="bg-amber-500 hover:bg-amber-600 text-white">
+                  <Send size={14} /> Send Alert
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-4 text-center">
+              <CheckCircle size={36} className="text-green-500" />
+              <p className="font-semibold text-[var(--foreground)]">Alert Sent!</p>
+              <p className="text-sm text-[var(--muted-foreground)]">Payment reminder sent to {paymentTarget?.admin_email}.</p>
+              <Button variant="outline" onClick={closePayment}>Close</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Invoice Dialog ───────────────────────────────────────────── */}
+      <Dialog open={paymentMode === 'invoice' && !!paymentTarget} onOpenChange={(o) => { if (!o) closePayment() }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><FileText size={18} className="text-[var(--primary)]" /> Send Invoice</DialogTitle>
+            <DialogDescription>Generate and send an invoice to the school admin.</DialogDescription>
+          </DialogHeader>
+          {!paymentSent ? (
+            <>
+              {/* Invoice preview */}
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 space-y-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[var(--foreground)] text-base">INVOICE</span>
+                  <span className="text-xs text-[var(--muted-foreground)]">#{new Date().getFullYear()}-{String(paymentTarget?.id).slice(-4).toUpperCase()}</span>
+                </div>
+                <div className="border-t border-[var(--border)] pt-2 space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted-foreground)]">To</span>
+                    <span className="font-medium text-[var(--foreground)] truncate max-w-[160px] text-right">{paymentTarget?.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted-foreground)]">Email</span>
+                    <span className="text-[var(--foreground)] truncate max-w-[160px] text-right">{paymentTarget?.admin_email}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted-foreground)]">Plan</span>
+                    <span className="text-[var(--foreground)]">{paymentTarget?.plan_name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted-foreground)]">Students</span>
+                    <span className="text-[var(--foreground)] tabular-nums">{formatNumber(paymentTarget?.student_count ?? 0)}</span>
+                  </div>
+                </div>
+                <div className="border-t border-[var(--border)] pt-2 flex justify-between font-bold">
+                  <span className="text-[var(--foreground)]">Total Due</span>
+                  <span className="text-[var(--primary)] text-base">{formatCurrency(invoiceAmount)}</span>
+                </div>
+              </div>
+              <p className="text-xs text-[var(--muted-foreground)]">A PDF invoice will be generated and emailed to the school admin.</p>
+              <DialogFooter>
+                <Button variant="outline" onClick={closePayment}>Cancel</Button>
+                <Button onClick={confirmSend}>
+                  <Send size={14} /> Send Invoice
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-4 text-center">
+              <CheckCircle size={36} className="text-green-500" />
+              <p className="font-semibold text-[var(--foreground)]">Invoice Sent!</p>
+              <p className="text-sm text-[var(--muted-foreground)]">Invoice emailed to {paymentTarget?.admin_email}.</p>
+              <Button variant="outline" onClick={closePayment}>Close</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bulk Import Dialog ───────────────────────────────────────── */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogContent>
           <DialogHeader>

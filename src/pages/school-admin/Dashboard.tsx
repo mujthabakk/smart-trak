@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -8,16 +8,18 @@ import {
 import {
   Users, Bus as BusIcon, Navigation, CalendarCheck, UserCheck,
   CalendarClock, MapPin, Clock, ArrowRight, Activity, Gauge,
+  AlertTriangle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { formatDate } from '@/lib/utils'
 import {
   allStudents, allBuses, allDrivers, allTrips, allLeaves,
-  mockAttendance, mockAttendanceTrend,
+  mockAttendance, mockAttendanceTrend, allRoutes,
 } from '@/lib/mockData'
 
 const container = {
@@ -55,8 +57,28 @@ function AttendanceTooltip({ active, payload, label }: AreaTooltipProps) {
   return null
 }
 
+/** Returns number of days until the given date string (YYYY-MM-DD). Negative = past. */
+function daysUntil(dateStr: string | undefined): number {
+  if (!dateStr) return 9999
+  const diff = new Date(dateStr).getTime() - Date.now()
+  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
+function expiryBadgeClass(days: number) {
+  if (days < 30) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+  if (days < 90) return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+  return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+}
+
+function expiryLabel(days: number) {
+  if (days < 0) return 'Expired'
+  if (days === 0) return 'Today'
+  return `${days}d`
+}
+
 export default function SchoolAdminDashboard() {
   const navigate = useNavigate()
+  const [liveBusTab, setLiveBusTab] = useState<'morning' | 'afternoon'>('morning')
 
   const stats = useMemo(() => {
     const totalStudents = allStudents.length
@@ -95,6 +117,48 @@ export default function SchoolAdminDashboard() {
     [],
   )
 
+  // Morning: running buses with pickup routes (6:30–8:30 AM)
+  const morningBuses = useMemo(() => {
+    return allBuses
+      .filter((b) => b.status === 'running')
+      .map((bus) => {
+        const route = allRoutes.find((r) => r.bus_id === bus.id && r.type === 'pickup')
+        const studentCount = route?.student_count ?? bus.seat_capacity
+        return { bus, route, studentCount }
+      })
+      .slice(0, 8)
+  }, [])
+
+  // Afternoon: idle buses with drop routes (2:00–4:00 PM)
+  const afternoonBuses = useMemo(() => {
+    return allBuses
+      .filter((b) => b.status === 'idle')
+      .map((bus) => {
+        const route = allRoutes.find((r) => r.bus_id === bus.id && r.type === 'drop')
+        const studentCount = route?.student_count ?? 0
+        return { bus, route, studentCount }
+      })
+      .slice(0, 8)
+  }, [])
+
+  // Expiry alerts — only buses that have expiry within 90 days
+  const expiryAlerts = useMemo(() => {
+    return allBuses
+      .flatMap((bus) => {
+        const rows = []
+        const insDays = daysUntil(bus.insurance_expiry)
+        const fitDays = daysUntil(bus.fitness_cert_expiry)
+        if (insDays < 90) {
+          rows.push({ bus, type: 'Insurance', expiry: bus.insurance_expiry ?? '', days: insDays })
+        }
+        if (fitDays < 90) {
+          rows.push({ bus, type: 'Fitness Cert', expiry: bus.fitness_cert_expiry ?? '', days: fitDays })
+        }
+        return rows
+      })
+      .sort((a, b) => a.days - b.days)
+  }, [])
+
   return (
     <Layout>
       <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
@@ -120,6 +184,129 @@ export default function SchoolAdminDashboard() {
           <StatsCard title="Attendance Today" value={`${stats.attendancePct}%`} icon={CalendarCheck} color="success" />
           <StatsCard title="Drivers" value={stats.drivers} icon={UserCheck} color="warning" onClick={() => navigate('/school-admin/drivers')} />
           <StatsCard title="Pending Leaves" value={stats.pendingLeaves} icon={CalendarClock} color="danger" onClick={() => navigate('/school-admin/leave')} />
+        </motion.div>
+
+        {/* Morning/Afternoon + Expiry Alerts */}
+        <motion.div variants={item} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Morning / Afternoon Live Buses */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2">
+                <BusIcon size={18} className="text-[var(--primary)]" />
+                Live Buses by Shift
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Tabs value={liveBusTab} onValueChange={(v) => setLiveBusTab(v as 'morning' | 'afternoon')}>
+                <div className="px-6 pt-1 pb-3">
+                  <TabsList className="w-full">
+                    <TabsTrigger value="morning" className="flex-1">Morning</TabsTrigger>
+                    <TabsTrigger value="afternoon" className="flex-1">Afternoon</TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <TabsContent value="morning" className="mt-0">
+                  {morningBuses.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">No morning buses running.</p>
+                  ) : (
+                    <div className="divide-y divide-[var(--border)]">
+                      {morningBuses.map(({ bus, route, studentCount }) => (
+                        <div key={bus.id} className="flex items-center gap-3 px-6 py-3 hover:bg-[var(--muted)]/30 transition-colors">
+                          <span className="h-2.5 w-2.5 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-[var(--foreground)]">{bus.bus_number}</p>
+                            <p className="text-xs text-[var(--muted-foreground)] truncate">
+                              {bus.driver_name ?? 'Unassigned'} · {route?.name ?? 'No route'}
+                            </p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xs font-medium text-[var(--foreground)] tabular-nums">{studentCount} students</p>
+                            <p className="text-[11px] text-green-600 font-medium">Running</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="px-6 py-2 text-[11px] text-[var(--muted-foreground)] border-t border-[var(--border)]">
+                    Departure window: 6:30 – 8:30 AM
+                  </p>
+                </TabsContent>
+
+                <TabsContent value="afternoon" className="mt-0">
+                  {afternoonBuses.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">No afternoon buses scheduled.</p>
+                  ) : (
+                    <div className="divide-y divide-[var(--border)]">
+                      {afternoonBuses.map(({ bus, route, studentCount }) => (
+                        <div key={bus.id} className="flex items-center gap-3 px-6 py-3 hover:bg-[var(--muted)]/30 transition-colors">
+                          <span className="h-2.5 w-2.5 rounded-full bg-amber-500 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-[var(--foreground)]">{bus.bus_number}</p>
+                            <p className="text-xs text-[var(--muted-foreground)] truncate">
+                              {bus.driver_name ?? 'Unassigned'} · {route?.name ?? 'Standing by'}
+                            </p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xs font-medium text-[var(--foreground)] tabular-nums">{studentCount} students</p>
+                            <p className="text-[11px] text-amber-600 font-medium">Idle</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="px-6 py-2 text-[11px] text-[var(--muted-foreground)] border-t border-[var(--border)]">
+                    Departure window: 2:00 – 4:00 PM
+                  </p>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          {/* Document Expiry Alerts */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle size={18} className="text-amber-500" />
+                Document Expiry Alerts
+                {expiryAlerts.length > 0 && (
+                  <span className="ml-auto rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                    {expiryAlerts.length}
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {expiryAlerts.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm text-[var(--muted-foreground)]">All documents are up to date.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[var(--border)] max-h-64 overflow-y-auto">
+                  {expiryAlerts.map((alert, idx) => (
+                    <div key={`${alert.bus.id}-${alert.type}-${idx}`} className="flex items-center gap-3 px-6 py-3 hover:bg-[var(--muted)]/30 transition-colors">
+                      <div className="h-9 w-9 rounded-lg bg-[var(--muted)] flex items-center justify-center flex-shrink-0">
+                        <BusIcon size={15} className="text-[var(--muted-foreground)]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-[var(--foreground)]">{alert.bus.bus_number}</p>
+                        <p className="text-xs text-[var(--muted-foreground)]">{alert.type}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0 space-y-0.5">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${expiryBadgeClass(alert.days)}`}>
+                          {expiryLabel(alert.days)}
+                        </span>
+                        <p className="text-[11px] text-[var(--muted-foreground)]">{alert.expiry}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="px-6 py-2 border-t border-[var(--border)] flex gap-4 text-[11px] text-[var(--muted-foreground)]">
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> &lt;30 days</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" /> &lt;90 days</span>
+              </div>
+            </CardContent>
+          </Card>
         </motion.div>
 
         {/* Charts Row */}

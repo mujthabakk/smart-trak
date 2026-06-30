@@ -1,10 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Pencil, Power, Mail, Phone, MapPin, Globe, Calendar, User,
   GraduationCap, Bus, UserCheck, Route as RouteIcon, CreditCard,
-  CheckCircle2, Building2, Receipt, TrendingUp,
+  CheckCircle2, Building2, Receipt, TrendingUp, Save, ArrowLeft,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -14,11 +14,14 @@ import { DataTable, type Column } from '@/components/shared/DataTable'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { getInitials, formatDate, formatCurrency, formatNumber } from '@/lib/utils'
 import { mockSchools, mockPlans, allSubscriptions } from '@/lib/mockData'
 import { PLAN_FEATURES } from '@/lib/constants'
-import type { Subscription } from '@/types'
+import type { School, Subscription } from '@/types'
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
@@ -75,14 +78,63 @@ function UsageBar({ label, used, limit, icon: Icon }: {
   )
 }
 
+// ─── Edit form state ──────────────────────────────────────────────────────────
+interface EditForm {
+  name: string
+  admin_name: string
+  admin_email: string
+  phone: string
+  website: string
+  plan_name: string
+  address: string
+  city: string
+  state: string
+  post_code: string
+  country: string
+  student_count: string
+  bus_count: string
+  driver_count: string
+}
+
+function schoolToForm(s: School): EditForm {
+  return {
+    name: s.name,
+    admin_name: s.admin_name ?? '',
+    admin_email: s.admin_email ?? s.email ?? '',
+    phone: s.phone ?? '',
+    website: s.website ?? '',
+    plan_name: s.plan_name?.toLowerCase() ?? 'standard',
+    address: s.address ?? '',
+    city: s.city ?? '',
+    state: s.state ?? '',
+    post_code: s.post_code ?? '',
+    country: s.country ?? 'UAE',
+    student_count: String(s.student_count ?? ''),
+    bus_count: String(s.bus_count ?? ''),
+    driver_count: String(s.driver_count ?? ''),
+  }
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)] mb-3">{children}</p>
+  )
+}
+
 export default function SchoolProfile() {
   const navigate = useNavigate()
   const { id } = useParams()
 
+  const [schools, setSchools] = useState<School[]>(mockSchools)
+  const [saved, setSaved] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview')
+
   const school = useMemo(
-    () => mockSchools.find((s) => s.id === id) ?? mockSchools[0],
-    [id],
+    () => schools.find((s) => s.id === id) ?? schools[0],
+    [id, schools],
   )
+
+  const [form, setForm] = useState<EditForm>(() => schoolToForm(school))
 
   const plan = useMemo(
     () => mockPlans.find((p) => p.id === school.plan_id) ?? mockPlans[0],
@@ -95,6 +147,35 @@ export default function SchoolProfile() {
   )
   const currentSub = subscriptions[0]
   const planFeatures = PLAN_FEATURES[plan.name as keyof typeof PLAN_FEATURES] ?? []
+
+  function set(field: keyof EditForm, value: string) {
+    setForm((f) => ({ ...f, [field]: value }))
+    setSaved(false)
+  }
+
+  function handleSave(e: React.FormEvent) {
+    e.preventDefault()
+    const planLabel = form.plan_name.charAt(0).toUpperCase() + form.plan_name.slice(1)
+    setSchools((prev) => prev.map((s) => s.id === school.id ? {
+      ...s,
+      name: form.name,
+      admin_name: form.admin_name || undefined,
+      admin_email: form.admin_email,
+      email: form.admin_email,
+      phone: form.phone,
+      website: form.website || undefined,
+      plan_name: planLabel,
+      address: form.address,
+      city: form.city,
+      state: form.state,
+      post_code: form.post_code || undefined,
+      country: form.country,
+      student_count: Number(form.student_count) || s.student_count,
+      bus_count: Number(form.bus_count) || s.bus_count,
+      driver_count: Number(form.driver_count) || s.driver_count,
+    } : s))
+    setSaved(true)
+  }
 
   const billingColumns: Column<Subscription>[] = [
     {
@@ -149,15 +230,15 @@ export default function SchoolProfile() {
               <Power size={15} />
               {school.status === 'suspended' ? 'Reactivate' : 'Suspend'}
             </Button>
-            <Button onClick={() => navigate(`/super-admin/schools/add`)}>
-              <Pencil size={15} /> Edit
+            <Button onClick={() => setActiveTab('edit')}>
+              <Pencil size={15} /> Edit School
             </Button>
           </>
         }
       />
 
       <div className="space-y-6">
-        {/* Profile header */}
+        {/* Profile header card */}
         <motion.div variants={item} initial="hidden" animate="show">
           <Card className="overflow-hidden">
             <div className="h-28 bg-gradient-to-br from-[var(--primary)] to-[var(--secondary)]" />
@@ -200,14 +281,15 @@ export default function SchoolProfile() {
 
         {/* Tabs */}
         <motion.div variants={item} initial="hidden" animate="show" transition={{ delay: 0.1 }}>
-          <Tabs defaultValue="overview">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="subscription">Subscription</TabsTrigger>
               <TabsTrigger value="usage">Usage</TabsTrigger>
+              <TabsTrigger value="edit">Edit School</TabsTrigger>
             </TabsList>
 
-            {/* Overview */}
+            {/* ── Overview ── */}
             <TabsContent value="overview" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card>
                 <CardHeader><CardTitle>Organization Details</CardTitle></CardHeader>
@@ -216,6 +298,10 @@ export default function SchoolProfile() {
                   <InfoRow icon={Globe} label="Subdomain" value={`${school.subdomain}.smarttrack.app`} />
                   <InfoRow icon={MapPin} label="Address" value={school.address} />
                   <InfoRow icon={MapPin} label="City / State" value={`${school.city}, ${school.state}`} />
+                  {school.post_code && <InfoRow icon={MapPin} label="Post Code" value={school.post_code} />}
+                  {school.country && <InfoRow icon={Globe} label="Country" value={school.country} />}
+                  {school.website && <InfoRow icon={Globe} label="Website" value={school.website} />}
+                  <InfoRow icon={Phone} label="Phone" value={school.phone} />
                   <InfoRow icon={Calendar} label="Onboarded" value={formatDate(school.created_at)} />
                   <InfoRow icon={CreditCard} label="Plan" value={school.plan_name} />
                 </CardContent>
@@ -232,7 +318,7 @@ export default function SchoolProfile() {
               </Card>
             </TabsContent>
 
-            {/* Subscription */}
+            {/* ── Subscription ── */}
             <TabsContent value="subscription" className="space-y-6">
               <Card className="overflow-hidden">
                 <div className="bg-gradient-to-br from-[var(--primary)] to-[var(--secondary)] p-6 text-white">
@@ -291,7 +377,7 @@ export default function SchoolProfile() {
               </Card>
             </TabsContent>
 
-            {/* Usage */}
+            {/* ── Usage ── */}
             <TabsContent value="usage" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card>
                 <CardHeader><CardTitle>Plan Limits Used</CardTitle></CardHeader>
@@ -327,11 +413,124 @@ export default function SchoolProfile() {
                       {school.driver_count ? (school.bus_count / school.driver_count).toFixed(1) : '0'}
                     </span>
                   </div>
-                  <p className="text-xs text-[var(--muted-foreground)] pt-1">
-                    Usage figures are aggregated from this school's live fleet and enrolment data.
-                  </p>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* ── Edit School ── */}
+            <TabsContent value="edit">
+              <form onSubmit={handleSave} className="space-y-6 max-w-3xl">
+
+                {/* School Information */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">School Information</CardTitle></CardHeader>
+                  <CardContent className="space-y-4">
+                    <SectionLabel>Basic Details</SectionLabel>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="sm:col-span-2 space-y-1.5">
+                        <Label htmlFor="e-name">School name *</Label>
+                        <Input id="e-name" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Greenfield Academy" required />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-phone">Phone number</Label>
+                        <Input id="e-phone" value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+971-4-555-0100" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-website">Website</Label>
+                        <Input id="e-website" value={form.website} onChange={(e) => set('website', e.target.value)} placeholder="www.school.ae" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Admin Contact */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Admin Contact</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-admin-name">Admin name</Label>
+                        <Input id="e-admin-name" value={form.admin_name} onChange={(e) => set('admin_name', e.target.value)} placeholder="Hassan Al-Rashid" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-admin-email">Admin email *</Label>
+                        <Input id="e-admin-email" type="email" value={form.admin_email} onChange={(e) => set('admin_email', e.target.value)} placeholder="admin@school.ae" required />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Address Details */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Address Details</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="sm:col-span-2 space-y-1.5">
+                        <Label htmlFor="e-address">Street address</Label>
+                        <Input id="e-address" value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="45 Sheikh Zayed Road" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-city">City</Label>
+                        <Input id="e-city" value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="Dubai" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-state">State / Emirate</Label>
+                        <Input id="e-state" value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="Dubai" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-postcode">Post / ZIP code</Label>
+                        <Input id="e-postcode" value={form.post_code} onChange={(e) => set('post_code', e.target.value)} placeholder="00000" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-country">Country</Label>
+                        <Input id="e-country" value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="UAE" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Plan & Capacity */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Plan &amp; Capacity</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="sm:col-span-2 space-y-1.5">
+                        <Label>Plan</Label>
+                        <Select value={form.plan_name} onValueChange={(v) => set('plan_name', v)}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="basic">Basic</SelectItem>
+                            <SelectItem value="standard">Standard</SelectItem>
+                            <SelectItem value="premium">Premium</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-students">Students</Label>
+                        <Input id="e-students" type="number" min={0} value={form.student_count} onChange={(e) => set('student_count', e.target.value)} placeholder="350" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-buses">Buses</Label>
+                        <Input id="e-buses" type="number" min={0} value={form.bus_count} onChange={(e) => set('bus_count', e.target.value)} placeholder="8" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-drivers">Drivers</Label>
+                        <Input id="e-drivers" type="number" min={0} value={form.driver_count} onChange={(e) => set('driver_count', e.target.value)} placeholder="6" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-3">
+                  <Button type="button" variant="outline" onClick={() => { setForm(schoolToForm(school)); setSaved(false); setActiveTab('overview') }}>
+                    <ArrowLeft size={15} /> Cancel
+                  </Button>
+                  <Button type="submit" className={saved ? 'bg-green-600 hover:bg-green-700' : ''}>
+                    {saved ? <><CheckCircle2 size={15} /> Saved!</> : <><Save size={15} /> Save Changes</>}
+                  </Button>
+                </div>
+              </form>
             </TabsContent>
           </Tabs>
         </motion.div>

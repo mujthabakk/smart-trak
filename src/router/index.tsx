@@ -36,7 +36,10 @@ import AddEditStudent from '@/pages/school-admin/AddEditStudent'
 import StudentProfile from '@/pages/school-admin/StudentProfile'
 import Drivers from '@/pages/school-admin/Drivers'
 import Buses from '@/pages/school-admin/Buses'
+import BusDetail from '@/pages/school-admin/BusDetail'
+import AddBus from '@/pages/school-admin/AddBus'
 import Routes from '@/pages/school-admin/Routes'
+import RouteDetail from '@/pages/school-admin/RouteDetail'
 import LiveMap from '@/pages/school-admin/LiveMap'
 import Attendance from '@/pages/school-admin/Attendance'
 import Leave from '@/pages/school-admin/Leave'
@@ -96,7 +99,10 @@ export const router = createHashRouter([
   { path: '/school-admin/students/:id', element: <StudentProfile /> },
   { path: '/school-admin/drivers', element: <Drivers /> },
   { path: '/school-admin/buses', element: <Buses /> },
+  { path: '/school-admin/buses/add', element: <AddBus /> },
+  { path: '/school-admin/buses/:id', element: <BusDetail /> },
   { path: '/school-admin/routes', element: <Routes /> },
+  { path: '/school-admin/routes/:id', element: <RouteDetail /> },
   { path: '/school-admin/live-map', element: <LiveMap /> },
   { path: '/school-admin/attendance', element: <Attendance /> },
   { path: '/school-admin/leave', element: <Leave /> },

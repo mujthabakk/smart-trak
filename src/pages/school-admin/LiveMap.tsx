@@ -3,11 +3,12 @@ import { motion } from 'framer-motion'
 import { useJsApiLoader, GoogleMap, Marker, InfoWindow } from '@react-google-maps/api'
 import {
   Bus as BusIcon, Search, Gauge, Clock, MapPin, Navigation,
-  Wifi, WifiOff, CircleDot, Radio,
+  Wifi, WifiOff, CircleDot, Radio, List,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
@@ -76,6 +77,7 @@ export default function LiveMap() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [now, setNow] = useState(new Date())
+  const [showListView, setShowListView] = useState(true)
 
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
@@ -126,6 +128,12 @@ export default function LiveMap() {
     [selectedBusId],
   )
 
+  // Occupancy estimate: ~70% of seat capacity when running, 0 when idle/offline
+  const getOccupancy = (bus: Bus) => {
+    if (bus.status === 'running') return Math.round(bus.seat_capacity * 0.7)
+    return 0
+  }
+
   return (
     <Layout>
       {/* Top bar */}
@@ -164,6 +172,15 @@ export default function LiveMap() {
             <Clock size={14} className="text-[var(--primary)]" />
             {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </div>
+          <Button
+            variant={showListView ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowListView((v) => !v)}
+            className="gap-1.5"
+          >
+            <List size={15} />
+            List View
+          </Button>
         </div>
       </div>
 
@@ -177,59 +194,136 @@ export default function LiveMap() {
 
       {/* Main two-column layout */}
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        {/* LEFT — Google Map panel */}
-        <div className="h-[500px] rounded-2xl overflow-hidden border border-[var(--border)]">
-          {!isLoaded ? (
-            /* Loading skeleton */
-            <div className="flex h-full w-full animate-pulse flex-col gap-3 rounded-2xl bg-[var(--muted)] p-6">
-              <div className="h-6 w-1/3 rounded-lg bg-[var(--border)]" />
-              <div className="flex-1 rounded-xl bg-[var(--border)]" />
-              <div className="h-4 w-1/2 rounded-lg bg-[var(--border)]" />
-            </div>
-          ) : (
-            <GoogleMap
-              mapContainerStyle={MAP_CONTAINER_STYLE}
-              center={DUBAI_CENTER}
-              zoom={12}
-              options={{
-                disableDefaultUI: false,
-                zoomControl: true,
-                streetViewControl: false,
-                mapTypeControl: false,
-                fullscreenControl: false,
-              }}
-            >
-              {filteredBuses.map((bus) => {
-                const position = getBusPosition(bus.id)
-                if (!position) return null
-                return (
-                  <Marker
-                    key={bus.id}
-                    position={position}
-                    title={`${bus.bus_number} — ${bus.driver_name ?? 'No driver'}`}
-                    onClick={() => setSelectedBusId(bus.id === selectedBusId ? null : bus.id)}
-                  />
-                )
-              })}
+        {/* LEFT — Map + List View below */}
+        <div className="flex flex-col gap-4">
+          {/* Google Map panel — 60% height when list is visible */}
+          <div
+            className="rounded-2xl overflow-hidden border border-[var(--border)] transition-all duration-300"
+            style={{ height: showListView ? '380px' : '500px' }}
+          >
+            {!isLoaded ? (
+              /* Loading skeleton */
+              <div className="flex h-full w-full animate-pulse flex-col gap-3 rounded-2xl bg-[var(--muted)] p-6">
+                <div className="h-6 w-1/3 rounded-lg bg-[var(--border)]" />
+                <div className="flex-1 rounded-xl bg-[var(--border)]" />
+                <div className="h-4 w-1/2 rounded-lg bg-[var(--border)]" />
+              </div>
+            ) : (
+              <GoogleMap
+                mapContainerStyle={MAP_CONTAINER_STYLE}
+                center={DUBAI_CENTER}
+                zoom={12}
+                options={{
+                  disableDefaultUI: false,
+                  zoomControl: true,
+                  streetViewControl: false,
+                  mapTypeControl: false,
+                  fullscreenControl: false,
+                }}
+              >
+                {filteredBuses.map((bus) => {
+                  const position = getBusPosition(bus.id)
+                  if (!position) return null
+                  return (
+                    <Marker
+                      key={bus.id}
+                      position={position}
+                      title={`${bus.bus_number} — ${bus.driver_name ?? 'No driver'}`}
+                      onClick={() => setSelectedBusId(bus.id === selectedBusId ? null : bus.id)}
+                    />
+                  )
+                })}
 
-              {selectedBus && selectedBusPosition && (
-                <InfoWindow
-                  position={selectedBusPosition}
-                  onCloseClick={() => setSelectedBusId(null)}
-                >
-                  <div className="min-w-[140px] p-1 text-sm">
-                    <p className="font-bold text-gray-800">{selectedBus.bus_number}</p>
-                    <p className="text-gray-600">{selectedBus.driver_name ?? 'No driver'}</p>
-                    {selectedBus.current_stop && (
-                      <p className="mt-1 text-xs text-gray-500">{selectedBus.current_stop}</p>
-                    )}
-                    <p className="mt-1 text-xs font-medium capitalize text-gray-700">
-                      Status: {selectedBus.status ?? 'unknown'}
-                    </p>
+                {selectedBus && selectedBusPosition && (
+                  <InfoWindow
+                    position={selectedBusPosition}
+                    onCloseClick={() => setSelectedBusId(null)}
+                  >
+                    <div className="min-w-[160px] p-1 text-sm">
+                      <p className="font-bold text-gray-800">{selectedBus.bus_number}</p>
+                      <p className="text-gray-600">{selectedBus.driver_name ?? 'No driver'}</p>
+                      <p className="mt-1 text-xs font-medium capitalize text-gray-700">
+                        Status: {selectedBus.status ?? 'unknown'}
+                      </p>
+                      {selectedBus.current_stop && (
+                        <p className="mt-0.5 text-xs text-gray-500">{selectedBus.current_stop}</p>
+                      )}
+                      <p className="mt-1.5 text-xs font-semibold text-gray-700">
+                        Students on board: {getOccupancy(selectedBus)}
+                      </p>
+                    </div>
+                  </InfoWindow>
+                )}
+              </GoogleMap>
+            )}
+          </div>
+
+          {/* Horizontal scrollable list view below map */}
+          {showListView && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden"
+            >
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)]">
+                <BusIcon size={15} className="text-[var(--primary)]" />
+                <span className="text-sm font-semibold text-[var(--foreground)]">Bus List</span>
+                <span className="ml-auto rounded-full bg-[var(--muted)] px-2 py-0.5 text-xs font-medium text-[var(--muted-foreground)]">
+                  {filteredBuses.length} bus{filteredBuses.length === 1 ? '' : 'es'}
+                </span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto p-3 scrollbar-thin">
+                {filteredBuses.length === 0 ? (
+                  <div className="flex w-full items-center justify-center py-6">
+                    <p className="text-sm text-[var(--muted-foreground)]">No buses match your filter.</p>
                   </div>
-                </InfoWindow>
-              )}
-            </GoogleMap>
+                ) : (
+                  filteredBuses.map((bus) => {
+                    const telemetry = BUS_TELEMETRY[bus.id] ?? FALLBACK_TELEMETRY
+                    const status = bus.status ?? 'offline'
+                    const isSelected = selectedBusId === bus.id
+                    return (
+                      <button
+                        key={bus.id}
+                        onClick={() => setSelectedBusId(isSelected ? null : bus.id)}
+                        className={cn(
+                          'flex-shrink-0 w-52 rounded-xl border p-3 text-left transition-colors',
+                          isSelected
+                            ? 'border-[var(--primary)] bg-[var(--primary)]/5 ring-1 ring-[var(--primary)]/30'
+                            : 'border-[var(--border)] hover:bg-[var(--muted)]/40',
+                        )}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={cn('h-2.5 w-2.5 flex-shrink-0 rounded-full', STATUS_DOT[status], status === 'running' && 'animate-pulse')} />
+                          <p className="text-sm font-bold text-[var(--foreground)] truncate">{bus.bus_number}</p>
+                          <StatusBadge status={status} size="sm" />
+                        </div>
+                        <p className="text-xs text-[var(--muted-foreground)] truncate mb-2">
+                          {bus.driver_name ?? 'No driver'}
+                        </p>
+                        <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
+                          <span className="flex items-center gap-1">
+                            <Gauge size={11} className="text-[var(--primary)]" />
+                            <span className="font-medium text-[var(--foreground)] tabular-nums">{telemetry.speed}</span> km/h
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock size={11} className="text-[var(--primary)]" />
+                            <span className="font-medium text-[var(--foreground)]">{telemetry.eta}</span>
+                          </span>
+                        </div>
+                        {bus.current_stop && (
+                          <p className="mt-1.5 flex items-center gap-1 truncate text-xs text-[var(--muted-foreground)]">
+                            <MapPin size={11} className="flex-shrink-0 text-[var(--primary)]" />
+                            {bus.current_stop}
+                          </p>
+                        )}
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            </motion.div>
           )}
         </div>
 

@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 import {
   CalendarCheck, Download, UserCheck, UserX, CalendarOff,
-  Percent, QrCode, TrendingUp,
+  Percent, QrCode, TrendingUp, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -48,11 +48,46 @@ function TrendTooltip({ active, payload, label }: TrendTooltipProps) {
 
 const SCHOOL_ID = 'sch_001'
 
+/** Format a Date as YYYY-MM-DD in local time */
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** Add days to a YYYY-MM-DD string, return new YYYY-MM-DD */
+function shiftDate(dateStr: string, days: number): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return toLocalDateStr(d)
+}
+
+/** Format YYYY-MM-DD -> "Mon, 23 Jun 2026" */
+function formatDisplayDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+type DateFilter = 'today' | 'week' | 'all'
+
 export default function Attendance() {
   const [date, setDate] = useState('2026-06-23')
   const [filterBus, setFilterBus] = useState('all')
   const [filterClass, setFilterClass] = useState('all')
   const [filterRoute, setFilterRoute] = useState('all')
+  const [dateFilter, setDateFilter] = useState<DateFilter>('today')
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const [exportFrom, setExportFrom] = useState('2026-06-23')
+  const [exportTo, setExportTo] = useState('2026-06-23')
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  const today = toLocalDateStr(new Date())
 
   const schoolBuses = useMemo(() => mockBuses.filter((b) => b.school_id === SCHOOL_ID), [])
   const schoolRoutes = useMemo(() => mockRoutes.filter((r) => r.school_id === SCHOOL_ID), [])
@@ -64,6 +99,18 @@ export default function Attendance() {
 
   const filteredAttendance = useMemo(() => {
     return mockAttendance.filter((a) => {
+      // Date filter
+      if (dateFilter === 'today' && a.date !== date) return false
+      if (dateFilter === 'week') {
+        const aDate = new Date(a.date + 'T00:00:00')
+        const refDate = new Date(date + 'T00:00:00')
+        const startOfWeek = new Date(refDate)
+        startOfWeek.setDate(refDate.getDate() - refDate.getDay())
+        const endOfWeek = new Date(startOfWeek)
+        endOfWeek.setDate(startOfWeek.getDate() + 6)
+        if (aDate < startOfWeek || aDate > endOfWeek) return false
+      }
+      // Other filters
       if (filterClass !== 'all' && a.student_class !== filterClass) return false
       if (filterRoute !== 'all' && a.route_name !== filterRoute) return false
       if (filterBus !== 'all') {
@@ -72,7 +119,7 @@ export default function Attendance() {
       }
       return true
     })
-  }, [filterBus, filterClass, filterRoute, schoolRoutes])
+  }, [filterBus, filterClass, filterRoute, schoolRoutes, date, dateFilter])
 
   const stats = useMemo(() => {
     const present = filteredAttendance.filter((a) => a.status === 'present').length
@@ -83,9 +130,19 @@ export default function Attendance() {
     return { present, absent, leave, rate }
   }, [filteredAttendance])
 
-  function handleExport() {
+  // Summary cards data
+  const onboardedStudents = useMemo(
+    () => filteredAttendance.filter((a) => a.status === 'present'),
+    [filteredAttendance],
+  )
+  const offboardedStudents = useMemo(
+    () => filteredAttendance.filter((a) => a.status === 'absent' || a.status === 'leave'),
+    [filteredAttendance],
+  )
+
+  function doExport(data: AttendanceRecord[], label: string) {
     downloadCSV(
-      filteredAttendance.map((a) => ({
+      data.map((a) => ({
         student: a.student_name,
         class: a.student_class,
         route: a.route_name ?? '',
@@ -94,8 +151,19 @@ export default function Attendance() {
         check_out: a.drop_time ? formatDate(a.drop_time, 'time') : '',
         date: a.date,
       })),
-      `attendance-${date}`,
+      label,
     )
+  }
+
+  function handleExportToday() {
+    doExport(filteredAttendance, `attendance-${date}`)
+    setShowExportMenu(false)
+  }
+
+  function handleExportRange() {
+    const rangeData = mockAttendance.filter((a) => a.date >= exportFrom && a.date <= exportTo)
+    doExport(rangeData, `attendance-${exportFrom}-to-${exportTo}`)
+    setShowExportMenu(false)
   }
 
   const columns: Column<AttendanceRecord>[] = [
@@ -170,23 +238,180 @@ export default function Attendance() {
         subtitle="Daily QR-based attendance"
         actions={
           <>
-            <div className="relative">
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-              />
+            {/* Calendar navigation */}
+            <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)] px-1 py-1">
+              <button
+                onClick={() => setDate((d) => shiftDate(d, -1))}
+                className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+                aria-label="Previous day"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="min-w-[160px] px-2 text-center text-sm font-medium text-[var(--foreground)]">
+                {formatDisplayDate(date)}
+              </span>
+              <button
+                onClick={() => setDate((d) => shiftDate(d, 1))}
+                className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+                aria-label="Next day"
+              >
+                <ChevronRight size={16} />
+              </button>
+              {date !== today && (
+                <button
+                  onClick={() => setDate(today)}
+                  className="ml-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors"
+                >
+                  Today
+                </button>
+              )}
             </div>
-            <Button variant="outline" onClick={handleExport}>
-              <Download size={16} /> Export CSV
-            </Button>
+
+            {/* Export dropdown */}
+            <div className="relative" ref={exportMenuRef}>
+              <Button variant="outline" onClick={() => setShowExportMenu((v) => !v)}>
+                <Download size={16} /> Export CSV
+              </Button>
+              {showExportMenu && (
+                <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-lg p-3 space-y-3">
+                  <button
+                    onClick={handleExportToday}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-left text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                  >
+                    <Download size={14} className="text-[var(--primary)]" />
+                    Export Today ({date})
+                  </button>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Export Range</p>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-[11px] text-[var(--muted-foreground)] mb-0.5 block">From</label>
+                        <input
+                          type="date"
+                          value={exportFrom}
+                          onChange={(e) => setExportFrom(e.target.value)}
+                          className="w-full h-8 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[11px] text-[var(--muted-foreground)] mb-0.5 block">To</label>
+                        <input
+                          type="date"
+                          value={exportTo}
+                          onChange={(e) => setExportTo(e.target.value)}
+                          className="w-full h-8 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                        />
+                      </div>
+                    </div>
+                    <Button size="sm" className="w-full" onClick={handleExportRange}>
+                      <Download size={13} /> Export Range
+                    </Button>
+                  </div>
+                  <button
+                    onClick={() => setShowExportMenu(false)}
+                    className="w-full text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
           </>
         }
       />
 
+      {/* Summary Cards */}
+      <div className="mb-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Onboarded Today */}
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="h-9 w-9 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                <UserCheck size={18} className="text-green-600 dark:text-green-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[var(--foreground)]">Onboarded Today</p>
+                <p className="text-xs text-[var(--muted-foreground)]">Present students</p>
+              </div>
+            </div>
+            <p className="text-3xl font-bold text-green-600 dark:text-green-400 tabular-nums">
+              {onboardedStudents.length}
+            </p>
+          </div>
+          {onboardedStudents.length > 0 && (
+            <div className="space-y-1">
+              {onboardedStudents.slice(0, 3).map((a) => (
+                <div key={a.id} className="flex items-center gap-2">
+                  <Avatar className="h-5 w-5">
+                    <AvatarFallback className="text-[9px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                      {getInitials(a.student_name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-xs text-[var(--muted-foreground)] truncate">{a.student_name}</span>
+                </div>
+              ))}
+              {onboardedStudents.length > 3 && (
+                <p className="text-xs text-[var(--muted-foreground)] pl-7">+{onboardedStudents.length - 3} more</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Offboarded Today */}
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="h-9 w-9 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                <UserX size={18} className="text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[var(--foreground)]">Offboarded Today</p>
+                <p className="text-xs text-[var(--muted-foreground)]">Absent + on leave</p>
+              </div>
+            </div>
+            <p className="text-3xl font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+              {offboardedStudents.length}
+            </p>
+          </div>
+          {offboardedStudents.length > 0 && (
+            <div className="space-y-1">
+              {offboardedStudents.slice(0, 3).map((a) => (
+                <div key={a.id} className="flex items-center gap-2">
+                  <Avatar className="h-5 w-5">
+                    <AvatarFallback className="text-[9px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                      {getInitials(a.student_name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-xs text-[var(--muted-foreground)] truncate">{a.student_name}</span>
+                </div>
+              ))}
+              {offboardedStudents.length > 3 && (
+                <p className="text-xs text-[var(--muted-foreground)] pl-7">+{offboardedStudents.length - 3} more</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="mb-5 flex flex-wrap gap-3">
+        {/* Date filter pills */}
+        <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+          {(['today', 'week', 'all'] as DateFilter[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setDateFilter(f)}
+              className={`px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                dateFilter === f
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)]'
+              }`}
+            >
+              {f === 'today' ? 'Today' : f === 'week' ? 'This Week' : 'All'}
+            </button>
+          ))}
+        </div>
+
         <Select value={filterBus} onValueChange={setFilterBus}>
           <SelectTrigger className="h-9 w-40">
             <SelectValue placeholder="All Buses" />
