@@ -25,7 +25,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog'
 import { cn, downloadCSV } from '@/lib/utils'
-import { allBuses, allRoutes, allTrips } from '@/lib/mockData'
+import { getBusTripDurationDisplay } from '@/lib/tripDuration'
+import { allBuses, allRoutes, allTrips, allStudents, mockAttendance } from '@/lib/mockData'
 import type { Bus } from '@/types'
 
 const SCHOOL_ID = 'sch_001'
@@ -48,6 +49,12 @@ function routeForBus(busId: string): string | undefined {
   return allRoutes.find((r) => r.bus_id === busId)?.name
 }
 
+function primaryRouteIdForBus(busId: string): string | undefined {
+  const pickup = allRoutes.find((r) => r.bus_id === busId && r.type === 'pickup')
+  if (pickup) return pickup.id
+  return allRoutes.find((r) => r.bus_id === busId)?.id
+}
+
 function routeTypeForBus(busId: string): 'pickup' | 'drop' | null {
   const route = allRoutes.find((r) => r.bus_id === busId)
   return route?.type ?? null
@@ -57,13 +64,29 @@ function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-// Returns true if the bus has been running for > 1 hour based on its current trip
-function isOverdueTrip(busId: string): boolean {
-  const trip = allTrips.find((t) => t.bus_id === busId && t.status === 'in_progress')
-  if (!trip?.started_at) return false
-  const elapsed = (Date.now() - new Date(trip.started_at).getTime()) / (1000 * 60 * 60)
-  // For demo: treat trips started > 1 day ago as overdue (since mock data uses past dates)
-  return elapsed > 1
+function tripDurationForBus(busId: string) {
+  return getBusTripDurationDisplay(busId, allTrips)
+}
+
+function studentsForBus(busId: string) {
+  const pickup = allRoutes.find((r) => r.bus_id === busId && r.type === 'pickup')
+  const route = pickup ?? allRoutes.find((r) => r.bus_id === busId)
+  if (!route) return []
+  return allStudents.filter((s) => s.route_name === route.name)
+}
+
+function busStudentAttendance(busId: string) {
+  const students = studentsForBus(busId)
+  let onboarded = 0
+  let notYet = 0
+  let absent = 0
+  for (const s of students) {
+    const record = mockAttendance.find((a) => a.student_id === s.id)
+    if (!record) notYet++
+    else if (record.status === 'present') onboarded++
+    else absent++
+  }
+  return { onboarded, notYet, absent, total: students.length }
 }
 
 function downloadBusQR(bus: Bus) {
@@ -500,8 +523,12 @@ export default function Buses() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => navigate(`/school-admin/buses/${bus.id}`)}>
-            <BusIcon size={14} /> View Details
+          <DropdownMenuItem onClick={() => {
+            const routeId = primaryRouteIdForBus(bus.id)
+            if (routeId) navigate(`/school-admin/routes/${routeId}`)
+            else navigate(`/school-admin/buses/${bus.id}`)
+          }}>
+            <BusIcon size={14} /> View Route
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => navigate('/school-admin/live-map')}>
             <Navigation size={14} /> Track
@@ -528,19 +555,20 @@ export default function Buses() {
       sortable: true,
       accessor: (b) => b.bus_number,
       render: (b) => {
-        const overdue = isOverdueTrip(b.id)
+        const tripDuration = tripDurationForBus(b.id)
+        const longRunning = tripDuration?.isLong ?? false
         return (
           <div className="flex items-center gap-3">
             <div className={cn(
               'h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0',
-              overdue ? 'bg-red-100 dark:bg-red-900/30' : 'bg-[var(--primary)]/10',
+              longRunning ? 'bg-red-100 dark:bg-red-900/30' : 'bg-[var(--primary)]/10',
             )}>
-              <BusIcon size={16} className={overdue ? 'text-red-600 dark:text-red-400' : 'text-[var(--primary)]'} />
+              <BusIcon size={16} className={longRunning ? 'text-red-600 dark:text-red-400' : 'text-[var(--primary)]'} />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
                 <p className="font-medium text-[var(--foreground)]">{b.bus_number}</p>
-                {overdue && <AlertCircle size={13} className="text-red-500" />}
+                {longRunning && <AlertCircle size={13} className="text-red-500" />}
               </div>
               <p className="text-xs text-[var(--muted-foreground)]">{b.make_model ?? '—'}</p>
             </div>
@@ -562,10 +590,21 @@ export default function Buses() {
       header: 'Route',
       render: (b) => {
         const route = routeForBus(b.id)
-        return route ? (
-          <span className="text-sm text-[var(--foreground)]">{route}</span>
-        ) : (
-          <span className="text-sm text-[var(--muted-foreground)]">—</span>
+        const { onboarded, notYet, absent, total } = busStudentAttendance(b.id)
+        if (!route) return <span className="text-sm text-[var(--muted-foreground)]">—</span>
+        return (
+          <div className="min-w-[120px]">
+            <span className="text-sm text-[var(--foreground)] block">{route}</span>
+            {total > 0 && (
+              <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
+                <span className="text-green-600 dark:text-green-400">{onboarded} on</span>
+                {' · '}
+                <span className="text-amber-600 dark:text-amber-400">{notYet} wait</span>
+                {' · '}
+                <span className="text-red-600 dark:text-red-400">{absent} abs</span>
+              </span>
+            )}
+          </div>
         )
       },
     },
@@ -588,16 +627,27 @@ export default function Buses() {
       },
     },
     {
-      key: 'capacity',
-      header: 'Occupancy',
+      key: 'students',
+      header: 'Students',
       render: (b) => {
-        const occ = occupancyFor(b)
+        const { onboarded, notYet, absent, total } = busStudentAttendance(b.id)
+        if (total === 0) {
+          return <span className="text-sm text-[var(--muted-foreground)]">—</span>
+        }
         return (
-          <div className="w-32">
-            <div className="flex items-center justify-between text-xs mb-1">
-              <span className="text-[var(--muted-foreground)] tabular-nums">{occ}/{b.seat_capacity}</span>
+          <div className="flex flex-col gap-1 min-w-[140px]">
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="inline-flex items-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 text-[10px] font-semibold tabular-nums" title="Onboarded">
+                {onboarded} on
+              </span>
+              <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 text-[10px] font-semibold tabular-nums" title="Not yet">
+                {notYet} wait
+              </span>
+              <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 text-[10px] font-semibold tabular-nums" title="Absent">
+                {absent} abs
+              </span>
             </div>
-            <Progress value={(occ / b.seat_capacity) * 100} className="h-1.5" />
+            <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">{onboarded}/{total} onboarded</span>
           </div>
         )
       },
@@ -606,13 +656,18 @@ export default function Buses() {
       key: 'status',
       header: 'Status',
       render: (b) => {
-        const overdue = isOverdueTrip(b.id)
+        const tripDuration = tripDurationForBus(b.id)
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-1 min-w-[88px]">
             <StatusBadge status={b.status ?? 'offline'} />
-            {overdue && (
-              <span className="text-[10px] font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-full px-1.5 py-0.5">
-                &gt;1hr
+            {tripDuration && (
+              <span className={cn(
+                'text-[10px] font-semibold tabular-nums whitespace-nowrap',
+                tripDuration.isLong
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-[var(--muted-foreground)]',
+              )}>
+                {tripDuration.isLive ? '' : '✓ '}{tripDuration.label}
               </span>
             )}
           </div>
@@ -739,15 +794,21 @@ export default function Buses() {
               const route = routeForBus(bus.id)
               const routeType = routeTypeForBus(bus.id)
               const status = bus.status ?? 'offline'
-              const overdue = isOverdueTrip(bus.id)
+              const tripDuration = tripDurationForBus(bus.id)
+              const longRunning = tripDuration?.isLong ?? false
+              const attendance = busStudentAttendance(bus.id)
               return (
                 <motion.div
                   key={bus.id}
                   variants={card}
                   whileHover={{ y: -3 }}
+                  onClick={() => {
+                    const routeId = primaryRouteIdForBus(bus.id)
+                    if (routeId) navigate(`/school-admin/routes/${routeId}`)
+                  }}
                   className={cn(
-                    'rounded-2xl border shadow-sm overflow-hidden flex flex-col',
-                    overdue
+                    'rounded-2xl border shadow-sm overflow-hidden flex flex-col cursor-pointer',
+                    longRunning
                       ? 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/20'
                       : 'border-[var(--border)] bg-[var(--card)]',
                   )}
@@ -755,7 +816,7 @@ export default function Buses() {
                   {/* Gradient header */}
                   <div className={cn(
                     'relative p-5 text-white',
-                    overdue
+                    longRunning
                       ? 'bg-gradient-to-br from-red-600 to-red-800'
                       : 'bg-gradient-to-br from-[var(--primary)] to-[color-mix(in_srgb,var(--primary)_70%,black)]',
                   )}>
@@ -771,7 +832,10 @@ export default function Buses() {
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button className="h-8 w-8 rounded-lg hover:bg-white/20 flex items-center justify-center transition-colors">
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-8 w-8 rounded-lg hover:bg-white/20 flex items-center justify-center transition-colors"
+                          >
                             <MoreVertical size={16} className="text-white" />
                           </button>
                         </DropdownMenuTrigger>
@@ -799,9 +863,10 @@ export default function Buses() {
                           {routeType === 'pickup' ? 'Pickup' : 'Drop'}
                         </span>
                       )}
-                      {overdue && (
-                        <span className="rounded-full bg-white/30 px-2 py-0.5 text-[11px] font-bold text-white flex items-center gap-1">
-                          <AlertCircle size={10} /> &gt;1hr
+                      {tripDuration && (
+                        <span className="rounded-full bg-white/30 px-2 py-0.5 text-[11px] font-bold text-white flex items-center gap-1 tabular-nums whitespace-nowrap">
+                          {longRunning && <AlertCircle size={10} />}
+                          {!tripDuration.isLive && '✓ '}{tripDuration.label}
                         </span>
                       )}
                     </div>
@@ -819,6 +884,31 @@ export default function Buses() {
                         {bus.current_stop ?? route ?? 'No active route'}
                       </span>
                     </div>
+
+                    {/* Students on route */}
+                    {attendance.total > 0 && (
+                      <div className="mt-1">
+                        <div className="flex items-center justify-between text-xs mb-1.5">
+                          <span className="flex items-center gap-1.5 text-[var(--muted-foreground)]">
+                            <Users size={13} /> Students
+                          </span>
+                          <span className="font-medium text-[var(--foreground)] tabular-nums">
+                            {attendance.onboarded}/{attendance.total}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          <span className="rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 text-[10px] font-semibold tabular-nums">
+                            {attendance.onboarded} onboarded
+                          </span>
+                          <span className="rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 text-[10px] font-semibold tabular-nums">
+                            {attendance.notYet} not yet
+                          </span>
+                          <span className="rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 text-[10px] font-semibold tabular-nums">
+                            {attendance.absent} absent
+                          </span>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Occupancy */}
                     <div className="mt-1">
@@ -841,11 +931,22 @@ export default function Buses() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => navigate(`/school-admin/buses/${bus.id}`)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const routeId = primaryRouteIdForBus(bus.id)
+                            if (routeId) navigate(`/school-admin/routes/${routeId}`)
+                          }}
                         >
-                          View Details
+                          View Route
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => navigate('/school-admin/live-map')}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate('/school-admin/live-map')
+                          }}
+                        >
                           <Navigation size={13} /> Track
                         </Button>
                       </div>

@@ -68,10 +68,12 @@ export const mockRoutes: Route[] = [
 ]
 
 // ─── Trips ────────────────────────────────────────────────────────────────────
+const tripAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+
 export const mockTrips: Trip[] = [
-  { id: 'trp_001', route_id: 'rte_001', route_name: 'Route A - Pickup', driver_id: 'drv_001', driver_name: 'Ali Mohammed Al-Faris', bus_id: 'bus_001', bus_number: 'B-001', trip_type: 'pickup', status: 'in_progress', started_at: '2026-06-23T07:00:00Z', student_count: 28 },
-  { id: 'trp_002', route_id: 'rte_002', route_name: 'Route B - Pickup', driver_id: 'drv_002', driver_name: 'Salim Ahmed Rashid', bus_id: 'bus_002', bus_number: 'B-002', trip_type: 'pickup', status: 'in_progress', started_at: '2026-06-23T06:55:00Z', student_count: 22 },
-  { id: 'trp_003', route_id: 'rte_003', route_name: 'Route A - Drop', driver_id: 'drv_001', driver_name: 'Ali Mohammed Al-Faris', bus_id: 'bus_001', bus_number: 'B-001', trip_type: 'drop', status: 'completed', started_at: '2026-06-22T14:00:00Z', ended_at: '2026-06-22T15:30:00Z', student_count: 25 },
+  { id: 'trp_001', route_id: 'rte_001', route_name: 'Route A - Pickup', driver_id: 'drv_001', driver_name: 'Ali Mohammed Al-Faris', bus_id: 'bus_001', bus_number: 'B-001', trip_type: 'pickup', status: 'in_progress', started_at: tripAgo(95), student_count: 28 },
+  { id: 'trp_002', route_id: 'rte_002', route_name: 'Route B - Pickup', driver_id: 'drv_002', driver_name: 'Salim Ahmed Rashid', bus_id: 'bus_002', bus_number: 'B-002', trip_type: 'pickup', status: 'in_progress', started_at: tripAgo(45), student_count: 22 },
+  { id: 'trp_003', route_id: 'rte_003', route_name: 'Route A - Drop', driver_id: 'drv_001', driver_name: 'Ali Mohammed Al-Faris', bus_id: 'bus_001', bus_number: 'B-001', trip_type: 'drop', status: 'completed', started_at: tripAgo(24 * 60 + 90), ended_at: tripAgo(24 * 60 + 45), student_count: 25 },
 ]
 
 // ─── Attendance ───────────────────────────────────────────────────────────────
@@ -220,8 +222,11 @@ export const mockExtraRoutes: Route[] = [
 
 // Extended trips to reach 5 total
 export const mockExtraTrips: Trip[] = [
-  { id: 'trp_004', route_id: 'rte_004', route_name: 'Route D - Pickup', driver_id: 'drv_005', driver_name: 'Kebede Alemu Tadesse', bus_id: 'bus_005', bus_number: 'B-005', trip_type: 'pickup', status: 'in_progress', started_at: '2026-06-23T07:05:00Z', student_count: 30 },
-  { id: 'trp_005', route_id: 'rte_005', route_name: 'Abu Dhabi North Route', driver_id: 'drv_006', driver_name: 'Yusuf Ibrahim Mohammed', bus_id: 'bus_006', bus_number: 'B-006', trip_type: 'pickup', status: 'completed', started_at: '2026-06-23T06:48:00Z', ended_at: '2026-06-23T07:18:00Z', student_count: 18 },
+  { id: 'trp_004', route_id: 'rte_004', route_name: 'Route D - Pickup', driver_id: 'drv_005', driver_name: 'Kebede Alemu Tadesse', bus_id: 'bus_005', bus_number: 'B-005', trip_type: 'pickup', status: 'in_progress', started_at: tripAgo(38), student_count: 30 },
+  { id: 'trp_005', route_id: 'rte_005', route_name: 'Abu Dhabi North Route', driver_id: 'drv_006', driver_name: 'Yusuf Ibrahim Mohammed', bus_id: 'bus_006', bus_number: 'B-006', trip_type: 'pickup', status: 'completed', started_at: tripAgo(180), ended_at: tripAgo(150), student_count: 18 },
+  { id: 'trp_006', route_id: 'rte_006', route_name: 'Sharjah Central Route', driver_id: 'drv_008', driver_name: 'Abdirahman Warsame Ali', bus_id: 'bus_007', bus_number: 'B-007', trip_type: 'pickup', status: 'in_progress', started_at: tripAgo(72), student_count: 24 },
+  { id: 'trp_007', route_id: 'rte_003', route_name: 'Route A - Drop', driver_id: 'drv_001', driver_name: 'Ali Mohammed Al-Faris', bus_id: 'bus_003', bus_number: 'B-003', trip_type: 'drop', status: 'completed', started_at: tripAgo(300), ended_at: tripAgo(252), student_count: 20 },
+  { id: 'trp_008', route_id: 'rte_002', route_name: 'Route B - Pickup', driver_id: 'drv_002', driver_name: 'Salim Ahmed Rashid', bus_id: 'bus_004', bus_number: 'B-004', trip_type: 'pickup', status: 'completed', started_at: tripAgo(400), ended_at: tripAgo(355), student_count: 18 },
 ]
 
 // Extended students to reach 20 total

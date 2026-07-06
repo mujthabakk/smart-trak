@@ -25,8 +25,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { allRoutes, allStudents, mockTrips } from '@/lib/mockData'
-import { downloadCSV } from '@/lib/utils'
+import { allRoutes, allStudents, allTrips } from '@/lib/mockData'
+import { downloadCSV, cn } from '@/lib/utils'
+import { getRouteTripDurationDisplay } from '@/lib/tripDuration'
 import type { Route as RouteType, Student, Stop } from '@/types'
 
 const SCHOOL_ID = 'sch_001'
@@ -41,7 +42,11 @@ const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
 /** Returns the in_progress trip for a route, if any */
 function getActiveTrip(routeId: string) {
-  return mockTrips.find((t) => t.route_id === routeId && t.status === 'in_progress') ?? null
+  return allTrips.find((t) => t.route_id === routeId && t.status === 'in_progress') ?? null
+}
+
+function routeTripDuration(routeId: string) {
+  return getRouteTripDurationDisplay(routeId, allTrips)
 }
 
 /** Auto-generate 2–3 intermediate stops from start/end words */
@@ -645,6 +650,7 @@ function RouteCard({
 }: RouteCardProps) {
   const activeTrip = getActiveTrip(route.id)
   const isRunning = !!activeTrip
+  const tripDuration = routeTripDuration(route.id)
 
   const pickupStudents = studentsOnRoute.filter(
     (s) => !s.route_name?.toLowerCase().includes('drop'),
@@ -674,6 +680,16 @@ function RouteCard({
           </div>
           <div className="flex flex-col items-end gap-1.5">
             <StatusBadge status={route.is_active ? 'active' : 'inactive'} size="sm" />
+            {tripDuration && (
+              <span className={cn(
+                'text-[10px] font-bold tabular-nums whitespace-nowrap',
+                tripDuration.isLong
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-[var(--muted-foreground)]',
+              )}>
+                {tripDuration.isLive ? 'Live · ' : '✓ '}{tripDuration.label}
+              </span>
+            )}
             {isRunning && (
               <Badge className="bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30 text-[10px] font-semibold">
                 In Progress
@@ -1034,6 +1050,7 @@ function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardPro
         {filteredRoutes.map((route) => {
           const activeTrip = getActiveTrip(route.id)
           const isRunning = !!activeTrip
+          const tripDuration = routeTripDuration(route.id)
           const isDragOver = dragOverRouteId === route.id
           const routeStudents = students.filter(
             (s) => s.school_id === SCHOOL_ID && s.route_name === route.name,
@@ -1078,6 +1095,16 @@ function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardPro
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <Badge variant="secondary" className="text-xs">{routeStudents.length}</Badge>
+                    {tripDuration && (
+                      <span className={cn(
+                        'text-[9px] font-bold tabular-nums whitespace-nowrap',
+                        tripDuration.isLong
+                          ? 'text-red-600 dark:text-red-400'
+                          : 'text-[var(--muted-foreground)]',
+                      )}>
+                        {tripDuration.isLive ? 'Live ' : '✓ '}{tripDuration.label}
+                      </span>
+                    )}
                     {isRunning && (
                       <span className="text-[9px] font-bold uppercase tracking-wide text-green-600 dark:text-green-400">Live</span>
                     )}

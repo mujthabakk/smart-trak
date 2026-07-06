@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import {
   ArrowLeft, Phone, Pencil, ChevronDown, ChevronUp,
   Bus as BusIcon, Clock, Users, Navigation, User, MapPin,
-  CheckCircle2,
+  CheckCircle2, CalendarCheck,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -19,8 +19,10 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { allBuses, allRoutes } from '@/lib/mockData'
+import { allBuses, allRoutes, allStudents, allTrips, mockAttendance } from '@/lib/mockData'
+import type { Route, Student } from '@/types'
 import { getInitials, formatDate, cn } from '@/lib/utils'
+import { getBusTripDurationDisplay } from '@/lib/tripDuration'
 
 // ─── Animation variants ──────────────────────────────────────────────────────
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.07 } } }
@@ -35,33 +37,74 @@ function toLocalDateStr(d: Date): string {
 
 const TODAY = toLocalDateStr(new Date())
 
-// Mock students per location/stop
-const MOCK_STOP_STUDENTS: { stop: string; type: 'pickup' | 'drop'; students: Array<{ id: string; name: string; class: string; pickupTime?: string; dropTime?: string; location: string; status: 'present' | 'absent' | 'pending' }> }[] = [
-  {
-    stop: 'Al Barsha Heights',
-    type: 'pickup',
-    students: [
-      { id: 'std_001', name: 'Ahmed Hassan Al-Rashid', class: 'Class 5 - A', pickupTime: '7:15 AM', location: 'Al Barsha Heights', status: 'present' },
-      { id: 'std_003', name: 'Mohammed Khalid Ibrahim', class: 'Class 7 - A', pickupTime: '7:15 AM', location: 'Al Barsha Heights', status: 'present' },
-    ],
-  },
-  {
-    stop: 'JLT Cluster T',
-    type: 'pickup',
-    students: [
-      { id: 'std_005', name: 'Omar Abdullah Malik', class: 'Class 9 - A', pickupTime: '7:30 AM', location: 'JLT Cluster T', status: 'pending' },
-      { id: 'std_007', name: 'Yousef Mahmoud Qassim', class: 'Class 4 - A', pickupTime: '7:30 AM', location: 'JLT Cluster T', status: 'absent' },
-    ],
-  },
-  {
-    stop: 'Al Barsha South 1',
-    type: 'drop',
-    students: [
-      { id: 'std_002', name: 'Fatima Noor Al-Zahra', class: 'Class 3 - B', dropTime: '3:00 PM', location: 'Al Barsha South 1', status: 'present' },
-      { id: 'std_008', name: 'Maryam Tariq Hussain', class: 'Class 8 - B', dropTime: '3:05 PM', location: 'Al Barsha South 1', status: 'pending' },
-    ],
-  },
-]
+type StudentStopStatus = 'present' | 'absent' | 'pending'
+
+interface StopStudent {
+  id: string
+  name: string
+  class: string
+  pickupTime?: string
+  dropTime?: string
+  location: string
+  status: StudentStopStatus
+}
+
+interface StopGroup {
+  stop: string
+  type: 'pickup' | 'drop'
+  estimatedTime?: string
+  students: StopStudent[]
+}
+
+function attendanceStatusForStudent(studentId: string): StudentStopStatus {
+  const record = mockAttendance.find((a) => a.student_id === studentId)
+  if (!record) return 'pending'
+  if (record.status === 'present') return 'present'
+  if (record.status === 'absent' || record.status === 'leave') return 'absent'
+  return 'pending'
+}
+
+function buildStopGroups(route: Route | undefined, type: 'pickup' | 'drop'): StopGroup[] {
+  if (!route) return []
+  const students = allStudents.filter((s) => s.route_name === route.name)
+  const stops = [...(route.stops ?? [])].sort((a, b) => a.order_index - b.order_index)
+  if (stops.length === 0) return []
+
+  const groups: StopGroup[] = stops.map((stop) => ({
+    stop: stop.name,
+    type,
+    estimatedTime: stop.estimated_time,
+    students: [],
+  }))
+
+  students.forEach((student, index) => {
+    const group = groups[index % groups.length]
+    group.students.push({
+      id: student.id,
+      name: student.name,
+      class: `Class ${student.class} - ${student.division}`,
+      location: group.stop,
+      pickupTime: type === 'pickup' ? group.estimatedTime : undefined,
+      dropTime: type === 'drop' ? group.estimatedTime : undefined,
+      status: attendanceStatusForStudent(student.id),
+    })
+  })
+
+  return groups
+}
+
+function countAttendance(students: Student[]): { onboarded: number; notYet: number; absent: number; total: number } {
+  let onboarded = 0
+  let notYet = 0
+  let absent = 0
+  for (const s of students) {
+    const status = attendanceStatusForStudent(s.id)
+    if (status === 'present') onboarded++
+    else if (status === 'absent') absent++
+    else notYet++
+  }
+  return { onboarded, notYet, absent, total: students.length }
+}
 
 const MOCK_SCHEDULE = [
   { id: 'sch1', label: 'Morning Trip', time: '7:00 AM – 8:30 AM', route: 'Route A - Pickup', students: 28, type: 'pickup', completedAt: '8:28 AM', duration: '88 min' },
@@ -86,7 +129,7 @@ function isExpired(dateStr?: string): boolean {
 interface StopAccordionProps {
   stop: string
   type: 'pickup' | 'drop'
-  students: typeof MOCK_STOP_STUDENTS[0]['students']
+  students: StopStudent[]
   defaultOpen?: boolean
   onStudentClick: (id: string) => void
 }
@@ -94,69 +137,84 @@ interface StopAccordionProps {
 function StopAccordion({ stop, type, students, defaultOpen = true, onStudentClick }: StopAccordionProps) {
   const [open, setOpen] = useState(defaultOpen)
   const presentCount = students.filter((s) => s.status === 'present').length
+  const notYetCount = students.filter((s) => s.status === 'pending').length
+  const absentCount = students.filter((s) => s.status === 'absent').length
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-[var(--muted)]/40 transition-colors"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <MapPin size={14} className={type === 'pickup' ? 'text-blue-500' : 'text-purple-500'} />
-          <span className="font-semibold text-sm text-[var(--foreground)]">{stop}</span>
+          <div className="min-w-0 text-left">
+            <span className="font-semibold text-sm text-[var(--foreground)] block truncate">{stop}</span>
+            <span className="text-[11px] text-[var(--muted-foreground)]">Location / Stop</span>
+          </div>
           <span className={cn(
-            'text-[10px] font-semibold rounded-full px-2 py-0.5',
+            'text-[10px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0',
             type === 'pickup' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
           )}>
             {type === 'pickup' ? 'Pickup' : 'Drop'}
           </span>
-          <span className="text-xs text-[var(--muted-foreground)]">{presentCount}/{students.length}</span>
+          <Badge variant="secondary" className="text-[10px] tabular-nums flex-shrink-0">
+            {presentCount}/{students.length}
+          </Badge>
+          <span className="text-[9px] text-[var(--muted-foreground)] tabular-nums flex-shrink-0">
+            {presentCount} on · {notYetCount} wait · {absentCount} abs
+          </span>
         </div>
-        {open ? <ChevronUp size={16} className="text-[var(--muted-foreground)]" /> : <ChevronDown size={16} className="text-[var(--muted-foreground)]" />}
+        {open ? <ChevronUp size={16} className="text-[var(--muted-foreground)] flex-shrink-0" /> : <ChevronDown size={16} className="text-[var(--muted-foreground)] flex-shrink-0" />}
       </button>
       {open && (
         <div className="divide-y divide-[var(--border)]">
-          {students.map((s) => (
-            <div key={s.id} className="flex items-center gap-3 px-4 py-3">
-              <Avatar className="h-9 w-9 flex-shrink-0">
-                <AvatarFallback className="text-xs font-semibold bg-[var(--primary)]/10 text-[var(--primary)]">
-                  {getInitials(s.name)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <button
-                  onClick={() => onStudentClick(s.id)}
-                  className="text-sm font-medium text-[var(--foreground)] hover:text-[var(--primary)] hover:underline transition-colors text-left"
-                >
-                  {s.name}
-                </button>
-                <p className="text-xs text-[var(--muted-foreground)]">{s.class}</p>
-                <div className="flex items-center gap-3 mt-0.5">
-                  {s.pickupTime && (
-                    <span className="flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400">
-                      <Clock size={10} /> Pickup: {s.pickupTime}
+          {students.length === 0 ? (
+            <p className="px-4 py-6 text-center text-xs text-[var(--muted-foreground)]">No students at this location</p>
+          ) : (
+            students.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => onStudentClick(s.id)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--muted)]/30 transition-colors cursor-pointer"
+              >
+                <Avatar className="h-9 w-9 flex-shrink-0">
+                  <AvatarFallback className="text-xs font-semibold bg-[var(--primary)]/10 text-[var(--primary)]">
+                    {getInitials(s.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[var(--foreground)] hover:text-[var(--primary)]">{s.name}</p>
+                  <p className="text-xs text-[var(--muted-foreground)]">{s.class}</p>
+                  <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                    {s.pickupTime && (
+                      <span className="flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400">
+                        <Clock size={10} /> Pickup: {s.pickupTime}
+                      </span>
+                    )}
+                    {s.dropTime && (
+                      <span className="flex items-center gap-1 text-[11px] text-purple-600 dark:text-purple-400">
+                        <Clock size={10} /> Drop: {s.dropTime}
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
+                      <MapPin size={10} /> {s.location}
                     </span>
-                  )}
-                  {s.dropTime && (
-                    <span className="flex items-center gap-1 text-[11px] text-purple-600 dark:text-purple-400">
-                      <Clock size={10} /> Drop: {s.dropTime}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
-                    <MapPin size={10} /> {s.location}
-                  </span>
+                  </div>
                 </div>
-              </div>
-              <span className={cn(
-                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap flex-shrink-0',
-                s.status === 'present' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                : s.status === 'absent' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-              )}>
-                {s.status === 'present' ? 'Present' : s.status === 'absent' ? 'Absent' : 'Pending'}
-              </span>
-            </div>
-          ))}
+                <span className={cn(
+                  'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap flex-shrink-0',
+                  s.status === 'present' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                  : s.status === 'absent' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                  : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+                )}>
+                  {s.status === 'present' ? 'Onboarded' : s.status === 'absent' ? 'Absent' : 'Not yet'}
+                </span>
+              </button>
+            ))
+          )}
         </div>
       )}
     </div>
@@ -203,7 +261,39 @@ export default function BusDetail() {
   const [selectedDate, setSelectedDate] = useState(TODAY)
 
   const bus = allBuses.find((b) => b.id === id)
-  const route = allRoutes.find((r) => r.bus_id === id)
+  const busRoutes = useMemo(() => allRoutes.filter((r) => r.bus_id === id), [id])
+  const pickupRoute = busRoutes.find((r) => r.type === 'pickup')
+  const dropRoute = busRoutes.find((r) => r.type === 'drop')
+  const route = pickupRoute ?? busRoutes[0]
+
+  const pickupStudents = useMemo(
+    () => (pickupRoute ? allStudents.filter((s) => s.route_name === pickupRoute.name) : []),
+    [pickupRoute],
+  )
+  const dropStudents = useMemo(() => {
+    if (!dropRoute) return []
+    const assigned = allStudents.filter((s) => s.route_name === dropRoute.name)
+    return assigned.length > 0 ? assigned : pickupStudents
+  }, [dropRoute, pickupStudents])
+  const allBusStudents = useMemo(() => {
+    const ids = new Set<string>()
+    return [...pickupStudents, ...dropStudents].filter((s) => {
+      if (ids.has(s.id)) return false
+      ids.add(s.id)
+      return true
+    })
+  }, [pickupStudents, dropStudents])
+
+  const busAttendance = useMemo(() => countAttendance(allBusStudents), [allBusStudents])
+  const tripDuration = useMemo(() => (id ? getBusTripDurationDisplay(id, allTrips) : null), [id])
+  const pickupAttendance = useMemo(() => countAttendance(pickupStudents), [pickupStudents])
+  const dropAttendance = useMemo(() => countAttendance(dropStudents), [dropStudents])
+
+  const stopGroups = useMemo(
+    () => [...buildStopGroups(pickupRoute, 'pickup'), ...buildStopGroups(dropRoute, 'drop')],
+    [pickupRoute, dropRoute],
+  )
+
   const dayMeta = useMemo(() => makeBusHistory(id ?? ''), [id])
 
   function occupancyFor(): number {
@@ -264,12 +354,61 @@ export default function BusDetail() {
         </motion.div>
 
         {/* Stats row */}
-        <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-6 gap-4">
           <StatCard icon={Users} label="Seat Capacity" value={bus.seat_capacity} />
           <StatCard icon={Users} label="Occupancy" value={`${occupancy} / ${bus.seat_capacity}`} />
+          <StatCard
+            icon={Clock}
+            label={tripDuration?.isLive ? 'Trip Time (Live)' : 'Last Trip'}
+            value={tripDuration ? tripDuration.label : '—'}
+          />
+          <StatCard icon={CalendarCheck} label="Onboarded" value={`${busAttendance.onboarded}/${busAttendance.total}`} />
           <StatCard icon={Navigation} label="Route" value={route?.name ?? 'Unassigned'} />
           <StatCard icon={User} label="Driver" value={bus.driver_name ?? 'Unassigned'} />
         </motion.div>
+
+        {/* Student attendance breakdown */}
+        {busAttendance.total > 0 && (
+          <motion.div variants={item} className="flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-3 py-1 text-xs font-semibold tabular-nums">
+              {busAttendance.onboarded} onboarded
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-3 py-1 text-xs font-semibold tabular-nums">
+              {busAttendance.notYet} not yet
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-3 py-1 text-xs font-semibold tabular-nums">
+              {busAttendance.absent} absent
+            </span>
+          </motion.div>
+        )}
+
+        {/* Route attendance summary */}
+        {(pickupRoute || dropRoute) && (
+          <motion.div variants={item} className="flex flex-wrap gap-3">
+            {pickupRoute && (
+              <button
+                type="button"
+                onClick={() => navigate(`/school-admin/routes/${pickupRoute.id}`)}
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm hover:border-[var(--primary)]/40 transition-colors"
+              >
+                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-0">Pickup</Badge>
+                <span className="font-medium text-[var(--foreground)]">{pickupRoute.name}</span>
+                <span className="tabular-nums font-bold text-[var(--primary)]">{pickupAttendance.onboarded}/{pickupAttendance.total}</span>
+              </button>
+            )}
+            {dropRoute && (
+              <button
+                type="button"
+                onClick={() => navigate(`/school-admin/routes/${dropRoute.id}`)}
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm hover:border-[var(--primary)]/40 transition-colors"
+              >
+                <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-0">Drop</Badge>
+                <span className="font-medium text-[var(--foreground)]">{dropRoute.name}</span>
+                <span className="tabular-nums font-bold text-[var(--primary)]">{dropAttendance.onboarded}/{dropAttendance.total}</span>
+              </button>
+            )}
+          </motion.div>
+        )}
 
         {/* Horizontal Calendar */}
         <motion.div variants={item}>
@@ -295,18 +434,32 @@ export default function BusDetail() {
 
             {/* ── Students tab — accordion by location ─────────────────── */}
             <TabsContent value="students" className="flex flex-col gap-3">
-              <p className="text-xs text-[var(--muted-foreground)] px-1">
-                {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
-              {MOCK_STOP_STUDENTS.map((group) => (
-                <StopAccordion
-                  key={group.stop}
-                  stop={group.stop}
-                  type={group.type}
-                  students={group.students}
-                  onStudentClick={(sid) => navigate(`/school-admin/students/${sid}`)}
-                />
-              ))}
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                </p>
+                <p className="text-xs font-semibold text-[var(--foreground)] tabular-nums">
+                  Today: {busAttendance.onboarded}/{busAttendance.total} onboarded
+                  {' · '}{busAttendance.notYet} not yet · {busAttendance.absent} absent
+                </p>
+              </div>
+              {stopGroups.length === 0 ? (
+                <Card>
+                  <CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">
+                    No route stops assigned to this bus yet.
+                  </CardContent>
+                </Card>
+              ) : (
+                stopGroups.map((group) => (
+                  <StopAccordion
+                    key={`${group.type}-${group.stop}`}
+                    stop={group.stop}
+                    type={group.type}
+                    students={group.students}
+                    onStudentClick={(sid) => navigate(`/school-admin/students/${sid}`)}
+                  />
+                ))
+              )}
             </TabsContent>
 
             {/* ── Schedule tab ─────────────────────────────────────────── */}
@@ -343,7 +496,11 @@ export default function BusDetail() {
                     </div>
                     <div className="flex items-center gap-2 text-sm text-[var(--foreground)]">
                       <Users size={14} className="text-[var(--muted-foreground)]" />
-                      <span>{trip.students} students</span>
+                      <span>
+                        {trip.type === 'pickup'
+                          ? `${pickupAttendance.onboarded}/${pickupAttendance.total}`
+                          : `${dropAttendance.onboarded}/${dropAttendance.total}`} onboarded
+                      </span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
                       <CheckCircle2 size={14} className="text-green-500" />
