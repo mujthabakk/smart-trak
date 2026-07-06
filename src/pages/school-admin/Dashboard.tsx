@@ -6,18 +6,17 @@ import {
 } from 'recharts'
 import {
   Users, Bus as BusIcon, Navigation, CalendarCheck, UserCheck,
-  CalendarClock, MapPin, Clock, ArrowRight, Gauge,
-  AlertTriangle, BadgeCheck, Radio, CheckCircle2, CircleDot, WifiOff,
+  CalendarClock, MapPin, ArrowRight, Gauge,
+  AlertTriangle, BadgeCheck, Radio, CheckCircle2,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { StatsCard } from '@/components/shared/StatsCard'
-import StatusBadge from '@/components/shared/StatusBadge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { formatDate, daysUntil } from '@/lib/utils'
+import { daysUntil } from '@/lib/utils'
 import {
-  allStudents, allBuses, allDrivers, allTrips, allLeaves,
+  allStudents, allBuses, allDrivers, allLeaves,
   mockAttendance, allRoutes,
 } from '@/lib/mockData'
 import { cn } from '@/lib/utils'
@@ -134,14 +133,6 @@ export default function SchoolAdminDashboard() {
       .filter((d) => d.days < 90)
       .sort((a, b) => a.days - b.days)
   }, [])
-
-  const recentTrips = useMemo(
-    () =>
-      [...allTrips]
-        .sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''))
-        .slice(0, 5),
-    [],
-  )
 
   return (
     <Layout>
@@ -500,41 +491,6 @@ export default function SchoolAdminDashboard() {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Today's Trips */}
-        <motion.div variants={item}>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2">
-                <Clock size={18} className="text-[var(--primary)]" />
-                Today's Trips
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y divide-[var(--border)]">
-                {recentTrips.map((trip) => (
-                  <button
-                    key={trip.id}
-                    onClick={() => navigate(`/school-admin/buses/${trip.bus_id}`)}
-                    className="w-full flex items-start gap-3 px-6 py-3 hover:bg-[var(--muted)]/30 transition-colors text-left"
-                  >
-                    <div className="mt-0.5 h-8 w-8 rounded-full bg-[var(--muted)] flex items-center justify-center flex-shrink-0">
-                      <Navigation size={13} className="text-[var(--muted-foreground)]" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[var(--foreground)] truncate">{trip.route_name}</p>
-                      <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                        <span className="hover:text-[var(--primary)] transition-colors">{trip.bus_number}</span>
-                        {' · '}{trip.started_at ? formatDate(trip.started_at, 'time') : '—'}
-                      </p>
-                    </div>
-                    <StatusBadge status={trip.status} size="sm" className="flex-shrink-0" />
-                  </button>
-                ))}
-              </div>
             </CardContent>
           </Card>
         </motion.div>

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import {
   Plus, Bus as BusIcon, Navigation, MapPin, MoreVertical,
   Pencil, Ban, LayoutGrid, List, User, Clock, Users, Download, Upload, QrCode, Phone,
-  AlertCircle,
+  AlertCircle, Eye,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import PageHeader from '@/components/shared/PageHeader'
@@ -523,10 +523,12 @@ export default function Buses() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => navigate(`/school-admin/buses/${bus.id}`)}>
+            <Eye size={14} /> View Details
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => {
             const routeId = primaryRouteIdForBus(bus.id)
             if (routeId) navigate(`/school-admin/routes/${routeId}`)
-            else navigate(`/school-admin/buses/${bus.id}`)
           }}>
             <BusIcon size={14} /> View Route
           </DropdownMenuItem>
@@ -840,13 +842,16 @@ export default function Buses() {
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => navigate('/school-admin/live-map')}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/school-admin/buses/${bus.id}`) }}>
+                            <Eye size={14} /> View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate('/school-admin/live-map') }}>
                             <Navigation size={14} /> Track
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setEditBus(bus)}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditBus(bus) }}>
                             <Pencil size={14} /> Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => downloadBusQR(bus)}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); downloadBusQR(bus) }}>
                             <QrCode size={14} /> Download QR
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
