@@ -1,16 +1,18 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
-  Users, UserPlus, CheckCircle, Ban, MoreHorizontal, Pencil, Power, Send, KeyRound, Building2,
+  Users, UserPlus, CalendarCheck, MoreHorizontal, Pencil, Trash2, KeyRound, Building2, AlertCircle, RefreshCw,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { DataTable, type Column } from '@/components/shared/DataTable'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -18,32 +20,46 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
-import { formatDate, getInitials, generateId } from '@/lib/utils'
-import { mockSchools } from '@/lib/mockData'
+import { formatDate, getInitials } from '@/lib/utils'
+import { listUsers, createUser, updateUser, deleteUser } from '@/lib/api/users'
+import { listSchools } from '@/lib/api/schools'
+import type { User as AuthUser } from '@/store/authStore'
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } }
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
-interface SchoolAdmin {
-  id: string
-  name: string
-  email: string
-  school: string
-  lastLogin: string
-  status: 'active' | 'inactive'
+// The users API is typed against the auth store's leaner `User` shape, but the
+// backend actually returns `created_at`/`last_login` for every account (see
+// backend/src/modules/users/users.service.js). Extend locally rather than
+// touching src/lib/api/users.ts.
+interface AdminUser extends AuthUser {
+  created_at?: string
+  last_login?: string
 }
 
-const ADMIN_NAMES = ['Hassan Ahmed', 'Fatima Al Ali', 'Mohammed Saeed', 'Aisha Khan', 'Omar Yusuf', 'Layla Hassan', 'Yousef Ali', 'Mariam Said']
-const LOGINS = ['2026-06-23T06:30:00Z', '2026-06-22T18:10:00Z', '2026-06-23T05:45:00Z', '2026-06-19T09:20:00Z', '2026-06-21T12:00:00Z', '2026-05-30T14:00:00Z']
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Something went wrong. Please try again.'
+  }
+  return 'Something went wrong. Please try again.'
+}
 
-const INITIAL_ADMINS: SchoolAdmin[] = mockSchools.map((s, i) => ({
-  id: `sa-${s.id}`,
-  name: ADMIN_NAMES[i % ADMIN_NAMES.length],
-  email: s.admin_email ?? s.email ?? `admin@${s.name.toLowerCase().replace(/\s+/g, '')}.ae`,
-  school: s.name,
-  lastLogin: LOGINS[i % LOGINS.length],
-  status: s.status === 'suspended' ? 'inactive' : 'active',
-}))
+function generateTempPassword(): string {
+  const rand = Math.random().toString(36).slice(-6)
+  return `Temp${rand}!9`
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div
+      className="flex items-start gap-2 p-3 rounded-xl text-sm"
+      style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+    >
+      <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {message}
+    </div>
+  )
+}
 
 function MiniStat({ label, value, icon: Icon, accent }: { label: string; value: number; icon: typeof Users; accent: string }) {
   return (
@@ -57,48 +73,131 @@ function MiniStat({ label, value, icon: Icon, accent }: { label: string; value: 
   )
 }
 
+interface AdminForm {
+  name: string
+  email: string
+  password: string
+  school_id: string
+}
+
+const emptyForm: AdminForm = { name: '', email: '', password: '', school_id: '' }
+
 export default function UserManagement() {
-  const [admins, setAdmins] = useState<SchoolAdmin[]>(INITIAL_ADMINS)
+  const queryClient = useQueryClient()
+
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<SchoolAdmin | null>(null)
-  const [form, setForm] = useState({ name: '', email: '', school: mockSchools[0]?.name ?? '' })
-  const [editForm, setEditForm] = useState({ name: '', email: '', school: mockSchools[0]?.name ?? '' })
+  const [editTarget, setEditTarget] = useState<AdminUser | null>(null)
+  const [form, setForm] = useState<AdminForm>(emptyForm)
+  const [editForm, setEditForm] = useState<AdminForm>(emptyForm)
+  const [formError, setFormError] = useState('')
+  const [editError, setEditError] = useState('')
 
-  const counts = useMemo(() => ({
-    total: admins.length,
-    active: admins.filter((m) => m.status === 'active').length,
-    inactive: admins.filter((m) => m.status === 'inactive').length,
-  }), [admins])
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['users', 'school_admin'],
+    queryFn: async () => (await listUsers({ role: 'school_admin', pageSize: 100 })) as unknown as { users: AdminUser[] },
+  })
+  const admins = useMemo(() => data?.users ?? [], [data])
 
-  function toggleStatus(id: string) {
-    setAdmins((prev) => prev.map((m) => m.id === id ? { ...m, status: m.status === 'active' ? 'inactive' : 'active' } : m))
+  const { data: schoolsData } = useQuery({
+    queryKey: ['schools', 'picker'],
+    queryFn: () => listSchools({ pageSize: 100 }),
+  })
+  const schools = schoolsData?.schools ?? []
+
+  const createMutation = useMutation({
+    mutationFn: createUser,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      setAddOpen(false)
+      setForm(emptyForm)
+      setFormError('')
+    },
+    onError: (err) => setFormError(extractErrorMessage(err)),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<AuthUser> & { password?: string } }) => updateUser(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      setEditOpen(false)
+      setEditTarget(null)
+      setEditError('')
+    },
+    onError: (err) => setEditError(extractErrorMessage(err)),
+  })
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) => updateUser(id, { password }),
+    onSuccess: (_user, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      window.alert(`Password reset. New temporary password: ${variables.password}`)
+    },
+    onError: (err) => window.alert(extractErrorMessage(err)),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
+  })
+
+  const counts = useMemo(() => {
+    const total = admins.length
+    const schoolsCovered = new Set(admins.map((a) => a.school_id).filter(Boolean)).size
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+    const activeThisWeek = admins.filter((a) => a.last_login && new Date(a.last_login).getTime() >= weekAgo).length
+    return { total, schoolsCovered, activeThisWeek }
+  }, [admins])
+
+  function openAdd() {
+    setForm({ ...emptyForm, password: generateTempPassword(), school_id: schools[0]?.id ?? '' })
+    setFormError('')
+    setAddOpen(true)
   }
 
-  function addAdmin() {
-    if (!form.name.trim() || !form.email.trim()) return
-    setAdmins((prev) => [{ id: `sa-${generateId()}`, name: form.name, email: form.email, school: form.school, lastLogin: new Date().toISOString(), status: 'active' }, ...prev])
-    setForm({ name: '', email: '', school: mockSchools[0]?.name ?? '' })
-    setAddOpen(false)
+  function submitAdd() {
+    if (!form.name.trim() || !form.email.trim() || !form.password.trim() || !form.school_id) {
+      setFormError('Please fill in name, email, password, and select a school.')
+      return
+    }
+    createMutation.mutate({
+      name: form.name.trim(),
+      email: form.email.trim(),
+      password: form.password,
+      role: 'school_admin',
+      school_id: form.school_id,
+    })
   }
 
-  function openEdit(admin: SchoolAdmin) {
+  function openEdit(admin: AdminUser) {
     setEditTarget(admin)
-    setEditForm({ name: admin.name, email: admin.email, school: admin.school })
+    setEditForm({ name: admin.name, email: admin.email, password: '', school_id: admin.school_id ?? '' })
+    setEditError('')
     setEditOpen(true)
   }
 
   function saveEdit() {
-    if (!editTarget || !editForm.name.trim() || !editForm.email.trim()) return
-    setAdmins((prev) => prev.map((m) => m.id === editTarget.id
-      ? { ...m, name: editForm.name, email: editForm.email, school: editForm.school }
-      : m,
-    ))
-    setEditOpen(false)
-    setEditTarget(null)
+    if (!editTarget || !editForm.name.trim() || !editForm.email.trim()) {
+      setEditError('Name and email are required.')
+      return
+    }
+    updateMutation.mutate({
+      id: editTarget.id,
+      payload: { name: editForm.name.trim(), email: editForm.email.trim(), school_id: editForm.school_id || undefined },
+    })
   }
 
-  const columns: Column<SchoolAdmin>[] = [
+  function resetPassword(admin: AdminUser) {
+    if (!window.confirm(`Reset password for ${admin.name}?`)) return
+    resetPasswordMutation.mutate({ id: admin.id, password: generateTempPassword() })
+  }
+
+  function removeAdmin(admin: AdminUser) {
+    if (!window.confirm(`Delete ${admin.name}'s account? This cannot be undone.`)) return
+    deleteMutation.mutate(admin.id)
+  }
+
+  const columns: Column<AdminUser>[] = [
     {
       key: 'name', header: 'School Admin', sortable: true, accessor: (row) => row.name,
       render: (row) => (
@@ -114,23 +213,21 @@ export default function UserManagement() {
       ),
     },
     {
-      key: 'school', header: 'School', sortable: true, accessor: (row) => row.school,
+      key: 'school_name', header: 'School', sortable: true, accessor: (row) => row.school_name ?? '',
       render: (row) => (
         <span className="inline-flex items-center gap-1.5 text-[var(--foreground)]">
-          <Building2 size={14} className="text-[var(--muted-foreground)]" /> {row.school}
+          <Building2 size={14} className="text-[var(--muted-foreground)]" /> {row.school_name ?? '—'}
         </span>
       ),
     },
     { key: 'role', header: 'Role', render: () => <Badge variant="info">School Admin</Badge> },
-    { key: 'lastLogin', header: 'Last Login', sortable: true, accessor: (row) => row.lastLogin, render: (row) => <span className="text-[var(--muted-foreground)] whitespace-nowrap">{formatDate(row.lastLogin, 'relative')}</span> },
     {
-      key: 'status', header: 'Status', sortable: true, accessor: (row) => row.status,
-      render: (row) => (
-        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-          <Switch checked={row.status === 'active'} onCheckedChange={() => toggleStatus(row.id)} />
-          <span className="text-xs text-[var(--muted-foreground)] capitalize">{row.status}</span>
-        </div>
-      ),
+      key: 'last_login', header: 'Last Login', sortable: true, accessor: (row) => row.last_login ?? '',
+      render: (row) => <span className="text-[var(--muted-foreground)] whitespace-nowrap">{row.last_login ? formatDate(row.last_login, 'relative') : 'Never'}</span>,
+    },
+    {
+      key: 'created_at', header: 'Created', sortable: true, accessor: (row) => row.created_at ?? '',
+      render: (row) => <span className="text-[var(--muted-foreground)] whitespace-nowrap">{row.created_at ? formatDate(row.created_at) : '—'}</span>,
     },
     {
       key: 'actions', header: '', className: 'text-right w-12',
@@ -141,9 +238,9 @@ export default function UserManagement() {
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => openEdit(row)}><Pencil size={14} /> Edit</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => window.alert(`A password reset link has been sent to ${row.email}`)}><KeyRound size={14} /> Reset Password</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => resetPassword(row)}><KeyRound size={14} /> Reset Password</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem destructive onClick={() => toggleStatus(row.id)}><Power size={14} />{row.status === 'active' ? 'Deactivate' : 'Activate'}</DropdownMenuItem>
+              <DropdownMenuItem destructive onClick={() => removeAdmin(row)}><Trash2 size={14} /> Delete</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -156,28 +253,34 @@ export default function UserManagement() {
       <PageHeader
         title="Users"
         subtitle="Manage school administrator accounts"
-        actions={<Button onClick={() => setAddOpen(true)}><UserPlus size={16} /> Add School Admin</Button>}
+        actions={<Button onClick={openAdd}><UserPlus size={16} /> Add School Admin</Button>}
       />
 
       <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
         <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <MiniStat label="School Admins" value={counts.total} icon={Users} accent="bg-[var(--primary)]/10 text-[var(--primary)]" />
-          <MiniStat label="Active" value={counts.active} icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" />
-          <MiniStat label="Inactive" value={counts.inactive} icon={Ban} accent="bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400" />
+          <MiniStat label="Schools Covered" value={counts.schoolsCovered} icon={Building2} accent="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" />
+          <MiniStat label="Active This Week" value={counts.activeThisWeek} icon={CalendarCheck} accent="bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" />
         </motion.div>
 
-        <motion.div variants={item}>
-          <DataTable
-            columns={columns}
-            data={admins}
-            keyField="id"
-            searchable
-            searchKeys={['name', 'email', 'school']}
-            searchPlaceholder="Search school admins…"
-            emptyTitle="No school admins"
-            emptyDescription="Add a school admin account to get started."
-          />
-        </motion.div>
+        {isError && <ErrorBanner message="Failed to load school admins. Please try again." />}
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-24"><LoadingSpinner size="lg" /></div>
+        ) : (
+          <motion.div variants={item}>
+            <DataTable
+              columns={columns}
+              data={admins}
+              keyField="id"
+              searchable
+              searchKeys={['name', 'email', 'school_name']}
+              searchPlaceholder="Search school admins…"
+              emptyTitle="No school admins"
+              emptyDescription="Add a school admin account to get started."
+            />
+          </motion.div>
+        )}
       </motion.div>
 
       {/* Add Dialog */}
@@ -185,9 +288,10 @@ export default function UserManagement() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add School Admin</DialogTitle>
-            <DialogDescription>Create a school administrator account. Credentials are emailed on creation.</DialogDescription>
+            <DialogDescription>Create a school administrator account. Share the temporary password with them securely.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {formError && <ErrorBanner message={formError} />}
             <div className="space-y-1.5">
               <Label htmlFor="admin-name">Full Name</Label>
               <Input id="admin-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Hassan Ahmed" />
@@ -197,18 +301,27 @@ export default function UserManagement() {
               <Input id="admin-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="admin@school.ae" />
             </div>
             <div className="space-y-1.5">
+              <Label htmlFor="admin-password">Temporary Password</Label>
+              <div className="flex gap-2">
+                <Input id="admin-password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} placeholder="Temp password" />
+                <Button type="button" variant="outline" size="icon" onClick={() => setForm((f) => ({ ...f, password: generateTempPassword() }))} title="Generate new password">
+                  <RefreshCw size={14} />
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
               <Label>School</Label>
-              <Select value={form.school} onValueChange={(v) => setForm((f) => ({ ...f, school: v }))}>
+              <Select value={form.school_id} onValueChange={(v) => setForm((f) => ({ ...f, school_id: v }))}>
                 <SelectTrigger><SelectValue placeholder="Select school" /></SelectTrigger>
                 <SelectContent>
-                  {mockSchools.map((s) => <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>)}
+                  {schools.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={addAdmin}><Send size={14} /> Create & Send Invite</Button>
+            <Button onClick={submitAdd} loading={createMutation.isPending}><UserPlus size={14} /> Create Account</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -221,6 +334,7 @@ export default function UserManagement() {
             <DialogDescription>Update this administrator's name, email, or school assignment.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {editError && <ErrorBanner message={editError} />}
             <div className="space-y-1.5">
               <Label htmlFor="edit-admin-name">Full Name</Label>
               <Input
@@ -242,17 +356,17 @@ export default function UserManagement() {
             </div>
             <div className="space-y-1.5">
               <Label>School</Label>
-              <Select value={editForm.school} onValueChange={(v) => setEditForm((f) => ({ ...f, school: v }))}>
+              <Select value={editForm.school_id} onValueChange={(v) => setEditForm((f) => ({ ...f, school_id: v }))}>
                 <SelectTrigger><SelectValue placeholder="Select school" /></SelectTrigger>
                 <SelectContent>
-                  {mockSchools.map((s) => <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>)}
+                  {schools.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={saveEdit}><Pencil size={14} /> Save Changes</Button>
+            <Button onClick={saveEdit} loading={updateMutation.isPending}><Pencil size={14} /> Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

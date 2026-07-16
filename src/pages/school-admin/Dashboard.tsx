@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -16,9 +17,10 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { daysUntil } from '@/lib/utils'
 import {
-  allStudents, allBuses, allDrivers, allLeaves,
-  mockAttendance, allRoutes,
+  allBuses, allDrivers, allLeaves, allRoutes,
 } from '@/lib/mockData'
+import { getAttendanceTrend, getFleetSummary } from '@/lib/api/reports'
+import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/lib/utils'
 
 const container = {
@@ -50,19 +52,48 @@ const SCHOOL_ID = 'sch_001'
 
 export default function SchoolAdminDashboard() {
   const navigate = useNavigate()
+  const { user } = useAuthStore()
   const [liveBusTab, setLiveBusTab] = useState<'morning' | 'afternoon'>('morning')
 
+  const firstName = user?.name?.split(' ')[0] ?? 'there'
+
+  // ── Live data: fleet summary (bus/driver/route/student counts) + last-14-day
+  //    attendance trend, both scoped to the current school via the JWT. ──────
+  const {
+    data: fleetSummary,
+    isLoading: fleetLoading,
+    isError: fleetIsError,
+  } = useQuery({
+    queryKey: ['reports', 'fleet-summary'],
+    queryFn: () => getFleetSummary(),
+  })
+
+  const {
+    data: attendanceTrend,
+    isLoading: trendLoading,
+    isError: trendIsError,
+  } = useQuery({
+    queryKey: ['reports', 'attendance-trend'],
+    queryFn: () => getAttendanceTrend(),
+  })
+
+  const studentsStat = fleetSummary?.find((c) => c.title.toLowerCase().includes('student'))
+  const driversStat = fleetSummary?.find((c) => c.title.toLowerCase().includes('driver'))
+
+  const latestAttendance = attendanceTrend?.[attendanceTrend.length - 1]
+  const livePresent = latestAttendance ? Number(latestAttendance.present ?? 0) : 0
+  const liveAbsent = latestAttendance ? Number(latestAttendance.absent ?? 0) : 0
+  const liveAttendancePct = latestAttendance && livePresent + liveAbsent > 0
+    ? Math.round((livePresent / (livePresent + liveAbsent)) * 100)
+    : null
+
+  // Bus/leave live-status data isn't covered by the reports endpoints available
+  // to this page, so these stay derived from the local fleet/leave records.
   const stats = useMemo(() => {
-    const totalStudents = allStudents.length
     const activeBuses = allBuses.filter((b) => b.is_active).length
     const onRoute = allBuses.filter((b) => b.status === 'running').length
-    const present = mockAttendance.filter((a) => a.status === 'present').length
-    const attendancePct = mockAttendance.length
-      ? Math.round((present / mockAttendance.length) * 100)
-      : 0
-    const drivers = allDrivers.length
     const pendingLeaves = allLeaves.filter((l) => l.status === 'pending').length
-    return { totalStudents, activeBuses, onRoute, attendancePct, drivers, pendingLeaves }
+    return { activeBuses, onRoute, pendingLeaves }
   }, [])
 
   const schoolBuses = useMemo(() => allBuses.filter((b) => b.school_id === SCHOOL_ID), [])
@@ -140,7 +171,7 @@ export default function SchoolAdminDashboard() {
         {/* Header */}
         <motion.div variants={item} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-[var(--foreground)]">Good morning, Hassan</h1>
+            <h1 className="text-2xl font-bold text-[var(--foreground)]">Good morning, {firstName}</h1>
             <p className="text-sm text-[var(--muted-foreground)] mt-1">
               Here is what is happening across your fleet today.
             </p>
@@ -151,13 +182,23 @@ export default function SchoolAdminDashboard() {
           </Button>
         </motion.div>
 
+        {(fleetIsError || trendIsError) && (
+          <motion.div
+            variants={item}
+            className="flex items-start gap-2 p-3 rounded-xl text-sm"
+            style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+          >
+            <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" /> Some live dashboard figures could not be loaded right now.
+          </motion.div>
+        )}
+
         {/* Stats */}
         <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-          <StatsCard title="Total Students" value={stats.totalStudents} icon={Users} color="primary" onClick={() => navigate('/school-admin/students')} />
+          <StatsCard title="Total Students" value={studentsStat?.value ?? 0} icon={Users} color="primary" loading={fleetLoading} onClick={() => navigate('/school-admin/students')} />
           <StatsCard title="Active Buses" value={stats.activeBuses} icon={BusIcon} color="info" onClick={() => navigate('/school-admin/buses')} />
           <StatsCard title="On Route Now" value={stats.onRoute} icon={Navigation} color="success" subtitle="Live trips" />
-          <StatsCard title="Attendance Today" value={`${stats.attendancePct}%`} icon={CalendarCheck} color="success" onClick={() => navigate('/school-admin/attendance')} />
-          <StatsCard title="Drivers" value={stats.drivers} icon={UserCheck} color="warning" onClick={() => navigate('/school-admin/drivers')} />
+          <StatsCard title="Attendance Today" value={liveAttendancePct !== null ? `${liveAttendancePct}%` : '—'} icon={CalendarCheck} color="success" loading={trendLoading} onClick={() => navigate('/school-admin/attendance')} />
+          <StatsCard title="Drivers" value={driversStat?.value ?? 0} icon={UserCheck} color="warning" loading={fleetLoading} onClick={() => navigate('/school-admin/drivers')} />
           <StatsCard title="Pending Leaves" value={stats.pendingLeaves} icon={CalendarClock} color="danger" onClick={() => navigate('/school-admin/leave')} />
         </motion.div>
 

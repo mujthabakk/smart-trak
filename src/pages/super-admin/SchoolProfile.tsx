@@ -1,16 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Pencil, Power, Mail, Phone, MapPin, Globe, Calendar, User,
   GraduationCap, Bus, UserCheck, Route as RouteIcon, CreditCard,
-  CheckCircle2, Building2, Receipt, TrendingUp, Save, ArrowLeft,
+  CheckCircle2, Building2, Receipt, TrendingUp, Save, ArrowLeft, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTable, type Column } from '@/components/shared/DataTable'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -19,7 +21,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { getInitials, formatDate, formatCurrency, formatNumber } from '@/lib/utils'
-import { mockSchools, mockPlans, allSubscriptions } from '@/lib/mockData'
+import { getSchool, updateSchool } from '@/lib/api/schools'
+import { listPlans } from '@/lib/api/plans'
+import { listSubscriptions } from '@/lib/api/subscriptions'
 import { PLAN_FEATURES } from '@/lib/constants'
 import type { School, Subscription } from '@/types'
 
@@ -96,6 +100,12 @@ interface EditForm {
   driver_count: string
 }
 
+const EMPTY_EDIT_FORM: EditForm = {
+  name: '', admin_name: '', admin_email: '', phone: '', website: '',
+  plan_name: 'standard', address: '', city: '', state: '', post_code: '', country: 'UAE',
+  student_count: '', bus_count: '', driver_count: '',
+}
+
 function schoolToForm(s: School): EditForm {
   return {
     name: s.name,
@@ -124,29 +134,61 @@ function SectionLabel({ children }: { children: string }) {
 export default function SchoolProfile() {
   const navigate = useNavigate()
   const { id } = useParams()
+  const queryClient = useQueryClient()
 
-  const [schools, setSchools] = useState<School[]>(mockSchools)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
 
-  const school = useMemo(
-    () => schools.find((s) => s.id === id) ?? schools[0],
-    [id, schools],
-  )
+  const { data: school, isLoading, isError } = useQuery({
+    queryKey: ['school', id],
+    queryFn: () => getSchool(id as string),
+    enabled: !!id,
+  })
 
-  const [form, setForm] = useState<EditForm>(() => schoolToForm(school))
+  const { data: plans = [] } = useQuery({
+    queryKey: ['plans'],
+    queryFn: listPlans,
+  })
+
+  const { data: subscriptionsData } = useQuery({
+    queryKey: ['subscriptions', { school_id: id }],
+    queryFn: () => listSubscriptions({ school_id: id, pageSize: 1000 }),
+    enabled: !!id,
+  })
+  const subscriptions = useMemo(() => subscriptionsData?.subscriptions ?? [], [subscriptionsData])
+
+  const [form, setForm] = useState<EditForm>(EMPTY_EDIT_FORM)
+
+  useEffect(() => {
+    if (school) setForm(schoolToForm(school))
+  }, [school])
 
   const plan = useMemo(
-    () => mockPlans.find((p) => p.id === school.plan_id) ?? mockPlans[0],
-    [school.plan_id],
+    () => plans.find((p) => p.id === school?.plan_id) ?? plans[0],
+    [school?.plan_id, plans],
   )
 
-  const subscriptions = useMemo(
-    () => allSubscriptions.filter((s) => s.school_id === school.id),
-    [school.id],
-  )
   const currentSub = subscriptions[0]
-  const planFeatures = PLAN_FEATURES[plan.name as keyof typeof PLAN_FEATURES] ?? []
+  const planFeatures = plan ? (PLAN_FEATURES[plan.name as keyof typeof PLAN_FEATURES] ?? plan.features) : []
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: Partial<School>) => updateSchool(id as string, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['school', id] })
+      queryClient.invalidateQueries({ queryKey: ['schools'] })
+      setSaved(true)
+    },
+    onError: () => setSaveError('Failed to save changes. Please try again.'),
+  })
+
+  const statusMutation = useMutation({
+    mutationFn: (status: School['status']) => updateSchool(id as string, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['school', id] })
+      queryClient.invalidateQueries({ queryKey: ['schools'] })
+    },
+  })
 
   function set(field: keyof EditForm, value: string) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -155,26 +197,25 @@ export default function SchoolProfile() {
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault()
+    if (!school) return
+    setSaveError('')
     const planLabel = form.plan_name.charAt(0).toUpperCase() + form.plan_name.slice(1)
-    setSchools((prev) => prev.map((s) => s.id === school.id ? {
-      ...s,
+    const matchedPlan = plans.find((p) => p.name.toLowerCase() === form.plan_name.toLowerCase())
+    updateMutation.mutate({
       name: form.name,
       admin_name: form.admin_name || undefined,
       admin_email: form.admin_email,
       email: form.admin_email,
       phone: form.phone,
       website: form.website || undefined,
+      plan_id: matchedPlan?.id,
       plan_name: planLabel,
       address: form.address,
       city: form.city,
       state: form.state,
       post_code: form.post_code || undefined,
       country: form.country,
-      student_count: Number(form.student_count) || s.student_count,
-      bus_count: Number(form.bus_count) || s.bus_count,
-      driver_count: Number(form.driver_count) || s.driver_count,
-    } : s))
-    setSaved(true)
+    })
   }
 
   const billingColumns: Column<Subscription>[] = [
@@ -214,6 +255,29 @@ export default function SchoolProfile() {
       render: (s) => <StatusBadge status={s.status} size="sm" />,
     },
   ]
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center py-24">
+          <LoadingSpinner size="lg" />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (isError || !school || !plan) {
+    return (
+      <Layout>
+        <div
+          className="flex items-start gap-2 p-3 rounded-xl text-sm max-w-lg mx-auto mt-12"
+          style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+        >
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load this school. Please go back and try again.
+        </div>
+      </Layout>
+    )
+  }
 
   return (
     <Layout>

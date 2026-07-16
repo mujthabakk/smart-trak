@@ -1,15 +1,22 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
+import {
+  LineChart, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts'
 import {
   Download, BarChart3, Users, UserCheck, UserX, Percent,
   Bus as BusIcon, Route as RouteIcon, UserCog, Activity, Clock,
-  CalendarDays,
+  CalendarDays, GraduationCap, AlertCircle,
+  type LucideIcon,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTable, type Column } from '@/components/shared/DataTable'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -26,8 +33,44 @@ import {
   mockExtraBuses, mockExtraRoutes, mockExtraDrivers,
   allStudents,
 } from '@/lib/mockData'
+import { getAttendanceTrend, getFleetSummary } from '@/lib/api/reports'
 import { formatDate, getInitials, downloadCSV } from '@/lib/utils'
-import type { AttendanceRecord, Bus, Route, Driver, Trip } from '@/types'
+import type { AttendanceRecord, Bus, Route, Driver, Trip, StatsCard as StatsCardData } from '@/types'
+
+// ─── Live stat icon / color resolution ──────────────────────────────────────
+// Same string-to-component pattern used for NavItem icons in
+// src/components/layout/Sidebar.tsx (ICON_MAP lookup with a safe fallback).
+const FLEET_ICON_MAP: Record<string, LucideIcon> = {
+  Bus: BusIcon,
+  Users,
+  UserCheck,
+  UserCog,
+  Route: RouteIcon,
+  GraduationCap,
+  Activity,
+  Percent,
+}
+
+const FLEET_COLOR_MAP: Record<string, 'primary' | 'success' | 'warning' | 'danger' | 'info'> = {
+  blue: 'info',
+  green: 'success',
+  red: 'danger',
+  amber: 'warning',
+  orange: 'warning',
+  yellow: 'warning',
+  purple: 'primary',
+  primary: 'primary',
+  gray: 'info',
+  grey: 'info',
+}
+
+function resolveStatIcon(name: string): LucideIcon {
+  return FLEET_ICON_MAP[name] ?? BarChart3
+}
+
+function resolveStatColor(name: string): 'primary' | 'success' | 'warning' | 'danger' | 'info' {
+  return FLEET_COLOR_MAP[name] ?? 'primary'
+}
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const SCHOOL_ID = 'sch_001'
@@ -111,6 +154,25 @@ export default function SchoolReports() {
   const [filterBus, setFilterBus] = useState('all')
   const [filterRoute, setFilterRoute] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
+
+  // ── Live fleet summary + attendance trend (real backend data) ────────────
+  const {
+    data: fleetSummary,
+    isLoading: fleetLoading,
+    isError: fleetIsError,
+  } = useQuery<StatsCardData[]>({
+    queryKey: ['reports', 'fleet-summary'],
+    queryFn: () => getFleetSummary(),
+  })
+
+  const {
+    data: attendanceTrend,
+    isLoading: trendLoading,
+    isError: trendIsError,
+  } = useQuery({
+    queryKey: ['reports', 'attendance-trend'],
+    queryFn: () => getAttendanceTrend(),
+  })
 
   // School-scoped base data
   const schoolBuses = useMemo(
@@ -981,6 +1043,62 @@ export default function SchoolReports() {
         animate="show"
         className="space-y-6"
       >
+        {/* ── Live Fleet & Attendance Snapshot (from the reports API) ── */}
+        <motion.div variants={item}>
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                <Activity size={16} className="text-[var(--primary)]" />
+                Live Fleet &amp; Attendance Snapshot
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-6">
+              {(fleetIsError || trendIsError) && (
+                <div
+                  className="flex items-start gap-2 p-3 rounded-xl text-sm"
+                  style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+                >
+                  <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Unable to load live snapshot data right now.
+                </div>
+              )}
+
+              {fleetLoading ? (
+                <div className="flex justify-center py-6"><LoadingSpinner /></div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+                  {(fleetSummary ?? []).map((card) => (
+                    <StatsCard
+                      key={card.title}
+                      title={card.title}
+                      value={card.value}
+                      change={card.change}
+                      icon={resolveStatIcon(card.icon)}
+                      color={resolveStatColor(card.color)}
+                      subtitle={card.subtitle}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {trendLoading ? (
+                <div className="flex justify-center py-10"><LoadingSpinner /></div>
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={attendanceTrend ?? []} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }} />
+                    <Legend iconType="circle" iconSize={8} />
+                    <Line type="monotone" dataKey="present" stroke="#22c55e" strokeWidth={2.5} dot={{ r: 3 }} name="Present" />
+                    <Line type="monotone" dataKey="absent" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3 }} name="Absent" />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
         <motion.div variants={item}>
           <Card>
             <CardHeader className="pb-4">

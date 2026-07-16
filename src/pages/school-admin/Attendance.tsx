@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
+import { useQuery } from '@tanstack/react-query'
 import {
   CalendarCheck, Download, UserCheck, UserX, CalendarOff,
-  Percent, QrCode, TrendingUp,
+  Percent, QrCode, TrendingUp, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -13,16 +14,18 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { DataTable, type Column } from '@/components/shared/DataTable'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { mockAttendance, mockAttendanceTrend, mockBuses, mockRoutes } from '@/lib/mockData'
+import { mockAttendanceTrend, mockBuses, mockRoutes } from '@/lib/mockData'
 import { formatDate, getInitials, downloadCSV } from '@/lib/utils'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
+import { listAttendance } from '@/lib/api/attendance'
 import type { AttendanceRecord } from '@/types'
 
 interface TrendTooltipProps {
@@ -76,6 +79,50 @@ function formatDisplayDate(dateStr: string): string {
   })
 }
 
+/** All YYYY-MM-DD dates in the calendar week (Sun–Sat) containing dateStr */
+function weekDates(dateStr: string): string[] {
+  const ref = new Date(dateStr + 'T00:00:00')
+  const start = shiftDate(dateStr, -ref.getDay())
+  return Array.from({ length: 7 }, (_, i) => shiftDate(start, i))
+}
+
+/** The `count` days ending on (and including) dateStr */
+function trailingDates(dateStr: string, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => shiftDate(dateStr, -(count - 1) + i))
+}
+
+/** All YYYY-MM-DD dates from `from` to `to` inclusive (capped to avoid runaway loops) */
+function datesInRange(from: string, to: string, maxDays = 92): string[] {
+  if (from > to) return []
+  const dates: string[] = []
+  let d = from
+  while (d <= to && dates.length < maxDays) {
+    dates.push(d)
+    d = shiftDate(d, 1)
+  }
+  return dates
+}
+
+/**
+ * The attendance API only supports looking up a single `date` at a time (it
+ * defaults to today when no date/trip_id is given), so multi-day views are
+ * built by fetching each day in the window and merging the results.
+ */
+async function fetchAttendanceForDates(dates: string[]): Promise<AttendanceRecord[]> {
+  const results = await Promise.all(dates.map((d) => listAttendance({ date: d, pageSize: 100 })))
+  const seen = new Set<string>()
+  const merged: AttendanceRecord[] = []
+  for (const r of results) {
+    for (const rec of r.records) {
+      if (!seen.has(rec.id)) {
+        seen.add(rec.id)
+        merged.push(rec)
+      }
+    }
+  }
+  return merged
+}
+
 type DateFilter = 'today' | 'week' | 'all'
 
 export default function Attendance() {
@@ -92,16 +139,36 @@ export default function Attendance() {
 
   const today = toLocalDateStr(new Date())
 
+  const [exportError, setExportError] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
+
+  // The API only supports a single `date` filter at a time, so pull whichever
+  // window of dates the current tab needs and merge the per-day results.
+  const queryDates = useMemo(() => {
+    if (dateFilter === 'today') return [date]
+    if (dateFilter === 'week') return weekDates(date)
+    return trailingDates(date, 30)
+  }, [dateFilter, date])
+
+  const {
+    data: attendanceRecords = [],
+    isLoading: isLoadingAttendance,
+    isError: isAttendanceError,
+  } = useQuery({
+    queryKey: ['attendance', queryDates],
+    queryFn: () => fetchAttendanceForDates(queryDates),
+  })
+
   const schoolBuses = useMemo(() => mockBuses.filter((b) => b.school_id === SCHOOL_ID), [])
   const schoolRoutes = useMemo(() => mockRoutes.filter((r) => r.school_id === SCHOOL_ID), [])
 
   const uniqueClasses = useMemo(() => {
-    const cls = new Set(mockAttendance.map((a) => a.student_class).filter(Boolean))
+    const cls = new Set(attendanceRecords.map((a) => a.student_class).filter(Boolean))
     return Array.from(cls).sort()
-  }, [])
+  }, [attendanceRecords])
 
   const filteredAttendance = useMemo(() => {
-    return mockAttendance.filter((a) => {
+    return attendanceRecords.filter((a) => {
       // Date filter
       if (dateFilter === 'today' && a.date !== date) return false
       if (dateFilter === 'week') {
@@ -122,7 +189,7 @@ export default function Attendance() {
       }
       return true
     })
-  }, [filterBus, filterClass, filterRoute, schoolRoutes, date, dateFilter])
+  }, [attendanceRecords, filterBus, filterClass, filterRoute, schoolRoutes, date, dateFilter])
 
   const stats = useMemo(() => {
     const present = filteredAttendance.filter((a) => a.status === 'present').length
@@ -163,10 +230,18 @@ export default function Attendance() {
     setShowExportMenu(false)
   }
 
-  function handleExportRange() {
-    const rangeData = mockAttendance.filter((a) => a.date >= exportFrom && a.date <= exportTo)
-    doExport(rangeData, `attendance-${exportFrom}-to-${exportTo}`)
-    setShowExportMenu(false)
+  async function handleExportRange() {
+    setExportError('')
+    setIsExporting(true)
+    try {
+      const rangeData = await fetchAttendanceForDates(datesInRange(exportFrom, exportTo))
+      doExport(rangeData, `attendance-${exportFrom}-to-${exportTo}`)
+      setShowExportMenu(false)
+    } catch {
+      setExportError('Failed to export attendance for the selected range. Please try again.')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const columns: Column<AttendanceRecord>[] = [
@@ -282,9 +357,14 @@ export default function Attendance() {
                         />
                       </div>
                     </div>
-                    <Button size="sm" className="w-full" onClick={handleExportRange}>
+                    <Button size="sm" className="w-full" onClick={handleExportRange} loading={isExporting} disabled={isExporting}>
                       <Download size={13} /> Export Range
                     </Button>
+                    {exportError && (
+                      <p className="flex items-start gap-1.5 text-xs" style={{ color: 'var(--destructive)' }}>
+                        <AlertCircle size={13} className="flex-shrink-0 mt-0.5" /> {exportError}
+                      </p>
+                    )}
                   </div>
                   <button
                     onClick={() => setShowExportMenu(false)}
@@ -306,6 +386,21 @@ export default function Attendance() {
         </CardContent>
       </Card>
 
+      {isAttendanceError && (
+        <div
+          className="mb-5 flex items-start gap-2 rounded-xl p-3 text-sm"
+          style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+        >
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load attendance records. Please try again.
+        </div>
+      )}
+
+      {isLoadingAttendance ? (
+        <div className="flex items-center justify-center py-24">
+          <LoadingSpinner size="lg" />
+        </div>
+      ) : (
+      <>
       {/* Summary Cards */}
       <div className="mb-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Onboarded Today */}
@@ -509,6 +604,8 @@ export default function Attendance() {
           </Card>
         </TabsContent>
       </Tabs>
+      </>
+      )}
     </Layout>
   )
 }

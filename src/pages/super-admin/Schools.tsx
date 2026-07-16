@@ -1,14 +1,16 @@
 import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   School as SchoolIcon, Plus, Upload, CheckCircle, Clock, Ban, Download, FileSpreadsheet,
-  MoreHorizontal, Eye, Pencil, Power, Trash2, Users, Bus, Bell, FileText, Send,
+  MoreHorizontal, Eye, Pencil, Power, Trash2, Users, Bus, Bell, FileText, Send, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -22,16 +24,25 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
-import { formatDate, formatNumber, getInitials, generateId, formatCurrency } from '@/lib/utils'
-import { mockSchools, mockPlans } from '@/lib/mockData'
-import type { School } from '@/types'
+import { formatDate, formatNumber, getInitials, formatCurrency } from '@/lib/utils'
+import { listSchools, createSchool, updateSchool, deleteSchool } from '@/lib/api/schools'
+import { listPlans } from '@/lib/api/plans'
+import type { School, SchoolStatus } from '@/types'
+
+function slugify(name: string): string {
+  const base = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+  const suffix = Date.now().toString(36).slice(-4)
+  return base ? `${base}-${suffix}` : `school-${suffix}`
+}
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } }
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
 const PLAN_VARIANT: Record<string, 'muted' | 'info' | 'secondary'> = { basic: 'muted', standard: 'info', premium: 'secondary' }
-
-const TEMPLATE = mockSchools[0]
 
 interface FormState {
   name: string
@@ -69,10 +80,23 @@ function MiniStat({ label, value, icon: Icon, accent }: { label: string; value: 
 
 export default function Schools() {
   const navigate = useNavigate()
-  const [schools, setSchools] = useState<School[]>(mockSchools)
+  const queryClient = useQueryClient()
+
+  const { data: schoolsData, isLoading, isError } = useQuery({
+    queryKey: ['schools'],
+    queryFn: () => listSchools({ pageSize: 1000 }),
+  })
+  const schools = useMemo(() => schoolsData?.schools ?? [], [schoolsData])
+
+  const { data: plans = [] } = useQuery({
+    queryKey: ['plans'],
+    queryFn: listPlans,
+  })
+
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const [saveError, setSaveError] = useState('')
   const [importOpen, setImportOpen] = useState(false)
   const [importMsg, setImportMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -81,6 +105,34 @@ export default function Schools() {
   const [paymentTarget, setPaymentTarget] = useState<School | null>(null)
   const [paymentMode, setPaymentMode] = useState<'alert' | 'invoice' | null>(null)
   const [paymentSent, setPaymentSent] = useState(false)
+
+  const createMutation = useMutation({
+    mutationFn: (payload: Partial<School>) => createSchool(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schools'] })
+      setFormOpen(false)
+    },
+    onError: () => setSaveError('Failed to save school. Please try again.'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<School> }) => updateSchool(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schools'] })
+      setFormOpen(false)
+    },
+    onError: () => setSaveError('Failed to save school. Please try again.'),
+  })
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: SchoolStatus }) => updateSchool(id, { status }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['schools'] }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteSchool(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['schools'] }),
+  })
 
   const counts = useMemo(() => ({
     total: schools.length,
@@ -91,8 +143,8 @@ export default function Schools() {
 
   // Live cost calculation for the add/edit form
   const selectedPlan = useMemo(
-    () => mockPlans.find((p) => p.name === form.plan_name) ?? null,
-    [form.plan_name],
+    () => plans.find((p) => p.name === form.plan_name) ?? null,
+    [form.plan_name, plans],
   )
   const estimatedCost = useMemo(() => {
     const n = parseInt(form.student_count) || 0
@@ -106,13 +158,13 @@ export default function Schools() {
   // Invoice amount for the selected school
   const invoiceAmount = useMemo(() => {
     if (!paymentTarget) return 0
-    const plan = mockPlans.find((p) => p.name.toLowerCase() === paymentTarget.plan_name.toLowerCase())
+    const plan = plans.find((p) => p.name.toLowerCase() === paymentTarget.plan_name.toLowerCase())
     if (!plan) return 0
     const studentCost = (paymentTarget.student_count ?? 0) * plan.price_per_student
     return plan.price_monthly + studentCost
-  }, [paymentTarget])
+  }, [paymentTarget, plans])
 
-  function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setFormOpen(true) }
+  function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setSaveError(''); setFormOpen(true) }
   function openEdit(row: School) {
     setEditingId(row.id)
     setForm({
@@ -131,6 +183,7 @@ export default function Schools() {
       bus_count: String(row.bus_count ?? ''),
       driver_count: String(row.driver_count ?? ''),
     })
+    setSaveError('')
     setFormOpen(true)
   }
 
@@ -144,46 +197,42 @@ export default function Schools() {
 
   function saveSchool(e: React.FormEvent) {
     e.preventDefault()
+    setSaveError('')
     if (!form.name.trim() || !form.admin_email.trim()) return
     const planLabel = form.plan_name.charAt(0).toUpperCase() + form.plan_name.slice(1)
-    const commonFields = {
+    const matchedPlan = plans.find((p) => p.name.toLowerCase() === form.plan_name.toLowerCase())
+    const commonFields: Partial<School> = {
       name: form.name,
       admin_name: form.admin_name || undefined,
       admin_email: form.admin_email,
       email: form.admin_email,
       phone: form.phone || '—',
       website: form.website || undefined,
+      plan_id: matchedPlan?.id,
       plan_name: planLabel,
       address: form.address || '—',
       city: form.city || '—',
       state: form.state || '—',
       post_code: form.post_code || undefined,
       country: form.country || 'UAE',
-      student_count: Number(form.student_count) || 0,
-      bus_count: Number(form.bus_count) || 0,
-      driver_count: Number(form.driver_count) || 0,
     }
     if (editingId) {
-      setSchools((list) => list.map((s) => s.id === editingId ? { ...s, ...commonFields } : s))
+      updateMutation.mutate({ id: editingId, payload: commonFields })
     } else {
-      const created: School = {
-        ...TEMPLATE,
+      createMutation.mutate({
         ...commonFields,
-        id: `SCH-${generateId()}`,
+        subdomain: slugify(form.name),
         status: 'pending',
-        created_at: new Date().toISOString(),
-      }
-      setSchools((list) => [created, ...list])
+      })
     }
-    setFormOpen(false)
   }
 
   function toggleSuspend(row: School) {
-    setSchools((list) => list.map((s) => s.id === row.id ? { ...s, status: s.status === 'suspended' ? 'active' : 'suspended' } : s))
+    statusMutation.mutate({ id: row.id, status: row.status === 'suspended' ? 'active' : 'suspended' })
   }
   function removeSchool(row: School) {
     if (window.confirm(`Delete ${row.name}? This cannot be undone.`)) {
-      setSchools((list) => list.filter((s) => s.id !== row.id))
+      deleteMutation.mutate(row.id)
     }
   }
 
@@ -206,30 +255,35 @@ export default function Schools() {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = () => {
+    reader.onload = async () => {
       const text = String(reader.result ?? '')
       const lines = text.split(/\r?\n/).filter((l) => l.trim())
       const rows = lines.slice(1)
-      const created: School[] = rows.map((line) => {
-        const [name, email, plan, city, address, students, buses] = line.split(',').map((c) => c.trim())
-        const planLabel = (plan || 'basic')
-        return {
-          ...TEMPLATE,
-          id: `SCH-${generateId()}`,
-          name: name || 'Imported School',
-          admin_email: email || '',
+      const parsed = rows.map((line) => {
+        const [name, email, plan, city, address] = line.split(',').map((c) => c.trim())
+        const planLabel = plan || 'basic'
+        const matchedPlan = plans.find((p) => p.name.toLowerCase() === planLabel.toLowerCase())
+        const schoolName = name || 'Imported School'
+        const payload: Partial<School> = {
+          name: schoolName,
+          admin_email: email || undefined,
           email: email || '',
+          phone: '—',
+          plan_id: matchedPlan?.id,
           plan_name: planLabel.charAt(0).toUpperCase() + planLabel.slice(1),
-          status: 'pending',
           city: city || '—',
           address: address || '—',
-          student_count: Number(students) || 0,
-          bus_count: Number(buses) || 0,
-          created_at: new Date().toISOString(),
+          state: city || '—',
+          country: 'UAE',
+          subdomain: slugify(schoolName),
+          status: 'pending',
         }
+        return payload
       })
-      if (created.length) setSchools((list) => [...created, ...list])
-      setImportMsg(`${created.length} school${created.length === 1 ? '' : 's'} imported as pending.`)
+      const results = await Promise.allSettled(parsed.map((payload) => createSchool(payload)))
+      const successCount = results.filter((r) => r.status === 'fulfilled').length
+      if (successCount) queryClient.invalidateQueries({ queryKey: ['schools'] })
+      setImportMsg(`${successCount} school${successCount === 1 ? '' : 's'} imported as pending.`)
       if (fileRef.current) fileRef.current.value = ''
     }
     reader.readAsText(file)
@@ -308,18 +362,34 @@ export default function Schools() {
           <MiniStat label="Suspended" value={counts.suspended} icon={Ban} accent="bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400" />
         </motion.div>
 
+        {isError && (
+          <motion.div
+            variants={item}
+            className="flex items-start gap-2 p-3 rounded-xl text-sm"
+            style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+          >
+            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load schools. Please try again.
+          </motion.div>
+        )}
+
         <motion.div variants={item}>
-          <DataTable
-            columns={columns}
-            data={schools}
-            keyField="id"
-            searchable
-            searchKeys={['name', 'admin_email', 'email', 'city', 'address']}
-            searchPlaceholder="Search schools…"
-            onRowClick={(row) => navigate(`/super-admin/schools/${row.id}`)}
-            emptyTitle="No schools found"
-            emptyDescription="Add a school or adjust your search."
-          />
+          {isLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : (
+            <DataTable
+              columns={columns}
+              data={schools}
+              keyField="id"
+              searchable
+              searchKeys={['name', 'admin_email', 'email', 'city', 'address']}
+              searchPlaceholder="Search schools…"
+              onRowClick={(row) => navigate(`/super-admin/schools/${row.id}`)}
+              emptyTitle="No schools found"
+              emptyDescription="Add a school or adjust your search."
+            />
+          )}
         </motion.div>
       </motion.div>
 
@@ -450,9 +520,20 @@ export default function Schools() {
               </div>
             )}
 
+            {saveError && (
+              <div
+                className="flex items-start gap-2 p-3 rounded-xl text-sm"
+                style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+              >
+                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {saveError}
+              </div>
+            )}
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-              <Button type="submit">{editingId ? 'Save Changes' : 'Add School'}</Button>
+              <Button type="submit" loading={createMutation.isPending || updateMutation.isPending}>
+                {editingId ? 'Save Changes' : 'Add School'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

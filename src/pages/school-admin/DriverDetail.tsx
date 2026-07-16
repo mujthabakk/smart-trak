@@ -1,23 +1,35 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, Phone, Mail, MessageSquare, Bus as BusIcon,
   Navigation, BadgeCheck, Calendar, User, Hash, AlertTriangle,
-  CheckCircle2, XCircle, CalendarOff, Clock,
+  CheckCircle2, XCircle, CalendarOff, Clock, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import StatusBadge from '@/components/shared/StatusBadge'
 import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { allDrivers, allBuses, allRoutes, allTrips } from '@/lib/mockData'
+import { allRoutes, allTrips } from '@/lib/mockData'
 import { getInitials, formatDate, daysUntil } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { getDriver } from '@/lib/api/drivers'
+
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Failed to load driver details.'
+  }
+  return 'Failed to load driver details.'
+}
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.07 } } }
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -79,8 +91,15 @@ export default function DriverDetail() {
   const navigate = useNavigate()
   const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
 
-  const driver = useMemo(() => allDrivers.find((d) => d.id === id), [id])
-  const bus = useMemo(() => (driver?.assigned_bus_id ? allBuses.find((b) => b.id === driver.assigned_bus_id) : undefined), [driver])
+  const { data: driver, isLoading, isError, error } = useQuery({
+    queryKey: ['driver', id],
+    queryFn: () => getDriver(id as string),
+    enabled: !!id,
+  })
+  const bus = useMemo(
+    () => (driver?.assigned_bus_id ? { id: driver.assigned_bus_id, bus_number: driver.assigned_bus_number ?? '' } : undefined),
+    [driver],
+  )
   const routes = useMemo(() => allRoutes.filter((r) => r.driver_id === id), [id])
   const trips = useMemo(() => allTrips.filter((t) => t.driver_id === id), [id])
   const tripHistory = useMemo(() => (id ? makeTripHistory(id) : []), [id])
@@ -94,6 +113,30 @@ export default function DriverDetail() {
     () => tripHistory.filter((t) => t.date === selectedDate),
     [tripHistory, selectedDate],
   )
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <LoadingSpinner size="lg" />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (isError) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-64 gap-4">
+          <AlertCircle size={48} className="text-red-500" />
+          <p className="text-sm text-red-600 dark:text-red-400">{extractErrorMessage(error)}</p>
+          <Button onClick={() => navigate('/school-admin/drivers')}>
+            <ArrowLeft size={16} /> Back to Drivers
+          </Button>
+        </div>
+      </Layout>
+    )
+  }
 
   if (!driver) {
     return (

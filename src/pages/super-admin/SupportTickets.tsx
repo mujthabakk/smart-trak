@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
-  LifeBuoy, Clock, Loader2, CheckCircle, Timer, Send, AlertTriangle, Eye, User,
+  Clock, Loader2, CheckCircle, AlertOctagon, Send, AlertTriangle, Eye, User,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -22,9 +25,9 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { formatDate, getInitials, getRoleLabel } from '@/lib/utils'
-import { mockTickets } from '@/lib/mockData'
+import { listTickets, updateTicket, replyToTicket } from '@/lib/api/tickets'
 import { SUPPORT_PRIORITIES } from '@/lib/constants'
-import type { SupportTicket, TicketReply, TicketStatus, TicketPriority } from '@/types'
+import type { SupportTicket, TicketStatus, TicketPriority } from '@/types'
 
 const container = {
   hidden: { opacity: 0 },
@@ -41,8 +44,17 @@ const PRIORITY_VARIANT: Record<TicketPriority, 'success' | 'warning' | 'destruct
 
 const STATUS_OPTIONS: TicketStatus[] = ['open', 'in_progress', 'resolved', 'escalated']
 
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Something went wrong. Please try again.'
+  }
+  return 'Something went wrong. Please try again.'
+}
+
 export default function SupportTickets() {
-  const [tickets, setTickets] = useState<SupportTicket[]>(mockTickets)
+  const queryClient = useQueryClient()
+
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
@@ -50,11 +62,19 @@ export default function SupportTickets() {
   const [selected, setSelected] = useState<SupportTicket | null>(null)
   const [reply, setReply] = useState('')
   const [assignTo, setAssignTo] = useState('')
+  const [actionError, setActionError] = useState('')
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['tickets'],
+    queryFn: () => listTickets({ pageSize: 200 }),
+  })
+  const tickets = useMemo(() => data?.tickets ?? [], [data])
 
   const stats = useMemo(() => ({
     open: tickets.filter((t) => t.status === 'open').length,
     inProgress: tickets.filter((t) => t.status === 'in_progress').length,
     resolved: tickets.filter((t) => t.status === 'resolved').length,
+    escalated: tickets.filter((t) => t.status === 'escalated').length,
   }), [tickets])
 
   const filtered = useMemo(() => {
@@ -67,32 +87,42 @@ export default function SupportTickets() {
     })
   }, [tickets, statusFilter, priorityFilter, search])
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<SupportTicket> }) => updateTicket(id, patch),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      setSelected(updated)
+      setActionError('')
+    },
+    onError: (err) => setActionError(extractErrorMessage(err)),
+  })
+
+  const replyMutation = useMutation({
+    mutationFn: ({ id, content }: { id: string; content: string }) => replyToTicket(id, content),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      setSelected(updated)
+      setReply('')
+      setActionError('')
+    },
+    onError: (err) => setActionError(extractErrorMessage(err)),
+  })
+
   function openTicket(t: SupportTicket) {
     setSelected(t)
     setReply('')
     setAssignTo(t.assigned_to ?? '')
-  }
-
-  function updateSelected(patch: Partial<SupportTicket>) {
-    if (!selected) return
-    const next = { ...selected, ...patch }
-    setSelected(next)
-    setTickets((prev) => prev.map((t) => (t.id === next.id ? next : t)))
+    setActionError('')
   }
 
   function sendReply() {
     if (!selected || !reply.trim()) return
-    const newReply: TicketReply = {
-      id: `rpl_${Date.now()}`,
-      ticket_id: selected.id,
-      user_id: 'admin_001',
-      user_name: 'Support Agent',
-      user_role: 'super_admin',
-      content: reply.trim(),
-      created_at: new Date().toISOString(),
-    }
-    updateSelected({ replies: [...selected.replies, newReply] })
-    setReply('')
+    replyMutation.mutate({ id: selected.id, content: reply.trim() })
+  }
+
+  function saveAssignment() {
+    if (!selected || assignTo === (selected.assigned_to ?? '')) return
+    updateMutation.mutate({ id: selected.id, patch: { assigned_to: assignTo } })
   }
 
   const columns: Column<SupportTicket>[] = [
@@ -176,53 +206,66 @@ export default function SupportTickets() {
         <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <StatsCard title="Open" value={stats.open} icon={Clock} color="info" />
           <StatsCard title="In Progress" value={stats.inProgress} icon={Loader2} color="warning" />
-          <StatsCard title="Resolved Today" value={stats.resolved} icon={CheckCircle} color="success" />
-          <StatsCard title="Avg Resolution" value="4.2h" icon={Timer} color="primary" subtitle="Last 30 days" />
+          <StatsCard title="Resolved" value={stats.resolved} icon={CheckCircle} color="success" />
+          <StatsCard title="Escalated" value={stats.escalated} icon={AlertOctagon} color="danger" />
         </motion.div>
 
-        <motion.div variants={item}>
-          <DataTable
-            columns={columns}
-            data={filtered}
-            keyField="id"
-            onRowClick={(row) => openTicket(row)}
-            emptyTitle="No tickets found"
-            emptyDescription="No support tickets match the selected filters."
-            toolbar={
-              <div className="flex flex-col sm:flex-row items-stretch gap-2 w-full">
-                <div className="relative w-full sm:w-48">
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search tickets…"
-                  />
+        {isError && (
+          <div
+            className="flex items-start gap-2 p-3 rounded-xl text-sm"
+            style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+          >
+            <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load support tickets. Please try again.
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-24"><LoadingSpinner size="lg" /></div>
+        ) : (
+          <motion.div variants={item}>
+            <DataTable
+              columns={columns}
+              data={filtered}
+              keyField="id"
+              onRowClick={(row) => openTicket(row)}
+              emptyTitle="No tickets found"
+              emptyDescription="No support tickets match the selected filters."
+              toolbar={
+                <div className="flex flex-col sm:flex-row items-stretch gap-2 w-full">
+                  <div className="relative w-full sm:w-48">
+                    <Input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search tickets…"
+                    />
+                  </div>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-full sm:w-40">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      {STATUS_OPTIONS.map((s) => (
+                        <SelectItem key={s} value={s} className="capitalize">{s.replace('_', ' ')}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                    <SelectTrigger className="w-full sm:w-40">
+                      <SelectValue placeholder="Priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Priorities</SelectItem>
+                      {SUPPORT_PRIORITIES.map((p) => (
+                        <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-full sm:w-40">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
-                    {STATUS_OPTIONS.map((s) => (
-                      <SelectItem key={s} value={s} className="capitalize">{s.replace('_', ' ')}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                  <SelectTrigger className="w-full sm:w-40">
-                    <SelectValue placeholder="Priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Priorities</SelectItem>
-                    {SUPPORT_PRIORITIES.map((p) => (
-                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            }
-          />
-        </motion.div>
+              }
+            />
+          </motion.div>
+        )}
       </motion.div>
 
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
@@ -239,6 +282,15 @@ export default function SupportTickets() {
               </DialogHeader>
 
               <div className="space-y-4">
+                {actionError && (
+                  <div
+                    className="flex items-start gap-2 p-3 rounded-xl text-sm"
+                    style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+                  >
+                    <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" /> {actionError}
+                  </div>
+                )}
+
                 {/* Reporter */}
                 <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] p-3">
                   <Avatar className="h-9 w-9 flex-shrink-0">
@@ -295,7 +347,10 @@ export default function SupportTickets() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Status</Label>
-                    <Select value={selected.status} onValueChange={(v) => updateSelected({ status: v as TicketStatus })}>
+                    <Select
+                      value={selected.status}
+                      onValueChange={(v) => updateMutation.mutate({ id: selected.id, patch: { status: v as TicketStatus } })}
+                    >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -314,7 +369,7 @@ export default function SupportTickets() {
                         id="assign-to"
                         value={assignTo}
                         onChange={(e) => setAssignTo(e.target.value)}
-                        onBlur={() => updateSelected({ assigned_to: assignTo })}
+                        onBlur={saveAssignment}
                         placeholder="Agent name"
                         className="pl-9"
                       />
@@ -338,11 +393,11 @@ export default function SupportTickets() {
                   <Button
                     variant="outline"
                     className="text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
-                    onClick={() => updateSelected({ status: 'escalated' })}
+                    onClick={() => updateMutation.mutate({ id: selected.id, patch: { status: 'escalated' } })}
                   >
                     <AlertTriangle size={14} /> Escalate
                   </Button>
-                  <Button onClick={sendReply} disabled={!reply.trim()}>
+                  <Button onClick={sendReply} disabled={!reply.trim()} loading={replyMutation.isPending}>
                     <Send size={14} /> Send Reply
                   </Button>
                 </div>

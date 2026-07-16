@@ -1,15 +1,18 @@
 import { useMemo, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { motion } from 'framer-motion'
 import {
   Plus, UserCheck, Users, Navigation, AlertTriangle, MoreVertical,
-  Eye, Pencil, Ban, Phone, BadgeCheck, Upload,
+  Eye, Pencil, Ban, Phone, BadgeCheck, Upload, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import PageHeader from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import DataTable, { type Column } from '@/components/shared/DataTable'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -22,8 +25,16 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getInitials, formatDate, daysUntil, downloadCSV } from '@/lib/utils'
-import { allDrivers } from '@/lib/mockData'
+import { listDrivers, createDriver, updateDriver, type DriverInput } from '@/lib/api/drivers'
 import type { Driver } from '@/types'
+
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Something went wrong. Please try again.'
+  }
+  return 'Something went wrong. Please try again.'
+}
 
 const container = {
   hidden: { opacity: 0 },
@@ -68,14 +79,22 @@ type EditForm = {
 
 export default function Drivers() {
   const navigate = useNavigate()
-  const [drivers, setDrivers] = useState<Driver[]>(allDrivers)
+  const queryClient = useQueryClient()
+
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['drivers'],
+    queryFn: () => listDrivers(),
+  })
+  const drivers = data?.drivers ?? []
 
   // Add dialog
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState<AddForm>(emptyAddForm())
+  const [addError, setAddError] = useState<string | null>(null)
 
   // Bulk import dialog
   const [importOpen, setImportOpen] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // View dialog
@@ -84,6 +103,44 @@ export default function Drivers() {
   // Edit dialog
   const [editDriver, setEditDriver] = useState<Driver | null>(null)
   const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', phone: '', license_number: '' })
+  const [editError, setEditError] = useState<string | null>(null)
+
+  const createMutation = useMutation({
+    mutationFn: (payload: DriverInput) => createDriver(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] })
+      setAddOpen(false)
+      setAddForm(emptyAddForm())
+      setAddError(null)
+    },
+    onError: (err) => setAddError(extractErrorMessage(err)),
+  })
+
+  const bulkImportMutation = useMutation({
+    mutationFn: (rows: DriverInput[]) => Promise.all(rows.map((r) => createDriver(r))),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] })
+      setImportOpen(false)
+      setImportError(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    },
+    onError: (err) => setImportError(extractErrorMessage(err)),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<DriverInput> }) => updateDriver(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] })
+    },
+    onError: (err) => setEditError(extractErrorMessage(err)),
+  })
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: (d: Driver) => updateDriver(d.id, { is_active: !d.is_active }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] })
+    },
+  })
 
   // ── Stats ───────────────────────────────────────────────────────────────────
 
@@ -98,9 +155,8 @@ export default function Drivers() {
   // ── Add driver ──────────────────────────────────────────────────────────────
 
   function handleAddSubmit() {
-    const newDriver: Driver = {
-      id: `drv-${Date.now()}`,
-      school_id: drivers[0]?.school_id ?? 'school-1',
+    setAddError(null)
+    createMutation.mutate({
       name: addForm.name.trim(),
       employee_id: addForm.employee_id.trim(),
       email: addForm.email.trim(),
@@ -108,12 +164,7 @@ export default function Drivers() {
       whatsapp: addForm.phone.trim(),
       license_number: addForm.license_number.trim(),
       license_expiry: addForm.license_expiry,
-      is_active: true,
-      created_at: new Date().toISOString(),
-    }
-    setDrivers((prev) => [newDriver, ...prev])
-    setAddOpen(false)
-    setAddForm(emptyAddForm())
+    })
   }
 
   // ── Bulk import ─────────────────────────────────────────────────────────────
@@ -128,17 +179,16 @@ export default function Drivers() {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    setImportError(null)
     const reader = new FileReader()
     reader.onload = (ev) => {
       const text = ev.target?.result as string
       const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
       // skip header
       const dataLines = lines.slice(1)
-      const imported: Driver[] = dataLines.map((line, idx) => {
+      const imported: DriverInput[] = dataLines.map((line) => {
         const [name, employee_id, email, phone, license_number, license_expiry] = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''))
         return {
-          id: `drv-import-${Date.now()}-${idx}`,
-          school_id: drivers[0]?.school_id ?? 'school-1',
           name: name ?? '',
           employee_id: employee_id ?? '',
           email: email ?? '',
@@ -146,13 +196,11 @@ export default function Drivers() {
           whatsapp: phone ?? '',
           license_number: license_number ?? '',
           license_expiry: license_expiry ?? '',
-          is_active: true,
-          created_at: new Date().toISOString(),
         }
       }).filter((d) => d.name)
-      setDrivers((prev) => [...imported, ...prev])
-      setImportOpen(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (imported.length > 0) {
+        bulkImportMutation.mutate(imported)
+      }
     }
     reader.readAsText(file)
   }
@@ -162,24 +210,30 @@ export default function Drivers() {
   function openEdit(d: Driver) {
     setEditDriver(d)
     setEditForm({ name: d.name, email: d.email, phone: d.phone, license_number: d.license_number })
+    setEditError(null)
   }
 
   function handleEditSave() {
     if (!editDriver) return
-    setDrivers((prev) =>
-      prev.map((d) =>
-        d.id === editDriver.id
-          ? { ...d, name: editForm.name.trim(), email: editForm.email.trim(), phone: editForm.phone.trim(), license_number: editForm.license_number.trim() }
-          : d,
-      ),
+    setEditError(null)
+    updateMutation.mutate(
+      {
+        id: editDriver.id,
+        payload: {
+          name: editForm.name.trim(),
+          email: editForm.email.trim(),
+          phone: editForm.phone.trim(),
+          license_number: editForm.license_number.trim(),
+        },
+      },
+      { onSuccess: () => setEditDriver(null) },
     )
-    setEditDriver(null)
   }
 
   // ── Toggle active ───────────────────────────────────────────────────────────
 
-  function toggleActive(id: string) {
-    setDrivers((prev) => prev.map((d) => (d.id === id ? { ...d, is_active: !d.is_active } : d)))
+  function toggleActive(d: Driver) {
+    toggleActiveMutation.mutate(d)
   }
 
   // ── Columns ─────────────────────────────────────────────────────────────────
@@ -255,7 +309,7 @@ export default function Drivers() {
                 <Pencil size={14} /> Edit
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem destructive onClick={() => toggleActive(d.id)}>
+              <DropdownMenuItem destructive onClick={() => toggleActive(d)}>
                 <Ban size={14} /> {d.is_active ? 'Deactivate' : 'Activate'}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -266,6 +320,27 @@ export default function Drivers() {
   ]
 
   // ── Render ──────────────────────────────────────────────────────────────────
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <LoadingSpinner size="lg" />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (isError) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+          <AlertCircle size={40} className="text-red-500" />
+          <p className="text-sm text-red-600 dark:text-red-400">{extractErrorMessage(error)}</p>
+        </div>
+      </Layout>
+    )
+  }
 
   return (
     <Layout>
@@ -372,9 +447,14 @@ export default function Drivers() {
               />
             </div>
           </div>
+          {addError && (
+            <p className="flex items-start gap-2 p-3 rounded-xl text-sm bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40">
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {addError}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddSubmit} disabled={!addForm.name.trim()}>Add Driver</Button>
+            <Button onClick={handleAddSubmit} disabled={!addForm.name.trim() || createMutation.isPending} loading={createMutation.isPending}>Add Driver</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -409,8 +489,13 @@ export default function Drivers() {
               />
             </div>
           </div>
+          {importError && (
+            <p className="flex items-start gap-2 p-3 rounded-xl text-sm bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40">
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {importError}
+            </p>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setImportOpen(false)}>Close</Button>
+            <Button variant="outline" onClick={() => setImportOpen(false)} disabled={bulkImportMutation.isPending}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -511,9 +596,14 @@ export default function Drivers() {
               />
             </div>
           </div>
+          {editError && (
+            <p className="flex items-start gap-2 p-3 rounded-xl text-sm bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40">
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {editError}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDriver(null)}>Cancel</Button>
-            <Button onClick={handleEditSave} disabled={!editForm.name.trim()}>Save Changes</Button>
+            <Button onClick={handleEditSave} disabled={!editForm.name.trim() || updateMutation.isPending} loading={updateMutation.isPending}>Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

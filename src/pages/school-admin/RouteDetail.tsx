@@ -1,9 +1,11 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -18,15 +20,17 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { allRoutes, allStudents, allTrips, mockAttendance } from '@/lib/mockData'
+import { allRoutes, allStudents, mockAttendance } from '@/lib/mockData'
 import { getInitials, cn } from '@/lib/utils'
 import { getRouteTripDurationDisplay } from '@/lib/tripDuration'
+import { getRoute } from '@/lib/api/routes'
+import { listTrips } from '@/lib/api/trips'
 import type { Route, Stop, Student } from '@/types'
 import {
   ArrowLeft, QrCode, MapPin, CircleDot, Clock, Users,
   Bus as BusIcon, User, ChevronDown, ChevronUp,
   Navigation, ArrowRight, Plus, Pencil, Trash2, UserPlus, GripVertical,
-  ArrowRightLeft, Search, UserMinus, CalendarCheck,
+  ArrowRightLeft, Search, UserMinus, CalendarCheck, AlertCircle,
 } from 'lucide-react'
 
 const SCHOOL_ID = 'sch_001'
@@ -650,10 +654,22 @@ export default function RouteDetail() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
 
-  const baseRoute = allRoutes.find((r) => r.id === id)
+  const routeQuery = useQuery({
+    queryKey: ['route', id],
+    queryFn: () => getRoute(id as string),
+    enabled: !!id,
+  })
+  const baseRoute = routeQuery.data
 
-  const [isActive, setIsActive] = useState(baseRoute?.is_active ?? false)
-  const [stops, setStops] = useState<Stop[]>(() => [...(baseRoute?.stops ?? [])])
+  const tripsQuery = useQuery({
+    queryKey: ['trips', { route_id: id }],
+    queryFn: () => listTrips({ route_id: id }),
+    enabled: !!id,
+  })
+  const routeTrips = useMemo(() => tripsQuery.data?.trips ?? [], [tripsQuery.data])
+
+  const [isActive, setIsActive] = useState(false)
+  const [stops, setStops] = useState<Stop[]>([])
   const [schoolStudents, setSchoolStudents] = useState<Student[]>(() =>
     allStudents.filter((s) => s.school_id === SCHOOL_ID),
   )
@@ -663,9 +679,19 @@ export default function RouteDetail() {
     [schoolStudents, baseRoute?.name],
   )
 
-  const [studentStopMap, setStudentStopMap] = useState<Record<string, string>>(() =>
-    baseRoute ? buildInitialStopMap(baseRoute.stops ?? [], routeStudents) : {},
-  )
+  const [studentStopMap, setStudentStopMap] = useState<Record<string, string>>({})
+
+  // Hydrate local editable copies (stops / active flag / stop assignments) once
+  // the real route has loaded from the API — mirrors the old synchronous mock lookup.
+  const hydratedRouteIdRef = React.useRef<string | null>(null)
+  useEffect(() => {
+    if (baseRoute && hydratedRouteIdRef.current !== baseRoute.id) {
+      hydratedRouteIdRef.current = baseRoute.id
+      setIsActive(baseRoute.is_active)
+      setStops([...(baseRoute.stops ?? [])])
+      setStudentStopMap(buildInitialStopMap(baseRoute.stops ?? [], routeStudents))
+    }
+  }, [baseRoute, routeStudents])
 
   const [dragStudentId, setDragStudentId] = useState<string | null>(null)
   const [dragOverStopId, setDragOverStopId] = useState<string | null>(null)
@@ -700,10 +726,28 @@ export default function RouteDetail() {
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([])
   const [transferMode, setTransferMode] = useState<'quick' | 'drag'>('quick')
 
-  if (!baseRoute) {
+  if (routeQuery.isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center py-24">
+          <LoadingSpinner size="lg" />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (routeQuery.isError || !baseRoute) {
     return (
       <Layout>
         <div className="flex flex-col items-center justify-center py-24 gap-4">
+          {routeQuery.isError && (
+            <div
+              className="flex items-start gap-2 p-3 rounded-xl mb-2 text-sm"
+              style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+            >
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load this route. Please try again.
+            </div>
+          )}
           <MapPin size={40} className="text-[var(--muted-foreground)]" strokeWidth={1.5} />
           <p className="text-lg font-semibold text-[var(--foreground)]">Route not found</p>
           <Button variant="outline" onClick={() => navigate('/school-admin/routes')}>
@@ -743,7 +787,7 @@ export default function RouteDetail() {
 
   const totalStudents = routeStudents.length || route.student_count || 0
   const routeAttendance = attendanceForStudents(routeStudents)
-  const tripDuration = getRouteTripDurationDisplay(route.id, allTrips)
+  const tripDuration = getRouteTripDurationDisplay(route.id, routeTrips)
   const morningTimes = interpolateTimes(orderedStops, MORNING_START, MORNING_END)
   const eveningTimes = interpolateTimes(orderedStops, EVENING_START, EVENING_END)
 

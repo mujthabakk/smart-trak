@@ -8,10 +8,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/store/authStore'
-import { WEB_ACCOUNTS, MOBILE_ACCOUNTS, findDemoAccount } from '@/lib/demoAccounts'
+import { WEB_ACCOUNTS, MOBILE_ACCOUNTS } from '@/lib/demoAccounts'
 import type { DemoAccount } from '@/lib/demoAccounts'
 import type { UserRole } from '@/store/authStore'
 import { getRoleLabel, cn } from '@/lib/utils'
+import { login as apiLogin } from '@/lib/api/auth'
+import { isAxiosError } from 'axios'
 
 const ROLE_ICON: Record<UserRole, typeof Shield> = {
   super_admin: Shield,
@@ -48,20 +50,25 @@ export default function Login() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
 
-  function doLogin(acct: DemoAccount) {
-    login(
-      {
-        id: `${acct.role}-${acct.email}`,
-        email: acct.email,
-        name: acct.name,
-        role: acct.role,
-        phone: acct.phone,
-        school_id: acct.school_id,
-        school_name: acct.school_name,
-      },
-      `demo-${acct.role}-token`,
-    )
-    navigate(acct.role === 'super_admin' ? '/super-admin/dashboard' : '/school-admin/dashboard', { replace: true })
+  async function authenticate(loginEmail: string, loginPassword: string) {
+    setIsLoading(true)
+    try {
+      const { user, token } = await apiLogin(loginEmail, loginPassword)
+      if (user.role !== 'super_admin' && user.role !== 'school_admin') {
+        setIsLoading(false)
+        setInfo(`The ${getRoleLabel(user.role)} role is served by the SmartTrack mobile app, not the web console.`)
+        return
+      }
+      login(user, token)
+      navigate(user.role === 'super_admin' ? '/super-admin/dashboard' : '/school-admin/dashboard', { replace: true })
+    } catch (err) {
+      setIsLoading(false)
+      if (isAxiosError(err) && err.response?.status === 401) {
+        setError('Invalid credentials. Use one of the demo accounts below.')
+      } else {
+        setError('Unable to sign in right now. Please try again.')
+      }
+    }
   }
 
   async function quickLogin(acct: DemoAccount) {
@@ -73,9 +80,7 @@ export default function Login() {
       setInfo(`The ${getRoleLabel(acct.role)} role lives in the SmartTrack mobile app. Credentials are filled so you can see them — the web console covers Super Admin & School Admin.`)
       return
     }
-    setIsLoading(true)
-    await new Promise((r) => setTimeout(r, 600))
-    doLogin(acct)
+    await authenticate(acct.email, acct.password)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -90,20 +95,7 @@ export default function Login() {
       setError('Please enter your password')
       return
     }
-    setIsLoading(true)
-    await new Promise((r) => setTimeout(r, 700))
-    const acct = findDemoAccount(email, password)
-    if (!acct) {
-      setIsLoading(false)
-      setError('Invalid credentials. Use one of the demo accounts below.')
-      return
-    }
-    if (acct.panel === 'mobile') {
-      setIsLoading(false)
-      setInfo(`The ${getRoleLabel(acct.role)} role is served by the SmartTrack mobile app, not the web console.`)
-      return
-    }
-    doLogin(acct)
+    await authenticate(email, password)
   }
 
   return (

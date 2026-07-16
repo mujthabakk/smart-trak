@@ -1,23 +1,39 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { motion } from 'framer-motion'
 import {
   AlertTriangle, Bus as BusIcon, User, ArrowLeft,
-  BadgeCheck, ShieldCheck, CalendarDays, CheckCircle2,
+  BadgeCheck, ShieldCheck, CalendarDays, CheckCircle2, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { allBuses, allDrivers } from '@/lib/mockData'
 import { daysUntil, formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { listBuses } from '@/lib/api/buses'
+import { getExpiringDriverDocuments } from '@/lib/api/drivers'
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } }
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
-const SCHOOL_ID = 'sch_001'
+// The backend has no "all drivers with any expiry" endpoint — the expiring-documents
+// endpoint takes a day window. 365 is wide enough to include the demo data's expiry
+// dates (all within ~1-2 years of "today") while still reusing the dedicated endpoint
+// rather than pulling every driver via listDrivers().
+const DRIVER_EXPIRY_WINDOW_DAYS = 365
+
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Failed to load document expiry data.'
+  }
+  return 'Failed to load document expiry data.'
+}
 
 function expiryBadgeClass(days: number) {
   if (days < 0) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
@@ -46,8 +62,28 @@ export default function DocumentExpiry() {
   const [busFilter, setBusFilter] = useState<FilterType>('all')
   const [driverFilter, setDriverFilter] = useState<FilterType>('all')
 
-  const schoolBuses = useMemo(() => allBuses.filter((b) => b.school_id === SCHOOL_ID), [])
-  const schoolDrivers = useMemo(() => allDrivers.filter((d) => d.school_id === SCHOOL_ID), [])
+  const {
+    data: busesData,
+    isLoading: busesLoading,
+    isError: busesError,
+    error: busesErrorObj,
+  } = useQuery({
+    queryKey: ['buses'],
+    queryFn: () => listBuses(),
+  })
+
+  const {
+    data: expiringDrivers,
+    isLoading: driversLoading,
+    isError: driversError,
+    error: driversErrorObj,
+  } = useQuery({
+    queryKey: ['drivers', 'expiring', DRIVER_EXPIRY_WINDOW_DAYS],
+    queryFn: () => getExpiringDriverDocuments(DRIVER_EXPIRY_WINDOW_DAYS),
+  })
+
+  const schoolBuses = useMemo(() => busesData?.buses ?? [], [busesData])
+  const schoolDrivers = useMemo(() => expiringDrivers ?? [], [expiringDrivers])
 
   // Bus document rows: insurance + fitness cert
   const busRows = useMemo(() => {
@@ -117,6 +153,29 @@ export default function DocumentExpiry() {
   const driverExpiredCount = driverRows.filter((r) => r.days < 0).length
   const driverCriticalCount = driverRows.filter((r) => r.days >= 0 && r.days < 30).length
   const driverWarningCount = driverRows.filter((r) => r.days >= 30 && r.days < 90).length
+
+  if (busesLoading || driversLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <LoadingSpinner size="lg" />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (busesError || driversError) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+          <AlertCircle size={40} className="text-red-500" />
+          <p className="text-sm text-red-600 dark:text-red-400">
+            {extractErrorMessage(busesErrorObj ?? driversErrorObj)}
+          </p>
+        </div>
+      </Layout>
+    )
+  }
 
   return (
     <Layout>

@@ -1,12 +1,15 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
-  MessageSquare, Send, Bus, Bell, CalendarClock, Megaphone,
+  MessageSquare, Send, Bus, Bell, CalendarClock, Megaphone, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,12 +17,13 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Progress } from '@/components/ui/progress'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { formatDate } from '@/lib/utils'
-import { mockSchools, mockPlans } from '@/lib/mockData'
+import { listMessages, sendMessage } from '@/lib/api/messages'
+import { listSchools } from '@/lib/api/schools'
+import type { Message } from '@/types'
 
 const container = {
   hidden: { opacity: 0 },
@@ -31,38 +35,58 @@ const MAX_CHARS = 500
 
 type Audience = 'all' | 'plan' | 'specific'
 
-interface SentMessage {
-  id: string
-  title: string
-  audience: string
-  sentAt: string
-  recipients: number
-  deliveryPct: number
-  status: 'sent' | 'scheduled' | 'sending'
+const RECIPIENT_LABELS: Record<Message['recipient_type'], string> = {
+  all_parents: 'All Parents',
+  route_parents: 'Route Parents',
+  individual: 'Individual',
+  all_drivers: 'All Drivers',
+  driver: 'Driver',
+  admin: 'School Admin',
 }
 
-const MESSAGE_HISTORY: SentMessage[] = [
-  { id: 'bm_001', title: 'Scheduled Maintenance Tonight', audience: 'All Schools', sentAt: '2026-06-22T20:00:00Z', recipients: 99, deliveryPct: 100, status: 'sent' },
-  { id: 'bm_002', title: 'New Guest Driver Feature', audience: 'Premium Plan', sentAt: '2026-06-20T10:30:00Z', recipients: 24, deliveryPct: 96, status: 'sent' },
-  { id: 'bm_003', title: 'Billing Cycle Reminder', audience: 'Basic Plan', sentAt: '2026-06-18T09:00:00Z', recipients: 31, deliveryPct: 88, status: 'sent' },
-  { id: 'bm_004', title: 'Term Break Schedule', audience: 'Specific (3 schools)', sentAt: '2026-06-25T08:00:00Z', recipients: 3, deliveryPct: 0, status: 'scheduled' },
-  { id: 'bm_005', title: 'App Update v2.4 Available', audience: 'All Schools', sentAt: '2026-06-15T14:00:00Z', recipients: 94, deliveryPct: 72, status: 'sending' },
-]
-
-const STATUS_VARIANT: Record<SentMessage['status'], 'success' | 'info' | 'warning'> = {
-  sent: 'success',
-  scheduled: 'info',
-  sending: 'warning',
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Something went wrong. Please try again.'
+  }
+  return 'Something went wrong. Please try again.'
 }
 
 export default function BulkMessaging() {
+  const queryClient = useQueryClient()
+
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [audience, setAudience] = useState<Audience>('all')
-  const [planTier, setPlanTier] = useState<string>(mockPlans[0].id)
+  const [planTier, setPlanTier] = useState<string>('')
   const [selectedSchools, setSelectedSchools] = useState<string[]>([])
   const [scheduled, setScheduled] = useState(false)
   const [scheduleAt, setScheduleAt] = useState('')
+  const [sendError, setSendError] = useState('')
+
+  const { data: schoolsData } = useQuery({
+    queryKey: ['schools', 'picker'],
+    queryFn: () => listSchools({ pageSize: 100 }),
+  })
+  const schools = useMemo(() => schoolsData?.schools ?? [], [schoolsData])
+
+  const plans = useMemo(() => {
+    const seen = new Map<string, string>()
+    schools.forEach((s) => { if (!seen.has(s.plan_id)) seen.set(s.plan_id, s.plan_name) })
+    return Array.from(seen.entries()).map(([id, label]) => ({ id, label }))
+  }, [schools])
+
+  const { data: messagesData, isLoading, isError } = useQuery({
+    queryKey: ['messages'],
+    queryFn: () => listMessages({ pageSize: 100 }),
+  })
+  const messages = messagesData?.messages ?? []
+
+  const schoolNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    schools.forEach((s) => map.set(s.id, s.name))
+    return map
+  }, [schools])
 
   function toggleSchool(id: string) {
     setSelectedSchools((prev) =>
@@ -70,63 +94,97 @@ export default function BulkMessaging() {
     )
   }
 
+  const targetSchools = useMemo(() => {
+    if (audience === 'all') return schools
+    if (audience === 'plan') return schools.filter((s) => s.plan_id === planTier)
+    return schools.filter((s) => selectedSchools.includes(s.id))
+  }, [audience, schools, planTier, selectedSchools])
+
   const audienceLabel = useMemo(() => {
-    if (audience === 'all') return `All Schools (${mockSchools.length})`
+    if (audience === 'all') return `All Schools (${schools.length})`
     if (audience === 'plan') {
-      const plan = mockPlans.find((p) => p.id === planTier)
-      const count = mockSchools.filter((s) => s.plan_id === planTier).length
-      return `${plan?.label ?? 'Plan'} (${count})`
+      const plan = plans.find((p) => p.id === planTier)
+      return `${plan?.label ?? 'Plan'} (${targetSchools.length})`
     }
     return `Specific (${selectedSchools.length} selected)`
-  }, [audience, planTier, selectedSchools])
+  }, [audience, schools.length, plans, planTier, targetSchools.length, selectedSchools.length])
 
-  const columns: Column<SentMessage>[] = [
+  const sendMutation = useMutation({
+    mutationFn: async () => {
+      const content = title.trim() ? `${title.trim()}\n\n${message.trim()}` : message.trim()
+      const scheduledIso = scheduled && scheduleAt ? new Date(scheduleAt).toISOString() : undefined
+      await Promise.all(
+        targetSchools.map((s) =>
+          sendMessage({
+            school_id: s.id,
+            recipient_type: 'admin',
+            content,
+            is_scheduled: scheduled,
+            scheduled_at: scheduledIso,
+          }),
+        ),
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['messages'] })
+      setTitle('')
+      setMessage('')
+      setSelectedSchools([])
+      setScheduled(false)
+      setScheduleAt('')
+      setSendError('')
+    },
+    onError: (err) => setSendError(extractErrorMessage(err)),
+  })
+
+  function handleSend() {
+    if (!title.trim() || !message.trim()) return
+    if (targetSchools.length === 0) {
+      setSendError('Select at least one school to send to.')
+      return
+    }
+    if (scheduled && !scheduleAt) {
+      setSendError('Please choose a send date/time.')
+      return
+    }
+    setSendError('')
+    sendMutation.mutate()
+  }
+
+  const columns: Column<Message>[] = [
     {
-      key: 'title',
-      header: 'Title',
-      sortable: true,
-      accessor: (row) => row.title,
-      render: (row) => <span className="font-medium text-[var(--foreground)] truncate">{row.title}</span>,
+      key: 'content',
+      header: 'Message',
+      accessor: (row) => row.content,
+      render: (row) => <span className="font-medium text-[var(--foreground)] truncate block max-w-xs">{row.content}</span>,
     },
     {
-      key: 'audience',
-      header: 'Audience',
+      key: 'recipient_type',
+      header: 'Recipient',
       sortable: true,
-      accessor: (row) => row.audience,
-      render: (row) => <span className="text-[var(--muted-foreground)]">{row.audience}</span>,
+      accessor: (row) => row.recipient_type,
+      render: (row) => <span className="text-[var(--muted-foreground)]">{RECIPIENT_LABELS[row.recipient_type] ?? row.recipient_type}{row.recipient_name ? ` · ${row.recipient_name}` : ''}</span>,
     },
     {
-      key: 'recipients',
-      header: 'Recipients',
+      key: 'school_id',
+      header: 'School',
       sortable: true,
-      accessor: (row) => row.recipients,
-      render: (row) => <span className="text-[var(--foreground)] tabular-nums">{row.recipients}</span>,
+      accessor: (row) => schoolNameById.get(row.school_id) ?? '',
+      render: (row) => <span className="text-[var(--foreground)]">{schoolNameById.get(row.school_id) ?? '—'}</span>,
     },
     {
-      key: 'deliveryPct',
-      header: 'Delivery',
-      sortable: true,
-      accessor: (row) => row.deliveryPct,
-      render: (row) => (
-        <div className="flex items-center gap-2 min-w-[120px]">
-          <Progress value={row.deliveryPct} className="h-1.5 flex-1" />
-          <span className="text-xs text-[var(--muted-foreground)] tabular-nums w-9 text-right">{row.deliveryPct}%</span>
-        </div>
-      ),
-    },
-    {
-      key: 'sentAt',
+      key: 'sent_at',
       header: 'Sent',
       sortable: true,
-      accessor: (row) => row.sentAt,
-      render: (row) => <span className="text-[var(--muted-foreground)] whitespace-nowrap">{formatDate(row.sentAt, 'datetime')}</span>,
+      accessor: (row) => row.sent_at,
+      render: (row) => <span className="text-[var(--muted-foreground)] whitespace-nowrap">{formatDate(row.sent_at, 'datetime')}</span>,
     },
     {
       key: 'status',
       header: 'Status',
       sortable: true,
-      accessor: (row) => row.status,
-      render: (row) => <StatusBadge status={row.status} />,
+      accessor: (row) => (row.is_scheduled ? 'scheduled' : 'sent'),
+      render: (row) => <StatusBadge status={row.is_scheduled ? 'scheduled' : 'sent'} />,
     },
   ]
 
@@ -146,6 +204,15 @@ export default function BulkMessaging() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-5">
+                {sendError && (
+                  <div
+                    className="flex items-start gap-2 p-3 rounded-xl text-sm"
+                    style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+                  >
+                    <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {sendError}
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <Label htmlFor="bm-title">Title</Label>
                   <Input
@@ -204,7 +271,7 @@ export default function BulkMessaging() {
                         <SelectValue placeholder="Select plan" />
                       </SelectTrigger>
                       <SelectContent>
-                        {mockPlans.map((p) => (
+                        {plans.map((p) => (
                           <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
                         ))}
                       </SelectContent>
@@ -216,7 +283,7 @@ export default function BulkMessaging() {
                   <div className="space-y-1.5">
                     <Label>Select Schools</Label>
                     <div className="max-h-44 overflow-y-auto rounded-xl border border-[var(--border)] divide-y divide-[var(--border)]">
-                      {mockSchools.map((s) => (
+                      {schools.map((s) => (
                         <label
                           key={s.id}
                           className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[var(--muted)]/50 transition-colors"
@@ -252,10 +319,13 @@ export default function BulkMessaging() {
                       value={scheduleAt}
                       onChange={(e) => setScheduleAt(e.target.value)}
                     />
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      Scheduled messages are stored as pending — the platform does not yet auto-dispatch them at the scheduled time.
+                    </p>
                   </div>
                 )}
 
-                <Button className="w-full" disabled={!title.trim() || !message.trim()}>
+                <Button className="w-full" disabled={!title.trim() || !message.trim()} loading={sendMutation.isPending} onClick={handleSend}>
                   <Send size={16} /> {scheduled ? 'Schedule Broadcast' : 'Send Now'}
                 </Button>
               </CardContent>
@@ -313,16 +383,30 @@ export default function BulkMessaging() {
             <MessageSquare size={18} className="text-[var(--primary)]" />
             <h2 className="text-base font-semibold text-[var(--foreground)]">Message History</h2>
           </div>
-          <DataTable
-            columns={columns}
-            data={MESSAGE_HISTORY}
-            keyField="id"
-            searchable
-            searchKeys={['title', 'audience']}
-            searchPlaceholder="Search messages…"
-            emptyTitle="No messages sent"
-            emptyDescription="Your broadcast history will appear here."
-          />
+
+          {isError && (
+            <div
+              className="flex items-start gap-2 p-3 rounded-xl mb-4 text-sm"
+              style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+            >
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load message history. Please try again.
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-24"><LoadingSpinner size="lg" /></div>
+          ) : (
+            <DataTable
+              columns={columns}
+              data={messages}
+              keyField="id"
+              searchable
+              searchKeys={['content']}
+              searchPlaceholder="Search messages…"
+              emptyTitle="No messages sent"
+              emptyDescription="Your broadcast history will appear here."
+            />
+          )}
         </motion.div>
       </motion.div>
     </Layout>

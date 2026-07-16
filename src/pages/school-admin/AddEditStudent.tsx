@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   User, Users, Camera, QrCode, Save, X, Hash,
-  GraduationCap, Phone, Mail, Sparkles, MapPin,
+  GraduationCap, Phone, Mail, Sparkles, MapPin, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { CLASSES, DIVISIONS, RELATIONSHIPS } from '@/lib/constants'
-import { allStudents } from '@/lib/mockData'
+import { getStudent, createStudent, updateStudent, type StudentInput } from '@/lib/api/students'
 
 const container = {
   hidden: { opacity: 0 },
@@ -85,13 +87,19 @@ function Field({ label, htmlFor, children, hint }: { label: string; htmlFor?: st
 
 export default function AddEditStudent() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { id } = useParams<{ id: string }>()
+  const isEdit = !!id
 
-  const existing = useMemo(
-    () => (id ? allStudents.find((s) => s.id === id) ?? null : null),
-    [id],
-  )
-  const isEdit = !!existing
+  const {
+    data: existing,
+    isLoading: isLoadingExisting,
+    isError: isLoadErrorExisting,
+  } = useQuery({
+    queryKey: ['student', id],
+    queryFn: () => getStudent(id!),
+    enabled: isEdit,
+  })
 
   const studentId = useMemo(
     () => existing?.roll_number ? `STD-${existing.roll_number}` : `STD-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -99,22 +107,103 @@ export default function AddEditStudent() {
   )
 
   const [form, setForm] = useState<StudentForm>(() => ({
-    fullName: existing?.name ?? '',
-    className: existing?.class ?? '',
-    division: existing?.division ?? '',
-    dob: existing?.dob ?? '',
+    fullName: '',
+    className: '',
+    division: '',
+    dob: '',
     gender: '',
-    guardianName: existing?.parents[0]?.parent_name ?? '',
-    relationship: existing?.parents[0]?.relationship ?? '',
-    phone: existing?.parents[0]?.phone ?? '',
-    email: existing?.parents[0]?.email ?? '',
+    guardianName: '',
+    relationship: '',
+    phone: '',
+    email: '',
     address: '',
     pickupLocation: '',
     dropLocation: '',
   }))
 
+  // Populate the form once the existing student loads (edit mode).
+  useEffect(() => {
+    if (!existing) return
+    const guardian = existing.parents[0]
+    setForm({
+      fullName: existing.name ?? '',
+      className: existing.class ?? '',
+      division: existing.division ?? '',
+      dob: existing.dob ?? '',
+      gender: '',
+      guardianName: guardian?.parent_name ?? '',
+      relationship: guardian?.relationship ?? '',
+      phone: guardian?.phone ?? '',
+      email: guardian?.email ?? '',
+      address: '',
+      pickupLocation: '',
+      dropLocation: '',
+    })
+  }, [existing])
+
   const set = <K extends keyof StudentForm>(key: K, value: StudentForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
+
+  const createMutation = useMutation({
+    mutationFn: (payload: StudentInput) => createStudent(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      navigate('/school-admin/students')
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: Partial<StudentInput>) => updateStudent(id!, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      navigate('/school-admin/students')
+    },
+  })
+
+  const isSaving = createMutation.isPending || updateMutation.isPending
+  const saveError = createMutation.isError || updateMutation.isError
+
+  function handleSave() {
+    const payload: StudentInput = {
+      name: form.fullName,
+      class: form.className,
+      division: form.division,
+      // The form has no dedicated roll-number field; the auto-generated
+      // student ID badge (STD-XXXX) doubles as the roll number.
+      roll_number: studentId.replace(/^STD-/, ''),
+      dob: form.dob,
+      gender: form.gender || undefined,
+      address: form.address || undefined,
+      parents: form.guardianName.trim()
+        ? [
+            {
+              parent_name: form.guardianName,
+              relationship: form.relationship,
+              phone: form.phone,
+              email: form.email,
+              whatsapp: form.phone,
+            },
+          ]
+        : undefined,
+    }
+
+    if (isEdit) {
+      updateMutation.mutate(payload)
+    } else {
+      createMutation.mutate(payload)
+    }
+  }
+
+  if (isEdit && isLoadingExisting) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center py-24">
+          <LoadingSpinner size="lg" />
+        </div>
+      </Layout>
+    )
+  }
 
   return (
     <Layout>
@@ -126,6 +215,18 @@ export default function AddEditStudent() {
           { label: isEdit ? 'Edit Student' : 'Add Student' },
         ]}
       />
+
+      {(isLoadErrorExisting || saveError) && (
+        <div
+          className="flex items-start gap-2 p-3 rounded-xl mb-4 text-sm"
+          style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+        >
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+          {isLoadErrorExisting
+            ? 'Failed to load student details. Please try again.'
+            : 'Failed to save student. Please check the details and try again.'}
+        </div>
+      )}
 
       <motion.div
         variants={container}
@@ -396,8 +497,8 @@ export default function AddEditStudent() {
             <Button variant="outline" onClick={() => navigate(-1)}>
               <X size={16} /> Cancel
             </Button>
-            <Button onClick={() => navigate('/school-admin/students')}>
-              <Save size={16} /> {isEdit ? 'Save Changes' : 'Save Student'}
+            <Button onClick={handleSave} disabled={isSaving}>
+              <Save size={16} /> {isSaving ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Student'}
             </Button>
           </div>
         </div>

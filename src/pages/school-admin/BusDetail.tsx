@@ -1,15 +1,18 @@
 import { useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, Phone, Pencil, ChevronDown, ChevronUp,
   Bus as BusIcon, Clock, Users, Navigation, User, MapPin,
-  CheckCircle2, CalendarCheck,
+  CheckCircle2, CalendarCheck, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -19,10 +22,19 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { allBuses, allRoutes, allStudents, allTrips, mockAttendance } from '@/lib/mockData'
+import { allRoutes, allStudents, allTrips, mockAttendance } from '@/lib/mockData'
 import type { Route, Student } from '@/types'
 import { getInitials, formatDate, cn } from '@/lib/utils'
 import { getBusTripDurationDisplay } from '@/lib/tripDuration'
+import { getBus, getBusLocation } from '@/lib/api/buses'
+
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Failed to load bus details.'
+  }
+  return 'Failed to load bus details.'
+}
 
 // ─── Animation variants ──────────────────────────────────────────────────────
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.07 } } }
@@ -260,7 +272,19 @@ export default function BusDetail() {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState(TODAY)
 
-  const bus = allBuses.find((b) => b.id === id)
+  const { data: bus, isLoading, isError, error } = useQuery({
+    queryKey: ['bus', id],
+    queryFn: () => getBus(id as string),
+    enabled: !!id,
+  })
+
+  const { data: location } = useQuery({
+    queryKey: ['bus', id, 'location'],
+    queryFn: () => getBusLocation(id as string),
+    enabled: !!id,
+    refetchInterval: 10000,
+  })
+
   const busRoutes = useMemo(() => allRoutes.filter((r) => r.bus_id === id), [id])
   const pickupRoute = busRoutes.find((r) => r.type === 'pickup')
   const dropRoute = busRoutes.find((r) => r.type === 'drop')
@@ -303,6 +327,30 @@ export default function BusDetail() {
     return Math.min(bus.seat_capacity, 18 + (seed % Math.max(1, bus.seat_capacity - 18)))
   }
 
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <LoadingSpinner size="lg" />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (isError) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-64 gap-4">
+          <AlertCircle size={48} className="text-red-500" />
+          <p className="text-sm text-red-600 dark:text-red-400">{extractErrorMessage(error)}</p>
+          <Button onClick={() => navigate('/school-admin/buses')}>
+            <ArrowLeft size={16} /> Back to Buses
+          </Button>
+        </div>
+      </Layout>
+    )
+  }
+
   if (!bus) {
     return (
       <Layout>
@@ -336,6 +384,11 @@ export default function BusDetail() {
             actions={
               <>
                 <StatusBadge status={status} />
+                {location && (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
+                    <MapPin size={12} /> {location.current_stop ?? 'En route'} · {Math.round(location.speed)} km/h
+                  </span>
+                )}
                 <Button variant="outline" size="sm" onClick={() => setCallDialogOpen(true)}>
                   <Phone size={15} /> Call Driver
                 </Button>

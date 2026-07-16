@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeftRight, Plus, Activity, CheckCircle2, Users,
-  Bus as BusIcon, ArrowRight, Clock, ShieldCheck, AlertTriangle,
+  Bus as BusIcon, ArrowRight, Clock, ShieldCheck, AlertTriangle, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -11,6 +12,7 @@ import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,11 +27,11 @@ import {
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
-import { allBusTransfers, allBuses } from '@/lib/mockData'
+import { listBusTransfers, createBusTransfer, updateBusTransfer } from '@/lib/api/busTransfers'
+import { listBuses, createBuses } from '@/lib/api/buses'
+import { listTrips } from '@/lib/api/trips'
 import { formatDate } from '@/lib/utils'
-import type { BusTransfer as BusTransferType, TransferStatus } from '@/types'
-
-const SCHOOL_ID = 'sch_001'
+import type { BusTransfer as BusTransferType, TransferStatus, Trip } from '@/types'
 
 function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -48,7 +50,30 @@ const PROGRESS_BY_STATUS: Record<TransferStatus, number> = {
   completed: 100,
 }
 
+const NEXT_STATUS: Record<TransferStatus, TransferStatus | null> = {
+  initiated: 'in_progress',
+  in_progress: 'completed',
+  completed: null,
+}
+
+const NEXT_STATUS_LABEL: Record<TransferStatus, string> = {
+  initiated: 'Mark In Progress',
+  in_progress: 'Mark Completed',
+  completed: '',
+}
+
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div
+      className="flex items-start gap-2 p-3 rounded-xl mb-4 text-sm"
+      style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+    >
+      <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {message}
+    </div>
+  )
+}
 
 function BusChip({ label, tone, busId, onNavigate }: { label: string; tone: 'from' | 'to'; busId?: string; onNavigate?: (id: string) => void }) {
   const isFrom = tone === 'from'
@@ -88,8 +113,15 @@ function BusChip({ label, tone, busId, onNavigate }: { label: string; tone: 'fro
   )
 }
 
-function TransferRow({ transfer, index, onNavigateBus }: { transfer: BusTransferType; index: number; onNavigateBus: (id: string) => void }) {
+function TransferRow({ transfer, index, onNavigateBus, onAdvance, advancing }: {
+  transfer: BusTransferType
+  index: number
+  onNavigateBus: (id: string) => void
+  onAdvance: (id: string, status: TransferStatus) => void
+  advancing: boolean
+}) {
   const progress = PROGRESS_BY_STATUS[transfer.status]
+  const nextStatus = NEXT_STATUS[transfer.status]
   return (
     <motion.div
       variants={item}
@@ -166,6 +198,19 @@ function TransferRow({ transfer, index, onNavigateBus }: { transfer: BusTransfer
             </div>
             <Progress value={progress} className="h-1.5" />
           </div>
+
+          {nextStatus && (
+            <div className="mt-3 flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={advancing}
+                onClick={() => onAdvance(transfer.id, nextStatus)}
+              >
+                {NEXT_STATUS_LABEL[transfer.status]}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
@@ -174,15 +219,30 @@ function TransferRow({ transfer, index, onNavigateBus }: { transfer: BusTransfer
 
 export default function BusTransfer() {
   const navigate = useNavigate()
-  const buses = useMemo(() => allBuses.filter((b) => b.school_id === SCHOOL_ID), [])
+  const queryClient = useQueryClient()
   const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
 
-  const [transfers, setTransfers] = useState<BusTransferType[]>(() =>
-    allBusTransfers.filter((t) => t.school_id === SCHOOL_ID),
-  )
+  const { data: transfersData, isLoading, isError } = useQuery({
+    queryKey: ['bus-transfers'],
+    queryFn: () => listBusTransfers({}),
+  })
+  const transfers = useMemo(() => transfersData?.transfers ?? [], [transfersData])
+
+  const { data: tripsData } = useQuery({
+    queryKey: ['trips', 'in_progress'],
+    queryFn: () => listTrips({ status: 'in_progress' }),
+  })
+  const activeTrips = useMemo(() => tripsData?.trips ?? [], [tripsData])
+
+  const { data: busesData } = useQuery({
+    queryKey: ['buses'],
+    queryFn: () => listBuses(),
+  })
+  const buses = useMemo(() => busesData?.buses ?? [], [busesData])
+
   const [dialogOpen, setDialogOpen] = useState(false)
 
-  const [fromBus, setFromBus] = useState('')
+  const [fromTripId, setFromTripId] = useState('')
   const [toBus, setToBus] = useState('')
   const [useTempBus, setUseTempBus] = useState(false)
   const [tempBusNumber, setTempBusNumber] = useState('')
@@ -191,6 +251,8 @@ export default function BusTransfer() {
   const [reason, setReason] = useState(TRANSFER_REASONS[0].value)
   const [notes, setNotes] = useState('')
   const [notify, setNotify] = useState(true)
+
+  const fromTrip = useMemo(() => activeTrips.find((t) => t.id === fromTripId), [activeTrips, fromTripId])
 
   const stats = useMemo(() => {
     const active = transfers.filter((t) => t.status !== 'completed').length
@@ -212,7 +274,7 @@ export default function BusTransfer() {
   )
 
   function resetForm() {
-    setFromBus('')
+    setFromTripId('')
     setToBus('')
     setUseTempBus(false)
     setTempBusNumber('')
@@ -223,39 +285,74 @@ export default function BusTransfer() {
     setNotify(true)
   }
 
+  const createTransferMutation = useMutation({
+    mutationFn: async (input: {
+      trip: Trip
+      useTempBus: boolean
+      toBusId: string
+      tempBusNumber: string
+      tempBusMake: string
+      tempBusCapacity: number | ''
+      reasonLabel: string
+      notes: string
+    }) => {
+      let newBusId = input.toBusId
+      let newDriverId: string | undefined
+      if (input.useTempBus) {
+        const created = await createBuses([{
+          bus_number: input.tempBusNumber,
+          seat_capacity: typeof input.tempBusCapacity === 'number' ? input.tempBusCapacity : 30,
+          ...(input.tempBusMake ? { make_model: input.tempBusMake } : {}),
+        }])
+        newBusId = created[0]?.id ?? ''
+      } else {
+        newDriverId = buses.find((b) => b.id === input.toBusId)?.driver_id
+      }
+      const reasonText = input.notes ? `${input.reasonLabel}: ${input.notes}` : input.reasonLabel
+      return createBusTransfer({
+        original_trip_id: input.trip.id,
+        original_bus_id: input.trip.bus_id,
+        new_bus_id: newBusId,
+        new_driver_id: newDriverId,
+        reason: reasonText,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bus-transfers'] })
+      queryClient.invalidateQueries({ queryKey: ['buses'] })
+      resetForm()
+      setDialogOpen(false)
+    },
+  })
+
+  const advanceMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: TransferStatus }) => updateBusTransfer(id, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bus-transfers'] })
+    },
+  })
+
   function submitTransfer() {
-    const from = buses.find((b) => b.id === fromBus)
-    if (!from) return
+    if (!fromTrip) return
     if (useTempBus) {
       if (!tempBusNumber) return
-    } else {
-      const to = buses.find((b) => b.id === toBus)
-      if (!to || from.id === to.id) return
+    } else if (!toBus) {
+      return
     }
-    const to = useTempBus ? null : buses.find((b) => b.id === toBus)!
     const reasonLabel = TRANSFER_REASONS.find((r) => r.value === reason)?.label ?? 'Other'
-    const newTransfer: BusTransferType = {
-      id: `bt_${Date.now()}`,
-      school_id: SCHOOL_ID,
-      original_trip_id: from.current_trip_id ?? '',
-      original_bus_id: from.id,
-      original_bus_number: from.bus_number,
-      new_bus_id: useTempBus ? '' : to!.id,
-      new_bus_number: useTempBus ? tempBusNumber : to!.bus_number,
-      new_driver_id: useTempBus ? undefined : to!.driver_id,
-      new_driver_name: useTempBus ? undefined : to!.driver_name,
-      authorised_by: 'School Admin',
-      transfer_at: new Date().toISOString(),
-      status: 'initiated',
-      reason: notes ? `${reasonLabel}: ${notes}` : reasonLabel,
-      affected_students: from.seat_capacity ? Math.min(from.seat_capacity, 25) : 20,
-    }
-    setTransfers((prev) => [newTransfer, ...prev])
-    resetForm()
-    setDialogOpen(false)
+    createTransferMutation.mutate({
+      trip: fromTrip,
+      useTempBus,
+      toBusId: toBus,
+      tempBusNumber,
+      tempBusMake,
+      tempBusCapacity,
+      reasonLabel,
+      notes,
+    })
   }
 
-  const toBusOptions = buses.filter((b) => b.id !== fromBus)
+  const toBusOptions = buses.filter((b) => b.id !== fromTrip?.bus_id)
 
   return (
     <Layout>
@@ -295,7 +392,13 @@ export default function BusTransfer() {
             Transfer Timeline
           </h2>
 
-          {sorted.length === 0 ? (
+          {isError && <ErrorBanner message="Failed to load bus transfers. Please try again." />}
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : sorted.length === 0 ? (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)]">
               <EmptyState
                 icon={ArrowLeftRight}
@@ -311,7 +414,14 @@ export default function BusTransfer() {
           ) : (
             <div className="space-y-4">
               {sorted.map((t, i) => (
-                <TransferRow key={t.id} transfer={t} index={i} onNavigateBus={(id) => navigate(`/school-admin/buses/${id}`)} />
+                <TransferRow
+                  key={t.id}
+                  transfer={t}
+                  index={i}
+                  onNavigateBus={(id) => navigate(`/school-admin/buses/${id}`)}
+                  onAdvance={(id, status) => advanceMutation.mutate({ id, status })}
+                  advancing={advanceMutation.isPending}
+                />
               ))}
             </div>
           )}
@@ -329,17 +439,18 @@ export default function BusTransfer() {
           </DialogHeader>
 
           <div className="space-y-4 py-1">
+            {createTransferMutation.isError && <ErrorBanner message="Failed to initiate the transfer. Please try again." />}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="bt-from">From Bus</Label>
-                <Select value={fromBus} onValueChange={setFromBus}>
+                <Label htmlFor="bt-from">From Bus (Active Trip)</Label>
+                <Select value={fromTripId} onValueChange={setFromTripId}>
                   <SelectTrigger id="bt-from">
-                    <SelectValue placeholder="Select bus" />
+                    <SelectValue placeholder="Select active trip" />
                   </SelectTrigger>
                   <SelectContent>
-                    {buses.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        Bus {b.bus_number}{b.driver_name ? ` · ${b.driver_name}` : ''}
+                    {activeTrips.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        Bus {t.bus_number}{t.driver_name ? ` · ${t.driver_name}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -413,10 +524,10 @@ export default function BusTransfer() {
             </div>
 
             {/* live preview of the transfer */}
-            {fromBus && (useTempBus ? tempBusNumber : toBus) && (
+            {fromTrip && (useTempBus ? tempBusNumber : toBus) && (
               <div className="flex items-center justify-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 p-3">
                 <span className="rounded-lg bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                  {buses.find((b) => b.id === fromBus)?.bus_number}
+                  {fromTrip.bus_number}
                 </span>
                 <ArrowRight size={16} className="text-[var(--primary)]" />
                 <span className="rounded-lg bg-green-100 px-2.5 py-1 text-xs font-bold text-green-700 dark:bg-green-900/30 dark:text-green-400">
@@ -469,10 +580,11 @@ export default function BusTransfer() {
             </DialogClose>
             <Button
               onClick={submitTransfer}
+              loading={createTransferMutation.isPending}
               disabled={
                 useTempBus
-                  ? !fromBus || !tempBusNumber
-                  : !fromBus || !toBus || fromBus === toBus
+                  ? !fromTripId || !tempBusNumber
+                  : !fromTripId || !toBus
               }
             >
               Initiate Transfer

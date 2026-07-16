@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
-  Plus, Play, Pencil, Trash2, Clock, Eye, BookOpen, X,
+  Plus, Play, Pencil, Trash2, Clock, Eye, BookOpen, X, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,7 +23,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { formatNumber, getRoleLabel } from '@/lib/utils'
-import { mockTrainingModules } from '@/lib/mockData'
+import { listTraining, createTrainingModule, updateTrainingModule, deleteTrainingModule } from '@/lib/api/training'
 import type { TrainingModule, UserRole } from '@/types'
 
 const container = {
@@ -45,6 +48,15 @@ const TARGET_ROLES: UserRole[] = ['school_admin', 'driver', 'parent']
 
 type FilterTab = 'all' | UserRole
 
+interface ModuleForm {
+  title: string
+  description: string
+  video_url: string
+  thumbnail_url: string
+}
+
+const emptyModuleForm: ModuleForm = { title: '', description: '', video_url: '', thumbnail_url: '' }
+
 function getEmbedUrl(url: string): string {
   const watchMatch = url.match(/youtube\.com\/watch\?v=([^&]+)/)
   if (watchMatch) return `https://www.youtube.com/embed/${watchMatch[1]}`
@@ -53,48 +65,109 @@ function getEmbedUrl(url: string): string {
   return url
 }
 
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Something went wrong. Please try again.'
+  }
+  return 'Something went wrong. Please try again.'
+}
+
 export default function Training() {
-  const [modules, setModules] = useState<TrainingModule[]>(mockTrainingModules)
+  const queryClient = useQueryClient()
+
   const [tab, setTab] = useState<FilterTab>('all')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<TrainingModule | null>(null)
+  const [moduleForm, setModuleForm] = useState<ModuleForm>(emptyModuleForm)
   const [formRole, setFormRole] = useState<UserRole>('school_admin')
   const [formPublished, setFormPublished] = useState(true)
+  const [formError, setFormError] = useState('')
   const [playerOpen, setPlayerOpen] = useState(false)
   const [playerModule, setPlayerModule] = useState<TrainingModule | null>(null)
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['training'],
+    queryFn: () => listTraining({ pageSize: 200 }),
+  })
+  const modules = data?.trainingModules ?? []
 
   const filtered = useMemo(
     () => (tab === 'all' ? modules : modules.filter((m) => m.target_role === tab)),
     [modules, tab],
   )
 
-  function togglePublished(id: string) {
-    setModules((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, is_published: !m.is_published } : m)),
-    )
+  const saveMutation = useMutation({
+    mutationFn: (payload: Partial<TrainingModule>) =>
+      editing ? updateTrainingModule(editing.id, payload) : createTrainingModule(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['training'] })
+      setDialogOpen(false)
+      setFormError('')
+    },
+    onError: (err) => setFormError(extractErrorMessage(err)),
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, is_published }: { id: string; is_published: boolean }) => updateTrainingModule(id, { is_published }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['training'] }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteTrainingModule(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['training'] }),
+  })
+
+  function togglePublished(m: TrainingModule) {
+    toggleMutation.mutate({ id: m.id, is_published: !m.is_published })
   }
 
   function removeModule(id: string) {
-    setModules((prev) => prev.filter((m) => m.id !== id))
+    if (!window.confirm('Delete this training module? This cannot be undone.')) return
+    deleteMutation.mutate(id)
   }
 
   function openAdd() {
     setEditing(null)
+    setModuleForm(emptyModuleForm)
     setFormRole('school_admin')
     setFormPublished(true)
+    setFormError('')
     setDialogOpen(true)
   }
 
   function openEdit(m: TrainingModule) {
     setEditing(m)
+    setModuleForm({
+      title: m.title,
+      description: m.description,
+      video_url: m.video_url,
+      thumbnail_url: m.thumbnail_url ?? '',
+    })
     setFormRole(m.target_role)
     setFormPublished(m.is_published)
+    setFormError('')
     setDialogOpen(true)
   }
 
   function openPlayer(m: TrainingModule) {
     setPlayerModule(m)
     setPlayerOpen(true)
+  }
+
+  function saveModule() {
+    if (!moduleForm.title.trim() || !moduleForm.video_url.trim()) {
+      setFormError('Title and video URL are required.')
+      return
+    }
+    saveMutation.mutate({
+      title: moduleForm.title.trim(),
+      description: moduleForm.description.trim(),
+      video_url: moduleForm.video_url.trim(),
+      thumbnail_url: moduleForm.thumbnail_url.trim() || undefined,
+      target_role: formRole,
+      is_published: formPublished,
+    })
   }
 
   return (
@@ -121,7 +194,20 @@ export default function Training() {
           </Tabs>
         </motion.div>
 
-        {filtered.length === 0 ? (
+        {isError && (
+          <motion.div variants={item}>
+            <div
+              className="flex items-start gap-2 p-3 rounded-xl text-sm"
+              style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+            >
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load training modules. Please try again.
+            </div>
+          </motion.div>
+        )}
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-24"><LoadingSpinner size="lg" /></div>
+        ) : filtered.length === 0 ? (
           <motion.div variants={item}>
             <EmptyState
               icon={BookOpen}
@@ -180,7 +266,7 @@ export default function Training() {
 
                   <div className="mt-auto flex items-center justify-between gap-2 pt-3 border-t border-[var(--border)]">
                     <div className="flex items-center gap-2">
-                      <Switch checked={m.is_published} onCheckedChange={() => togglePublished(m.id)} />
+                      <Switch checked={m.is_published} onCheckedChange={() => togglePublished(m)} />
                       <span className="text-xs text-[var(--muted-foreground)]">
                         {m.is_published ? 'Published' : 'Draft'}
                       </span>
@@ -246,13 +332,21 @@ export default function Training() {
           </DialogHeader>
 
           <div className="space-y-4">
+            {formError && (
+              <div
+                className="flex items-start gap-2 p-3 rounded-xl text-sm"
+                style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+              >
+                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {formError}
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="mod-title">Title</Label>
-              <Input id="mod-title" defaultValue={editing?.title ?? ''} placeholder="Module title" />
+              <Input id="mod-title" value={moduleForm.title} onChange={(e) => setModuleForm((f) => ({ ...f, title: e.target.value }))} placeholder="Module title" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="mod-desc">Description</Label>
-              <Textarea id="mod-desc" defaultValue={editing?.description ?? ''} placeholder="Short description" rows={3} />
+              <Textarea id="mod-desc" value={moduleForm.description} onChange={(e) => setModuleForm((f) => ({ ...f, description: e.target.value }))} placeholder="Short description" rows={3} />
             </div>
             <div className="space-y-1.5">
               <Label>Target Role</Label>
@@ -270,11 +364,11 @@ export default function Training() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="mod-video">Video URL</Label>
-                <Input id="mod-video" defaultValue={editing?.video_url ?? ''} placeholder="https://youtube.com/watch?v=…" />
+                <Input id="mod-video" value={moduleForm.video_url} onChange={(e) => setModuleForm((f) => ({ ...f, video_url: e.target.value }))} placeholder="https://youtube.com/watch?v=…" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="mod-thumb">Thumbnail URL</Label>
-                <Input id="mod-thumb" defaultValue={editing?.thumbnail_url ?? ''} placeholder="https://…" />
+                <Input id="mod-thumb" value={moduleForm.thumbnail_url} onChange={(e) => setModuleForm((f) => ({ ...f, thumbnail_url: e.target.value }))} placeholder="https://…" />
               </div>
             </div>
             <div className="flex items-center justify-between rounded-xl border border-[var(--border)] px-3 py-2.5">
@@ -285,7 +379,7 @@ export default function Training() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={() => setDialogOpen(false)}>Save Module</Button>
+            <Button onClick={saveModule} loading={saveMutation.isPending}>Save Module</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

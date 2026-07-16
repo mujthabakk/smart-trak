@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Bus, Eye, EyeOff, Check, X, KeyRound, ArrowLeft, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { resetPassword } from '@/lib/api/auth'
 
 interface Criterion {
   label: string
@@ -21,11 +22,18 @@ const CRITERIA: Criterion[] = [
 
 export default function ResetPassword() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const { email, otp } = (location.state as { email?: string; otp?: string } | null) || {}
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [done, setDone] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+
+  useEffect(() => {
+    if (!email || !otp) navigate('/forgot-password', { replace: true })
+  }, [email, otp, navigate])
 
   const passed = useMemo(() => CRITERIA.filter((c) => c.test(password)).length, [password])
   const strength = (passed / CRITERIA.length) * 100
@@ -35,11 +43,17 @@ export default function ResetPassword() {
   const match = password.length > 0 && password === confirm
   const canSubmit = passed === CRITERIA.length && match
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!canSubmit) return
-    setDone(true)
-    setTimeout(() => navigate('/login', { replace: true }), 1800)
+    if (!canSubmit || !email || !otp) return
+    setSubmitError('')
+    try {
+      await resetPassword(email, otp, password)
+      setDone(true)
+      setTimeout(() => navigate('/login', { replace: true }), 1800)
+    } catch {
+      setSubmitError('Could not reset your password. Please restart the process.')
+    }
   }
 
   return (
@@ -148,6 +162,8 @@ export default function ResetPassword() {
                     )
                   })}
                 </div>
+
+                {submitError && <p className="text-xs text-center text-red-500">{submitError}</p>}
 
                 <Button type="submit" size="lg" className="w-full" disabled={!canSubmit}>
                   Reset Password

@@ -1,17 +1,19 @@
 import React, { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Route as RouteIcon, Plus, Bus, MapPin, Clock, Users, Map as MapIcon,
   Pencil, ArrowRight, CircleDot, Navigation, X, Download, Upload, QrCode,
   LayoutGrid, List, UserPlus, PlusCircle, ChevronDown, ChevronUp, Trash2,
-  Eye,
+  Eye, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -25,10 +27,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { allRoutes, allStudents, allTrips } from '@/lib/mockData'
+import { allStudents } from '@/lib/mockData'
 import { downloadCSV, cn } from '@/lib/utils'
 import { getRouteTripDurationDisplay } from '@/lib/tripDuration'
-import type { Route as RouteType, Student, Stop } from '@/types'
+import { listRoutes, createRoute, updateRoute, type RouteInput } from '@/lib/api/routes'
+import { listTrips } from '@/lib/api/trips'
+import type { Route as RouteType, Student, Stop, Trip } from '@/types'
 
 const SCHOOL_ID = 'sch_001'
 
@@ -41,12 +45,12 @@ const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Returns the in_progress trip for a route, if any */
-function getActiveTrip(routeId: string) {
-  return allTrips.find((t) => t.route_id === routeId && t.status === 'in_progress') ?? null
+function getActiveTrip(routeId: string, trips: Trip[]) {
+  return trips.find((t) => t.route_id === routeId && t.status === 'in_progress') ?? null
 }
 
-function routeTripDuration(routeId: string) {
-  return getRouteTripDurationDisplay(routeId, allTrips)
+function routeTripDuration(routeId: string, trips: Trip[]) {
+  return getRouteTripDurationDisplay(routeId, trips)
 }
 
 /** Auto-generate 2–3 intermediate stops from start/end words */
@@ -233,7 +237,7 @@ function StopTimeline({ route, studentsOnRoute }: StopTimelineProps) {
 // ─── Add Route Dialog ─────────────────────────────────────────────────────────
 interface AddRouteDialogProps {
   allStudentsState: Student[]
-  onAdd: (route: RouteType, assignedStudents: Student[]) => void
+  onAdd: (payload: RouteInput, assignedStudents: Student[]) => void
 }
 
 function AddRouteDialog({ allStudentsState, onAdd }: AddRouteDialogProps) {
@@ -244,8 +248,8 @@ function AddRouteDialog({ allStudentsState, onAdd }: AddRouteDialogProps) {
 
   function handleCreate() {
     if (!name.trim()) return
-    const routeId = `route-${Date.now()}`
-    const autoStops = generateStops(routeId, startPoint || 'Start', endPoint || 'End')
+    const tempId = `route-${Date.now()}`
+    const autoStops = generateStops(tempId, startPoint || 'Start', endPoint || 'End')
 
     const schoolStudents = allStudentsState.filter((s) => s.school_id === SCHOOL_ID)
 
@@ -253,20 +257,16 @@ function AddRouteDialog({ allStudentsState, onAdd }: AddRouteDialogProps) {
     const unassigned = schoolStudents.filter((s) => !s.route_name)
     const toAssign = unassigned.length > 0 ? unassigned : schoolStudents.slice(0, 5)
 
-    const newRoute: RouteType = {
-      id: routeId,
-      school_id: SCHOOL_ID,
+    const payload: RouteInput = {
       name: name.trim(),
       start_point: startPoint.trim(),
       end_point: endPoint.trim(),
       type: 'pickup',
       is_active: true,
       stops: autoStops,
-      student_count: toAssign.length,
-      created_at: new Date().toISOString(),
     }
 
-    onAdd(newRoute, toAssign)
+    onAdd(payload, toAssign)
     setName(''); setStartPoint(''); setEndPoint('')
     setOpen(false)
   }
@@ -634,6 +634,7 @@ function AddStopDialog({ route, onAdd }: AddStopDialogProps) {
 // ─── Route Card (List View) ───────────────────────────────────────────────────
 interface RouteCardProps {
   route: RouteType
+  trips: Trip[]
   studentsOnRoute: Student[]
   unassignedStudents: Student[]
   onEdit: (route: RouteType) => void
@@ -645,12 +646,12 @@ interface RouteCardProps {
 }
 
 function RouteCard({
-  route, studentsOnRoute, unassignedStudents,
+  route, trips, studentsOnRoute, unassignedStudents,
   onEdit, onViewMap, onDownloadQR, onAddStudent, onAddStop, onViewDetails,
 }: RouteCardProps) {
-  const activeTrip = getActiveTrip(route.id)
+  const activeTrip = getActiveTrip(route.id, trips)
   const isRunning = !!activeTrip
-  const tripDuration = routeTripDuration(route.id)
+  const tripDuration = routeTripDuration(route.id, trips)
 
   const pickupStudents = studentsOnRoute.filter(
     (s) => !s.route_name?.toLowerCase().includes('drop'),
@@ -881,12 +882,13 @@ function BoardingPointCard({ stop, stopIndex }: BoardingPointCardProps) {
 // ─── Kanban Board View ────────────────────────────────────────────────────────
 interface KanbanBoardProps {
   routes: RouteType[]
+  trips: Trip[]
   students: Student[]
   onMoveStudent: (studentId: string, toRouteName: string) => void
   onBack: () => void
 }
 
-function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardProps) {
+function KanbanBoard({ routes, trips, students, onMoveStudent, onBack }: KanbanBoardProps) {
   const [dragStudentId, setDragStudentId] = useState<string | null>(null)
   const [dragOverRouteId, setDragOverRouteId] = useState<string | null>(null)
 
@@ -1048,9 +1050,9 @@ function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardPro
         })()}
 
         {filteredRoutes.map((route) => {
-          const activeTrip = getActiveTrip(route.id)
+          const activeTrip = getActiveTrip(route.id, trips)
           const isRunning = !!activeTrip
-          const tripDuration = routeTripDuration(route.id)
+          const tripDuration = routeTripDuration(route.id, trips)
           const isDragOver = dragOverRouteId === route.id
           const routeStudents = students.filter(
             (s) => s.school_id === SCHOOL_ID && s.route_name === route.name,
@@ -1219,65 +1221,97 @@ function KanbanStudentCard({ student, isDragging, onDragStart, onDragEnd }: Kanb
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Routes() {
   const navigate = useNavigate()
-  const [routes, setRoutes] = useState<RouteType[]>(
-    allRoutes.filter((r) => r.school_id === SCHOOL_ID),
-  )
+  const queryClient = useQueryClient()
+
+  const routesQuery = useQuery({
+    queryKey: ['routes'],
+    queryFn: () => listRoutes(),
+  })
+  const routes = useMemo(() => routesQuery.data?.routes ?? [], [routesQuery.data])
+
+  const tripsQuery = useQuery({
+    queryKey: ['trips'],
+    queryFn: () => listTrips(),
+  })
+  const trips = useMemo(() => tripsQuery.data?.trips ?? [], [tripsQuery.data])
+
+  // Student rosters/assignments have no backend endpoint in scope for this migration yet,
+  // so they continue to be driven by local demo state.
   const [students, setStudents] = useState<Student[]>(allStudents)
   const [view, setView] = useState<'list' | 'kanban'>('list')
   const [mapRoute, setMapRoute] = useState<RouteType | null>(null)
   const [editRoute, setEditRoute] = useState<RouteType | null>(null)
   const [editOpen, setEditOpen] = useState(false)
 
+  const createRouteMutation = useMutation({
+    mutationFn: (payload: RouteInput) => createRoute(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['routes'] })
+    },
+  })
+
+  const updateRouteMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<RouteInput> }) => updateRoute(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['routes'] })
+    },
+  })
+
   const stats = useMemo(() => {
     const total = routes.length
-    const active = routes.filter((r) => !!getActiveTrip(r.id)).length
+    const active = routes.filter((r) => !!getActiveTrip(r.id, trips)).length
     const totalStops = routes.reduce((sum, r) => sum + (r.stops?.length ?? 0), 0)
     const totalStudents = routes.reduce((sum, r) => {
       return sum + students.filter((s) => s.school_id === SCHOOL_ID && s.route_name === r.name).length
     }, 0)
     return { total, active, totalStops, totalStudents }
-  }, [routes, students])
+  }, [routes, trips, students])
 
   const unassignedStudents = useMemo(
     () => students.filter((s) => s.school_id === SCHOOL_ID && !s.route_name),
     [students],
   )
 
-  function handleAddRoute(newRoute: RouteType, assignedStudents: Student[]) {
-    setRoutes((prev) => [newRoute, ...prev])
-    if (assignedStudents.length > 0) {
-      setStudents((prev) =>
-        prev.map((s) =>
-          assignedStudents.find((a) => a.id === s.id)
-            ? { ...s, route_name: newRoute.name }
-            : s,
-        ),
-      )
-    }
+  function handleAddRoute(payload: RouteInput, assignedStudents: Student[]) {
+    createRouteMutation.mutate(payload, {
+      onSuccess: (createdRoute) => {
+        if (assignedStudents.length > 0) {
+          setStudents((prev) =>
+            prev.map((s) =>
+              assignedStudents.find((a) => a.id === s.id)
+                ? { ...s, route_name: createdRoute.name }
+                : s,
+            ),
+          )
+        }
+      },
+    })
   }
 
   function handleBulkImport(partials: Partial<RouteType>[]) {
-    const newRoutes = partials.map((p, i): RouteType => ({
-      id: `route-bulk-${Date.now()}-${i}`,
-      school_id: SCHOOL_ID,
-      name: p.name ?? 'Unnamed Route',
-      start_point: p.start_point ?? '',
-      end_point: p.end_point ?? '',
-      type: 'pickup',
-      is_active: true,
-      stops: generateStops(
-        `route-bulk-${Date.now()}-${i}`,
-        p.start_point ?? 'Start',
-        p.end_point ?? 'End',
-      ),
-      student_count: 0,
-      created_at: new Date().toISOString(),
-    }))
-    setRoutes((prev) => [...newRoutes, ...prev])
+    partials.forEach((p, i) => {
+      const tempId = `route-bulk-${Date.now()}-${i}`
+      const payload: RouteInput = {
+        name: p.name ?? 'Unnamed Route',
+        type: 'pickup',
+        start_point: p.start_point ?? '',
+        end_point: p.end_point ?? '',
+        is_active: true,
+        stops: generateStops(tempId, p.start_point ?? 'Start', p.end_point ?? 'End'),
+      }
+      createRouteMutation.mutate(payload)
+    })
   }
 
   function handleSaveEdit(updated: RouteType) {
-    setRoutes((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
+    updateRouteMutation.mutate({
+      id: updated.id,
+      payload: {
+        name: updated.name,
+        start_point: updated.start_point,
+        end_point: updated.end_point,
+      },
+    })
   }
 
   function openEdit(route: RouteType) {
@@ -1294,13 +1328,12 @@ export default function Routes() {
   }
 
   function handleAddStop(routeId: string, stop: Stop) {
-    setRoutes((prev) =>
-      prev.map((r) =>
-        r.id === routeId
-          ? { ...r, stops: [...(r.stops ?? []), stop] }
-          : r,
-      ),
-    )
+    const target = routes.find((r) => r.id === routeId)
+    if (!target) return
+    updateRouteMutation.mutate({
+      id: routeId,
+      payload: { stops: [...(target.stops ?? []), stop] },
+    })
   }
 
   function handleMoveStudent(studentId: string, toRouteName: string) {

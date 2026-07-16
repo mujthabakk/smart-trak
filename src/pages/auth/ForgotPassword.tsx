@@ -1,15 +1,19 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, Mail, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { forgotPassword } from '@/lib/api/auth'
+import { isAxiosError } from 'axios'
 
 export default function ForgotPassword() {
+  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [devOtp, setDevOtp] = useState('')
   const [resendCountdown, setResendCountdown] = useState(60)
   const [canResend, setCanResend] = useState(false)
 
@@ -41,17 +45,31 @@ export default function ForgotPassword() {
     e.preventDefault()
     if (!validate()) return
     setIsLoading(true)
-    await new Promise((r) => setTimeout(r, 1200))
-    setIsLoading(false)
-    setSubmitted(true)
+    try {
+      const res = await forgotPassword(email)
+      setDevOtp(res.devOtp || '')
+      setSubmitted(true)
+    } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 404) {
+        setEmailError('No account found with that email')
+      } else {
+        setEmailError('Something went wrong. Please try again.')
+      }
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleResend = async () => {
     if (!canResend) return
     setCanResend(false)
     setResendCountdown(60)
-    await new Promise((r) => setTimeout(r, 800))
-    // Restart countdown
+    try {
+      const res = await forgotPassword(email)
+      setDevOtp(res.devOtp || '')
+    } catch {
+      // ignore — user can retry once the countdown ends
+    }
     setCanResend(false)
     const interval = setInterval(() => {
       setResendCountdown((prev) => {
@@ -157,8 +175,18 @@ export default function ForgotPassword() {
                 </p>
                 <p className="text-sm font-semibold mb-4" style={{ color: 'var(--foreground)' }}>{email}</p>
                 <p className="text-xs mb-6" style={{ color: 'var(--muted-foreground)' }}>
-                  The link will expire in 15 minutes. If you don't see it, check your spam folder.
+                  The code will expire in 10 minutes. If you don't see it, check your spam folder.
                 </p>
+
+                {devOtp && (
+                  <p className="text-xs mb-4 rounded-lg bg-[var(--muted)] p-2 font-mono" style={{ color: 'var(--muted-foreground)' }}>
+                    Dev mode — your code is <span className="font-bold text-[var(--foreground)]">{devOtp}</span>
+                  </p>
+                )}
+
+                <Button size="lg" className="w-full mb-3" onClick={() => navigate('/otp', { state: { email } })}>
+                  Enter verification code
+                </Button>
 
                 <Button
                   variant="outline"

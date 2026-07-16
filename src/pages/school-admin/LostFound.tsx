@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Package, Plus, PackageSearch, PackageCheck, CheckCircle2,
   Bus as BusIcon, CalendarDays, ClipboardList, Eye, ImagePlus,
-  User, MessageSquare,
+  User, MessageSquare, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -11,6 +12,7 @@ import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -24,11 +26,15 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent } from '@/components/ui/card'
-import { allLostFound, allBuses, allRoutes } from '@/lib/mockData'
+import {
+  listLostFound, reportLostFoundItem, updateLostFoundItem,
+  claimLostFoundItem, updateLostFoundClaim,
+} from '@/lib/api/lostFound'
+import { listBuses } from '@/lib/api/buses'
+import { listDrivers } from '@/lib/api/drivers'
+import { listStudents } from '@/lib/api/students'
 import { formatDate } from '@/lib/utils'
 import type { LostFoundItem, LostFoundStatus } from '@/types'
-
-const SCHOOL_ID = 'sch_001'
 
 function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -45,11 +51,22 @@ const GRADIENTS = [
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
-function ItemCard({ entry, index, onAction, onViewClaims }: {
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div
+      className="flex items-start gap-2 p-3 rounded-xl mb-4 text-sm"
+      style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+    >
+      <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {message}
+    </div>
+  )
+}
+
+function ItemCard({ entry, index, onClaim, onViewClaims }: {
   entry: LostFoundItem
   index: number
-  onAction: (id: string) => void
-  onViewClaims: (entry: LostFoundItem) => void
+  onClaim: (id: string) => void
+  onViewClaims: (id: string) => void
 }) {
   const title = entry.description.split(/[,.]/)[0].trim()
   return (
@@ -93,11 +110,11 @@ function ItemCard({ entry, index, onAction, onViewClaims }: {
 
         <div className="mt-auto pt-4">
           {entry.status === 'reported' ? (
-            <Button size="sm" className="w-full" onClick={() => onAction(entry.id)}>
+            <Button size="sm" className="w-full" onClick={() => onClaim(entry.id)}>
               <PackageCheck size={14} /> Mark Claimed
             </Button>
           ) : (
-            <Button size="sm" variant="outline" className="w-full" onClick={() => onViewClaims(entry)}>
+            <Button size="sm" variant="outline" className="w-full" onClick={() => onViewClaims(entry.id)}>
               <Eye size={14} /> View Claims
               {entry.claims.length > 0 && (
                 <span className="ml-1 rounded-full bg-[var(--primary)]/10 px-1.5 text-[10px] font-semibold text-[var(--primary)]">
@@ -113,22 +130,55 @@ function ItemCard({ entry, index, onAction, onViewClaims }: {
 }
 
 export default function LostFound() {
-  const buses = useMemo(() => allBuses.filter((b) => b.school_id === SCHOOL_ID), [])
-  const routes = useMemo(() => allRoutes.filter((r) => r.school_id === SCHOOL_ID), [])
+  const queryClient = useQueryClient()
 
-  const [items, setItems] = useState<LostFoundItem[]>(() =>
-    allLostFound.filter((l) => l.school_id === SCHOOL_ID),
-  )
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['lost-found'],
+    queryFn: () => listLostFound(),
+  })
+  const items = useMemo(() => data?.items ?? [], [data])
+
+  const { data: busesData } = useQuery({
+    queryKey: ['buses'],
+    queryFn: () => listBuses(),
+  })
+  const buses = useMemo(() => busesData?.buses ?? [], [busesData])
+
+  const { data: driversData } = useQuery({
+    queryKey: ['drivers'],
+    queryFn: () => listDrivers(),
+  })
+  const drivers = useMemo(() => driversData?.drivers ?? [], [driversData])
+
+  const { data: studentsData } = useQuery({
+    queryKey: ['students'],
+    queryFn: () => listStudents({ pageSize: 1000 }),
+  })
+  const students = useMemo(() => studentsData?.students ?? [], [studentsData])
+
   const [tab, setTab] = useState<LostFoundStatus | 'all'>('all')
   const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [viewingClaims, setViewingClaims] = useState<LostFoundItem | null>(null)
+  const [viewingClaimsId, setViewingClaimsId] = useState<string | null>(null)
+  const viewingClaims = useMemo(
+    () => items.find((i) => i.id === viewingClaimsId) ?? null,
+    [items, viewingClaimsId],
+  )
+
+  // Claim dialog state
+  const [claimTargetId, setClaimTargetId] = useState<string | null>(null)
+  const claimTarget = useMemo(
+    () => items.find((i) => i.id === claimTargetId) ?? null,
+    [items, claimTargetId],
+  )
+  const [claimStudentId, setClaimStudentId] = useState('')
+  const [claimNote, setClaimNote] = useState('')
 
   // Report form state
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
-  const [formLocation, setFormLocation] = useState('')
-  const [formDate, setFormDate] = useState('')
+  const [formBusId, setFormBusId] = useState('')
+  const [formDriverId, setFormDriverId] = useState('')
   const [formImageUrl, setFormImageUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -151,39 +201,57 @@ export default function LostFound() {
     return items.filter((i) => i.status === tab)
   }, [items, tab])
 
-  function markClaimed(id: string) {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, status: 'claimed' } : i)))
-  }
+  const reportMutation = useMutation({
+    mutationFn: reportLostFoundItem,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lost-found'] })
+      resetForm()
+      setDialogOpen(false)
+    },
+  })
+
+  const claimMutation = useMutation({
+    mutationFn: ({ id, student_id, claim_note }: { id: string; student_id: string; claim_note?: string }) =>
+      claimLostFoundItem(id, { student_id, claim_note }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lost-found'] })
+      setClaimTargetId(null)
+      setClaimStudentId('')
+      setClaimNote('')
+    },
+  })
+
+  const resolveClaimMutation = useMutation({
+    mutationFn: ({ id, claimId }: { id: string; claimId: string }) =>
+      updateLostFoundClaim(id, claimId, { status: 'resolved' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lost-found'] })
+    },
+  })
 
   function resetForm() {
     setFormName('')
     setFormDesc('')
-    setFormLocation('')
-    setFormDate('')
+    setFormBusId('')
+    setFormDriverId('')
     setFormImageUrl(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   function submitReport() {
-    if (!formName || !formLocation) return
-    const bus = buses.find((b) => b.id === formLocation)
-    const route = routes.find((r) => r.id === formLocation)
-    const newItem: LostFoundItem = {
-      id: `lf_${Date.now()}`,
-      school_id: SCHOOL_ID,
-      bus_id: bus?.id ?? route?.bus_id ?? '',
-      bus_number: bus?.bus_number ?? route?.bus_number ?? route?.name ?? '—',
-      driver_id: bus?.driver_id ?? route?.driver_id ?? '',
-      driver_name: bus?.driver_name ?? route?.driver_name ?? 'Unassigned',
-      description: formDesc ? `${formName}. ${formDesc}` : formName,
-      reported_at: formDate ? new Date(formDate).toISOString() : new Date().toISOString(),
-      status: 'reported',
-      claims: [],
+    if (!formName || !formBusId || !formDriverId) return
+    const description = formDesc ? `${formName}. ${formDesc}` : formName
+    reportMutation.mutate({
+      bus_id: formBusId,
+      driver_id: formDriverId,
+      description,
       ...(formImageUrl ? { image_url: formImageUrl } : {}),
-    }
-    setItems((prev) => [newItem, ...prev])
-    resetForm()
-    setDialogOpen(false)
+    })
+  }
+
+  function submitClaim() {
+    if (!claimTarget || !claimStudentId) return
+    claimMutation.mutate({ id: claimTarget.id, student_id: claimStudentId, claim_note: claimNote || undefined })
   }
 
   const TABS: Array<{ value: LostFoundStatus | 'all'; label: string }> = [
@@ -235,7 +303,12 @@ export default function LostFound() {
         </motion.div>
 
         <motion.div variants={item}>
-          {filtered.length === 0 ? (
+          {isError && <ErrorBanner message="Failed to load lost & found items. Please try again." />}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)]">
               <EmptyState
                 icon={Package}
@@ -255,7 +328,7 @@ export default function LostFound() {
             >
               <AnimatePresence>
                 {filtered.map((entry, i) => (
-                  <ItemCard key={entry.id} entry={entry} index={i} onAction={markClaimed} onViewClaims={setViewingClaims} />
+                  <ItemCard key={entry.id} entry={entry} index={i} onClaim={setClaimTargetId} onViewClaims={setViewingClaimsId} />
                 ))}
               </AnimatePresence>
             </motion.div>
@@ -264,7 +337,7 @@ export default function LostFound() {
       </motion.div>
 
       {/* View Claims dialog */}
-      <Dialog open={!!viewingClaims} onOpenChange={(open) => { if (!open) setViewingClaims(null) }}>
+      <Dialog open={!!viewingClaims} onOpenChange={(open) => { if (!open) setViewingClaimsId(null) }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -308,6 +381,18 @@ export default function LostFound() {
                         {formatDate(claim.claimed_at, 'datetime')}
                       </p>
                     )}
+                    {claim.status === 'pending' && (
+                      <div className="mt-2 pl-5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={resolveClaimMutation.isPending}
+                          onClick={() => viewingClaims && resolveClaimMutation.mutate({ id: viewingClaims.id, claimId: claim.id })}
+                        >
+                          Mark Resolved
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -322,6 +407,57 @@ export default function LostFound() {
         </DialogContent>
       </Dialog>
 
+      {/* Claim item dialog */}
+      <Dialog open={!!claimTarget} onOpenChange={(open) => { if (!open) { setClaimTargetId(null); setClaimStudentId(''); setClaimNote('') } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackageCheck size={18} className="text-[var(--primary)]" /> Claim Item
+            </DialogTitle>
+            <DialogDescription>
+              {claimTarget ? `Record a claim for "${claimTarget.description.split(/[,.]/)[0].trim()}".` : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {claimMutation.isError && <ErrorBanner message="Failed to record the claim. Please try again." />}
+            <div className="space-y-1.5">
+              <Label htmlFor="lf-claim-student">Student</Label>
+              <Select value={claimStudentId} onValueChange={setClaimStudentId}>
+                <SelectTrigger id="lf-claim-student">
+                  <SelectValue placeholder="Select student" />
+                </SelectTrigger>
+                <SelectContent>
+                  {students.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name} · Class {s.class}{s.division}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="lf-claim-note">Note (optional)</Label>
+              <Textarea
+                id="lf-claim-note"
+                value={claimNote}
+                onChange={(e) => setClaimNote(e.target.value)}
+                placeholder="Any identifying detail provided by the student…"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={submitClaim} disabled={!claimStudentId} loading={claimMutation.isPending}>
+              Submit Claim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Report item dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
@@ -329,10 +465,11 @@ export default function LostFound() {
             <DialogTitle className="flex items-center gap-2">
               <ClipboardList size={18} className="text-[var(--primary)]" /> Report Found Item
             </DialogTitle>
-            <DialogDescription>Log an item found on one of your buses or routes.</DialogDescription>
+            <DialogDescription>Log an item found on one of your buses.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-1">
+            {reportMutation.isError && <ErrorBanner message="Failed to report this item. Please try again." />}
             <div className="space-y-1.5">
               <Label htmlFor="lf-name">Item Name</Label>
               <Input
@@ -384,10 +521,10 @@ export default function LostFound() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="lf-location">Found Location</Label>
-                <Select value={formLocation} onValueChange={setFormLocation}>
-                  <SelectTrigger id="lf-location">
-                    <SelectValue placeholder="Select bus / route" />
+                <Label htmlFor="lf-bus">Found on Bus</Label>
+                <Select value={formBusId} onValueChange={setFormBusId}>
+                  <SelectTrigger id="lf-bus">
+                    <SelectValue placeholder="Select bus" />
                   </SelectTrigger>
                   <SelectContent>
                     {buses.map((b) => (
@@ -395,23 +532,23 @@ export default function LostFound() {
                         Bus {b.bus_number}
                       </SelectItem>
                     ))}
-                    {routes.map((r) => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {r.name}
-                      </SelectItem>
-                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="lf-date">Date Found</Label>
-                <input
-                  id="lf-date"
-                  type="date"
-                  value={formDate}
-                  onChange={(e) => setFormDate(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                />
+                <Label htmlFor="lf-driver">Driver</Label>
+                <Select value={formDriverId} onValueChange={setFormDriverId}>
+                  <SelectTrigger id="lf-driver">
+                    <SelectValue placeholder="Select driver" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {drivers.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>
@@ -420,7 +557,7 @@ export default function LostFound() {
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
-            <Button onClick={submitReport} disabled={!formName || !formLocation}>
+            <Button onClick={submitReport} disabled={!formName || !formBusId || !formDriverId} loading={reportMutation.isPending}>
               Report Item
             </Button>
           </DialogFooter>

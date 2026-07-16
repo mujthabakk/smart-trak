@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery, useQueries } from '@tanstack/react-query'
 import { useJsApiLoader, GoogleMap, Marker, InfoWindow } from '@react-google-maps/api'
 import {
   Bus as BusIcon, Search, Gauge, Clock, MapPin, Navigation,
-  Wifi, WifiOff, CircleDot, Radio, ExternalLink, Users,
+  Wifi, WifiOff, CircleDot, Radio, ExternalLink, Users, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
-import { mockBuses, mockRoutes } from '@/lib/mockData'
-import type { Bus } from '@/types'
+import { listBuses, getBusLocation } from '@/lib/api/buses'
+import { getSocket, type BusLocationEvent } from '@/lib/socket'
+import type { Bus, BusLocation } from '@/types'
 
 // Must be defined outside component to avoid re-renders
 const GOOGLE_MAP_LIBRARIES: ['places'] = ['places']
@@ -51,13 +54,6 @@ function makeDayMeta() {
   })
 }
 
-function getBusPosition(busId: string): google.maps.LatLngLiteral | null {
-  const route = mockRoutes.find((r) => r.bus_id === busId && r.school_id === 'sch_001')
-  if (!route?.stops?.length) return null
-  const stop = route.stops[0]
-  return { lat: stop.latitude, lng: stop.longitude }
-}
-
 function StatStrip({ label, value, icon: Icon, dot }: {
   label: string; value: string | number
   icon: React.ComponentType<{ size?: number; className?: string }>
@@ -81,11 +77,12 @@ function StatStrip({ label, value, icon: Icon, dot }: {
 
 export default function LiveMap() {
   const navigate = useNavigate()
-  const [selectedBusId, setSelectedBusId] = useState<string | null>('bus_001')
+  const [selectedBusId, setSelectedBusId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [selectedDate, setSelectedDate] = useState(TODAY)
   const [now, setNow] = useState(new Date())
+  const [liveLocations, setLiveLocations] = useState<Record<string, BusLocationEvent>>({})
   const dayMeta = useMemo(() => makeDayMeta(), [])
 
   const { isLoaded } = useJsApiLoader({
@@ -99,7 +96,56 @@ export default function LiveMap() {
     return () => clearInterval(t)
   }, [])
 
-  const schoolBuses = useMemo(() => mockBuses.filter((b) => b.school_id === 'sch_001'), [])
+  // ── Fleet list (real REST data, scoped to this school via the JWT) ─────────
+  const busesQuery = useQuery({
+    queryKey: ['buses'],
+    queryFn: () => listBuses({ is_active: true }),
+  })
+  const schoolBuses = useMemo(() => busesQuery.data?.buses ?? [], [busesQuery.data])
+
+  // ── Initial "last known" position per bus (REST fallback) ──────────────────
+  const busLocationQueries = useQueries({
+    queries: schoolBuses.map((bus) => ({
+      queryKey: ['busLocation', bus.id],
+      queryFn: () => getBusLocation(bus.id),
+    })),
+  })
+
+  const initialLocations = useMemo(() => {
+    const map: Record<string, BusLocation> = {}
+    schoolBuses.forEach((bus, i) => {
+      const loc = busLocationQueries[i]?.data
+      if (loc) map[bus.id] = loc
+    })
+    return map
+  }, [schoolBuses, busLocationQueries])
+
+  // ── Live GPS push updates over Socket.IO ────────────────────────────────────
+  useEffect(() => {
+    const socket = getSocket()
+    function handleBusLocation(event: BusLocationEvent) {
+      setLiveLocations((prev) => ({ ...prev, [event.bus_id]: event }))
+    }
+    socket.on('bus:location', handleBusLocation)
+    return () => {
+      socket.off('bus:location', handleBusLocation)
+    }
+  }, [])
+
+  // ── Default the selected bus to the first one once the fleet loads ─────────
+  useEffect(() => {
+    if (!selectedBusId && schoolBuses.length > 0) {
+      setSelectedBusId(schoolBuses[0].id)
+    }
+  }, [schoolBuses, selectedBusId])
+
+  function getBusPosition(busId: string): google.maps.LatLngLiteral | null {
+    const live = liveLocations[busId]
+    if (live) return { lat: live.latitude, lng: live.longitude }
+    const initial = initialLocations[busId]
+    if (initial) return { lat: initial.latitude, lng: initial.longitude }
+    return null
+  }
 
   const counts = useMemo(() => {
     const running = schoolBuses.filter((b) => b.status === 'running').length
@@ -132,7 +178,7 @@ export default function LiveMap() {
 
   const selectedBusPosition = useMemo(
     () => (selectedBusId ? getBusPosition(selectedBusId) : null),
-    [selectedBusId],
+    [selectedBusId, liveLocations, initialLocations],
   )
 
   const getOccupancy = (bus: Bus) => {
@@ -220,7 +266,21 @@ export default function LiveMap() {
         ))}
       </div>
 
-      {/* Main two-column layout */}
+      {busesQuery.isError && (
+        <div
+          className="flex items-start gap-2 p-3 rounded-xl mb-4 text-sm"
+          style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+        >
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load the fleet. Please try again.
+        </div>
+      )}
+
+      {busesQuery.isLoading ? (
+        <div className="flex items-center justify-center py-24">
+          <LoadingSpinner size="lg" />
+        </div>
+      ) : (
+      /* Main two-column layout */
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         {/* LEFT — Map */}
         <div className="rounded-2xl overflow-hidden border border-[var(--border)]" style={{ height: '480px' }}>
@@ -383,6 +443,7 @@ export default function LiveMap() {
           </div>
         </div>
       </div>
+      )}
     </Layout>
   )
 }

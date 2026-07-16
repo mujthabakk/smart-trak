@@ -1,5 +1,7 @@
 import { useMemo, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { motion } from 'framer-motion'
 import {
   Plus, Bus as BusIcon, Navigation, MapPin, MoreVertical,
@@ -12,6 +14,7 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import DataTable, { type Column } from '@/components/shared/DataTable'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
@@ -26,10 +29,17 @@ import {
 } from '@/components/ui/dialog'
 import { cn, downloadCSV } from '@/lib/utils'
 import { getBusTripDurationDisplay } from '@/lib/tripDuration'
-import { allBuses, allRoutes, allTrips, allStudents, mockAttendance } from '@/lib/mockData'
+import { allRoutes, allTrips, allStudents, mockAttendance } from '@/lib/mockData'
+import { listBuses, createBuses, updateBus, type BusInput } from '@/lib/api/buses'
 import type { Bus } from '@/types'
 
-const SCHOOL_ID = 'sch_001'
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Something went wrong. Please try again.'
+  }
+  return 'Something went wrong. Please try again.'
+}
 
 const container = {
   hidden: { opacity: 0 },
@@ -416,20 +426,43 @@ const STATUS_FILTER_PILLS: { label: string; value: StatusFilter }[] = [
 // --- Main page ---
 export default function Buses() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [view, setView] = useState<'grid' | 'table'>('table')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
   const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
 
-  // Local bus list (starts from mock data filtered for this school)
-  const [buses, setBuses] = useState<Bus[]>(() =>
-    allBuses.filter((b) => b.school_id === SCHOOL_ID),
-  )
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['buses'],
+    queryFn: () => listBuses(),
+  })
+  const buses = data?.buses ?? []
 
   // Dialog state
   const [addOpen, setAddOpen] = useState(false)
   const [editBus, setEditBus] = useState<Bus | null>(null)
   const [bulkOpen, setBulkOpen] = useState(false)
+
+  const createMutation = useMutation({
+    mutationFn: (payload: BusInput[]) => createBuses(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['buses'] })
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<Bus> }) => updateBus(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['buses'] })
+    },
+  })
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: (bus: Bus) => updateBus(bus.id, { is_active: !bus.is_active }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['buses'] })
+    },
+  })
 
   const stats = useMemo(() => {
     const total = buses.length
@@ -459,58 +492,29 @@ export default function Buses() {
     return result
   }, [buses, statusFilter, search])
 
-  function handleAdd(data: BusFormData) {
-    const newBus: Bus = {
-      id: `bus_local_${Date.now()}`,
-      school_id: SCHOOL_ID,
+  function busFormToInput(data: BusFormData): BusInput {
+    return {
       bus_number: data.bus_number,
       make_model: data.make_model || undefined,
       year: data.year ? Number(data.year) : undefined,
       seat_capacity: Number(data.seat_capacity) || 30,
       insurance_expiry: data.insurance_expiry || undefined,
       fitness_cert_expiry: data.fitness_cert_expiry || undefined,
-      is_active: true,
-      status: 'idle',
-      created_at: new Date().toISOString(),
     }
-    setBuses((prev) => [...prev, newBus])
+  }
+
+  function handleAdd(data: BusFormData) {
+    createMutation.mutate([busFormToInput(data)])
   }
 
   function handleEdit(data: BusFormData) {
     if (!editBus) return
-    setBuses((prev) =>
-      prev.map((b) =>
-        b.id === editBus.id
-          ? {
-              ...b,
-              bus_number: data.bus_number,
-              make_model: data.make_model || undefined,
-              year: data.year ? Number(data.year) : undefined,
-              seat_capacity: Number(data.seat_capacity) || b.seat_capacity,
-              insurance_expiry: data.insurance_expiry || undefined,
-              fitness_cert_expiry: data.fitness_cert_expiry || undefined,
-            }
-          : b,
-      ),
-    )
+    updateMutation.mutate({ id: editBus.id, payload: busFormToInput(data) })
     setEditBus(null)
   }
 
   function handleBulkImport(items: BusFormData[]) {
-    const newBuses: Bus[] = items.map((data, i) => ({
-      id: `bus_bulk_${Date.now()}_${i}`,
-      school_id: SCHOOL_ID,
-      bus_number: data.bus_number,
-      make_model: data.make_model || undefined,
-      year: data.year ? Number(data.year) : undefined,
-      seat_capacity: Number(data.seat_capacity) || 30,
-      insurance_expiry: data.insurance_expiry || undefined,
-      fitness_cert_expiry: data.fitness_cert_expiry || undefined,
-      is_active: true,
-      status: 'idle',
-      created_at: new Date().toISOString(),
-    }))
-    setBuses((prev) => [...prev, ...newBuses])
+    createMutation.mutate(items.map(busFormToInput))
   }
 
   // Shared dropdown actions renderer
@@ -542,8 +546,8 @@ export default function Buses() {
             <QrCode size={14} /> Download QR
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem destructive>
-            <Ban size={14} /> Deactivate
+          <DropdownMenuItem destructive onClick={() => toggleActiveMutation.mutate(bus)}>
+            <Ban size={14} /> {bus.is_active ? 'Deactivate' : 'Activate'}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -717,6 +721,27 @@ export default function Buses() {
     </div>
   )
 
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <LoadingSpinner size="lg" />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (isError) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+          <AlertCircle size={40} className="text-red-500" />
+          <p className="text-sm text-red-600 dark:text-red-400">{extractErrorMessage(error)}</p>
+        </div>
+      </Layout>
+    )
+  }
+
   return (
     <Layout>
       <motion.div variants={container} initial="hidden" animate="show">
@@ -855,8 +880,8 @@ export default function Buses() {
                             <QrCode size={14} /> Download QR
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem destructive>
-                            <Ban size={14} /> Deactivate
+                          <DropdownMenuItem destructive onClick={(e) => { e.stopPropagation(); toggleActiveMutation.mutate(bus) }}>
+                            <Ban size={14} /> {bus.is_active ? 'Deactivate' : 'Activate'}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

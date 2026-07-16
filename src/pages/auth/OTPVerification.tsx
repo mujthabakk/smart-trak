@@ -1,19 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Bus, ShieldCheck, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { verifyOtp, forgotPassword } from '@/lib/api/auth'
+import { isAxiosError } from 'axios'
 
 const OTP_LENGTH = 6
 
 export default function OTPVerification() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const email = (location.state as { email?: string } | null)?.email
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''))
   const [seconds, setSeconds] = useState(45)
   const [error, setError] = useState('')
   const [verifying, setVerifying] = useState(false)
   const inputsRef = useRef<Array<HTMLInputElement | null>>([])
+
+  useEffect(() => {
+    if (!email) navigate('/forgot-password', { replace: true })
+  }, [email, navigate])
 
   useEffect(() => {
     inputsRef.current[0]?.focus()
@@ -62,10 +70,32 @@ export default function OTPVerification() {
       setError('Please enter the full 6-digit code')
       return
     }
+    if (!email) return
     setVerifying(true)
-    await new Promise((r) => setTimeout(r, 900))
-    setVerifying(false)
-    navigate('/reset-password')
+    try {
+      await verifyOtp(email, code)
+      navigate('/reset-password', { state: { email, otp: code } })
+    } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 400) {
+        setError('Invalid or expired code. Please try again.')
+      } else {
+        setError('Something went wrong. Please try again.')
+      }
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const handleResendCode = async () => {
+    if (!email) return
+    setSeconds(45)
+    setDigits(Array(OTP_LENGTH).fill(''))
+    inputsRef.current[0]?.focus()
+    try {
+      await forgotPassword(email)
+    } catch {
+      // ignore — user can request again once the countdown ends
+    }
   }
 
   return (
@@ -131,11 +161,7 @@ export default function OTPVerification() {
               </span>
             ) : (
               <button
-                onClick={() => {
-                  setSeconds(45)
-                  setDigits(Array(OTP_LENGTH).fill(''))
-                  inputsRef.current[0]?.focus()
-                }}
+                onClick={handleResendCode}
                 className="font-medium hover:underline"
                 style={{ color: 'var(--primary)' }}
               >

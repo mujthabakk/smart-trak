@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Trash2, Save, ArrowLeft, Bus as BusIcon, CheckCircle } from 'lucide-react'
+import { Plus, Trash2, Save, ArrowLeft, Bus as BusIcon, CheckCircle, AlertCircle } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { generateId } from '@/lib/utils'
+import { createBuses, type BusInput } from '@/lib/api/buses'
 
 interface BusRow {
   id: string
@@ -40,10 +43,34 @@ function validateRow(row: BusRow): boolean {
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } }
 const item = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }
 
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Failed to save buses. Please try again.'
+  }
+  return 'Failed to save buses. Please try again.'
+}
+
 export default function AddBus() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [rows, setRows] = useState<BusRow[]>([emptyRow()])
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const saveMutation = useMutation({
+    mutationFn: (buses: BusInput[]) => createBuses(buses),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['buses'] })
+      setSaved(true)
+      setTimeout(() => {
+        navigate('/school-admin/buses')
+      }, 1800)
+    },
+    onError: (err) => {
+      setError(extractErrorMessage(err))
+    },
+  })
 
   function updateRow(id: string, field: keyof BusRow, value: string) {
     setRows((prev) => prev.map((r) => {
@@ -66,10 +93,16 @@ export default function AddBus() {
   function handleSave() {
     const valid = rows.filter((r) => r.valid)
     if (valid.length === 0) return
-    setSaved(true)
-    setTimeout(() => {
-      navigate('/school-admin/buses')
-    }, 1800)
+    setError(null)
+    const payload: BusInput[] = valid.map((r) => ({
+      bus_number: r.bus_number,
+      seat_capacity: Number(r.seat_capacity),
+      make_model: r.make_model || undefined,
+      year: r.year ? Number(r.year) : undefined,
+      insurance_expiry: r.insurance_expiry || undefined,
+      fitness_cert_expiry: r.fitness_cert_expiry || undefined,
+    }))
+    saveMutation.mutate(payload)
   }
 
   const validCount = rows.filter((r) => r.valid).length
@@ -106,11 +139,21 @@ export default function AddBus() {
                 {validCount} ready to save
               </Badge>
             )}
-            <Button onClick={handleSave} disabled={validCount === 0}>
+            <Button onClick={handleSave} disabled={validCount === 0 || saveMutation.isPending} loading={saveMutation.isPending}>
               <Save size={16} /> Save {validCount > 0 ? `${validCount} Bus${validCount !== 1 ? 'es' : ''}` : 'Buses'}
             </Button>
           </div>
         </motion.div>
+
+        {/* Error banner */}
+        {error && (
+          <motion.div
+            variants={item}
+            className="flex items-start gap-2 p-3 rounded-xl text-sm bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40"
+          >
+            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {error}
+          </motion.div>
+        )}
 
         {/* Column headers */}
         <motion.div variants={item} className="grid grid-cols-[2fr_2fr_1fr_1fr_1.5fr_1.5fr_40px] gap-3 px-4 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
@@ -219,7 +262,7 @@ export default function AddBus() {
                 <p className="text-xs text-[var(--muted-foreground)]">{validCount} valid · {rows.length - validCount} incomplete</p>
               </div>
             </div>
-            <Button onClick={handleSave} disabled={validCount === 0} size="lg">
+            <Button onClick={handleSave} disabled={validCount === 0 || saveMutation.isPending} loading={saveMutation.isPending} size="lg">
               <Save size={16} /> Save {validCount} Bus{validCount !== 1 ? 'es' : ''}
             </Button>
           </motion.div>

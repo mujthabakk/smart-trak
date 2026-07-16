@@ -2,15 +2,17 @@ import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { jsPDF } from 'jspdf'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Download, Users, UserCheck, UserX, MoreVertical,
-  Eye, Pencil, QrCode, Ban, Upload, FileDown,
+  Eye, Pencil, QrCode, Ban, Upload, FileDown, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import PageHeader from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import DataTable, { type Column } from '@/components/shared/DataTable'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
@@ -25,7 +27,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getInitials, downloadCSV } from '@/lib/utils'
 import { CLASSES } from '@/lib/constants'
-import { allStudents } from '@/lib/mockData'
+import { listStudents, updateStudent } from '@/lib/api/students'
 import type { Student } from '@/types'
 
 const container = {
@@ -191,8 +193,8 @@ function BulkImportDialog({
   }
 
   function handleImport() {
-    // In a real app this would call an API or update global state.
-    // Here we just close the dialog — allStudents is static mock data.
+    // TODO: wire up bulk creation via createStudent per row once a bulk endpoint
+    // or per-row import flow is designed. For now this just closes the dialog.
     onClose()
   }
 
@@ -297,15 +299,31 @@ function BulkImportDialog({
 
 export default function Students() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [classFilter, setClassFilter] = useState<string>('all')
   const [routeFilter, setRouteFilter] = useState<string>('all')
   const [bulkImportOpen, setBulkImportOpen] = useState(false)
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['students'],
+    queryFn: () => listStudents({ pageSize: 1000 }),
+  })
+
+  const allStudents = useMemo(() => data?.students ?? [], [data])
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
+      updateStudent(id, { is_active }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+    },
+  })
 
   const routes = useMemo(() => {
     const set = new Set<string>()
     allStudents.forEach((s) => s.route_name && set.add(s.route_name))
     return Array.from(set).sort()
-  }, [])
+  }, [allStudents])
 
   const filtered = useMemo(() => {
     return allStudents.filter((s) => {
@@ -313,14 +331,14 @@ export default function Students() {
       if (routeFilter !== 'all' && s.route_name !== routeFilter) return false
       return true
     })
-  }, [classFilter, routeFilter])
+  }, [allStudents, classFilter, routeFilter])
 
   const stats = useMemo(() => {
     const total = allStudents.length
     const active = allStudents.filter((s) => s.is_active).length
     const assigned = allStudents.filter((s) => s.route_name).length
     return { total, active, assigned }
-  }, [])
+  }, [allStudents])
 
   function handleExport() {
     const rows = filtered.map((s) => ({
@@ -407,7 +425,10 @@ export default function Students() {
                 <QrCode size={14} /> Download QR
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem destructive>
+              <DropdownMenuItem
+                destructive
+                onClick={() => toggleActiveMutation.mutate({ id: s.id, is_active: !s.is_active })}
+              >
                 <Ban size={14} /> {s.is_active ? 'Deactivate' : 'Activate'}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -450,47 +471,61 @@ export default function Students() {
 
         {/* Filters + Table */}
         <motion.div variants={item}>
-          <DataTable
-            columns={columns}
-            data={filtered}
-            keyField="id"
-            searchable
-            searchKeys={['name', 'roll_number']}
-            searchPlaceholder="Search students by name or roll no…"
-            onRowClick={(s) => navigate(`/school-admin/students/${s.id}`)}
-            emptyTitle="No students found"
-            emptyDescription="Try adjusting your class or route filters."
-            toolbar={
-              <>
-                <Select value={classFilter} onValueChange={setClassFilter}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="All Classes" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Classes</SelectItem>
-                    {CLASSES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        Class {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={routeFilter} onValueChange={setRouteFilter}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="All Routes" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Routes</SelectItem>
-                    {routes.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {r}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </>
-            }
-          />
+          {isError && (
+            <div
+              className="flex items-start gap-2 p-3 rounded-xl mb-4 text-sm"
+              style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+            >
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load students. Please try again.
+            </div>
+          )}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : (
+            <DataTable
+              columns={columns}
+              data={filtered}
+              keyField="id"
+              searchable
+              searchKeys={['name', 'roll_number']}
+              searchPlaceholder="Search students by name or roll no…"
+              onRowClick={(s) => navigate(`/school-admin/students/${s.id}`)}
+              emptyTitle="No students found"
+              emptyDescription="Try adjusting your class or route filters."
+              toolbar={
+                <>
+                  <Select value={classFilter} onValueChange={setClassFilter}>
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue placeholder="All Classes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Classes</SelectItem>
+                      {CLASSES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          Class {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={routeFilter} onValueChange={setRouteFilter}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="All Routes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Routes</SelectItem>
+                      {routes.map((r) => (
+                        <SelectItem key={r} value={r}>
+                          {r}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              }
+            />
+          )}
         </motion.div>
       </motion.div>
 

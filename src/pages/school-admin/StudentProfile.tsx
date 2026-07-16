@@ -1,21 +1,24 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
 import {
   Pencil, QrCode, Phone, Mail, MessageCircle, User, MapPin, Bus,
   Route as RouteIcon, ShieldAlert, CalendarCheck, CheckCircle2,
-  XCircle, CalendarOff, Clock, Hash, Users,
+  XCircle, CalendarOff, Clock, Hash, Users, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { getInitials, formatDate } from '@/lib/utils'
-import { mockStudents, allAttendance, allRoutes, allBuses } from '@/lib/mockData'
+import { getStudent } from '@/lib/api/students'
+import { allAttendance, allRoutes, allBuses } from '@/lib/mockData'
 import type { AttendanceStatus } from '@/types'
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -55,16 +58,17 @@ export default function StudentProfile() {
   const { id } = useParams()
   const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
 
-  const student = useMemo(
-    () => mockStudents.find((s) => s.id === id) ?? mockStudents[0],
-    [id],
-  )
+  const { data: student, isLoading, isError } = useQuery({
+    queryKey: ['student', id],
+    queryFn: () => getStudent(id!),
+    enabled: !!id,
+  })
 
-  const guardian = student.parents[0]
+  const guardian = student?.parents[0]
 
   const route = useMemo(
-    () => allRoutes.find((r) => r.name === student.route_name),
-    [student.route_name],
+    () => allRoutes.find((r) => r.name === student?.route_name),
+    [student?.route_name],
   )
   const bus = useMemo(
     () => (route?.bus_id ? allBuses.find((b) => b.id === route.bus_id) : undefined),
@@ -75,9 +79,9 @@ export default function StudentProfile() {
   const records = useMemo(
     () =>
       allAttendance
-        .filter((a) => a.student_id === student.id)
+        .filter((a) => a.student_id === student?.id)
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [student.id],
+    [student?.id],
   )
 
   const stats = useMemo(() => {
@@ -98,6 +102,29 @@ export default function StudentProfile() {
     }
     return events.sort((a, b) => (a.time < b.time ? 1 : -1)).slice(0, 8)
   }, [records])
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center py-24">
+          <LoadingSpinner size="lg" />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (isError || !student) {
+    return (
+      <Layout>
+        <div
+          className="flex items-start gap-2 p-3 rounded-xl text-sm"
+          style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+        >
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load student details. Please try again.
+        </div>
+      </Layout>
+    )
+  }
 
   return (
     <Layout>
