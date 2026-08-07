@@ -31,10 +31,8 @@ import { downloadCSV, cn } from '@/lib/utils'
 import { getRouteTripDurationDisplay } from '@/lib/tripDuration'
 import { listRoutes, createRoute, updateRoute, type RouteInput } from '@/lib/api/routes'
 import { listTrips } from '@/lib/api/trips'
-import { listStudents } from '@/lib/api/students'
+import { listStudents, updateStudent } from '@/lib/api/students'
 import type { Route as RouteType, Student, Stop, Trip } from '@/types'
-
-const SCHOOL_ID = 'sch_001'
 
 const container = {
   hidden: { opacity: 0 },
@@ -134,13 +132,13 @@ function StopTimeline({ route, studentsOnRoute }: StopTimelineProps) {
 
   const ordered = [...stops].sort((a, b) => a.order_index - b.order_index)
 
-  // For demo: assign students to stops by cycling through stop indices
+  // Group students by their actual assigned pickup/drop stop
   const studentsByStop: Record<string, Student[]> = {}
-  studentsOnRoute.forEach((s, i) => {
-    const stop = ordered[i % ordered.length]
-    if (!stop) return
-    if (!studentsByStop[stop.id]) studentsByStop[stop.id] = []
-    studentsByStop[stop.id].push(s)
+  studentsOnRoute.forEach((s) => {
+    const stopId = route.type === 'drop' ? s.drop_stop_id : s.pickup_stop_id
+    if (!stopId) return
+    if (!studentsByStop[stopId]) studentsByStop[stopId] = []
+    studentsByStop[stopId].push(s)
   })
 
   return (
@@ -251,11 +249,9 @@ function AddRouteDialog({ allStudentsState, onAdd }: AddRouteDialogProps) {
     const tempId = `route-${Date.now()}`
     const autoStops = generateStops(tempId, startPoint || 'Start', endPoint || 'End')
 
-    const schoolStudents = allStudentsState.filter((s) => s.school_id === SCHOOL_ID)
-
-    // Prefer truly unassigned; fall back to first 5 students from the school so the demo always shows assignments
-    const unassigned = schoolStudents.filter((s) => !s.route_name)
-    const toAssign = unassigned.length > 0 ? unassigned : schoolStudents.slice(0, 5)
+    // Prefer truly unassigned students; fall back to the first 5 so a newly created route isn't empty
+    const unassigned = allStudentsState.filter((s) => !s.route_name)
+    const toAssign = unassigned.length > 0 ? unassigned : allStudentsState.slice(0, 5)
 
     const payload: RouteInput = {
       name: name.trim(),
@@ -489,12 +485,12 @@ function AddStudentDialog({ route, unassignedStudents, onAdd }: AddStudentDialog
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
+  const hasStops = (route.stops?.length ?? 0) > 0
 
   const filtered = unassignedStudents.filter(
     (s) =>
-      s.school_id === SCHOOL_ID &&
-      (s.name.toLowerCase().includes(search.toLowerCase()) ||
-        s.roll_number.includes(search)),
+      s.name.toLowerCase().includes(search.toLowerCase()) ||
+      s.roll_number.includes(search),
   )
 
   function handleAdd() {
@@ -508,7 +504,13 @@ function AddStudentDialog({ route, unassignedStudents, onAdd }: AddStudentDialog
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        disabled={!hasStops}
+        title={hasStops ? undefined : 'Add a stop to this route before assigning students'}
+      >
         <UserPlus size={14} /> Add Student
       </Button>
       <DialogContent>
@@ -818,26 +820,18 @@ function RouteCard({
   )
 }
 
-// ─── Mock names for Kanban boarding point cards ───────────────────────────────
-const MOCK_STOP_NAMES = [
-  ['Ahmed Hassan', 'Fatima Noor', 'Mohammed Khalid'],
-  ['Aisha Rahman', 'Omar Abdullah', 'Sara Ali'],
-  ['Yousef Mahmoud', 'Maryam Tariq', 'Ibrahim Yusuf'],
-  ['Noor Hussain', 'Layla Hassan', 'Khalil Ahmad'],
-]
-
 // ─── Boarding Point Card (Kanban) ─────────────────────────────────────────────
 interface BoardingPointCardProps {
   stop: Stop
-  stopIndex: number
+  students: Student[]
 }
 
-function BoardingPointCard({ stop, stopIndex }: BoardingPointCardProps) {
-  const initialNames = MOCK_STOP_NAMES[stopIndex % MOCK_STOP_NAMES.length]
-  const [students, setStudents] = useState<string[]>(initialNames)
+function BoardingPointCard({ stop, students: stopStudents }: BoardingPointCardProps) {
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set())
+  const visible = stopStudents.filter((s) => !removedIds.has(s.id))
 
-  function removeStudent(name: string) {
-    setStudents((prev) => prev.filter((n) => n !== name))
+  function removeStudent(id: string) {
+    setRemovedIds((prev) => new Set(prev).add(id))
   }
 
   return (
@@ -853,19 +847,19 @@ function BoardingPointCard({ stop, stopIndex }: BoardingPointCardProps) {
         )}
       </div>
       {/* Student list */}
-      {students.length === 0 ? (
+      {visible.length === 0 ? (
         <p className="text-[10px] text-[var(--muted-foreground)] pl-1">No students at this stop</p>
       ) : (
         <ul className="space-y-1">
-          {students.map((name) => (
-            <li key={name} className="flex items-center gap-1.5">
+          {visible.map((s) => (
+            <li key={s.id} className="flex items-center gap-1.5">
               <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/10 text-[9px] font-bold text-[var(--primary)]">
-                {name.charAt(0)}
+                {s.name.charAt(0)}
               </span>
-              <span className="flex-1 truncate text-[11px] text-[var(--foreground)]">{name}</span>
+              <span className="flex-1 truncate text-[11px] text-[var(--foreground)]">{s.name}</span>
               <button
                 type="button"
-                onClick={() => removeStudent(name)}
+                onClick={() => removeStudent(s.id)}
                 title="Remove student from stop"
                 className="flex-shrink-0 rounded p-0.5 text-[var(--muted-foreground)] hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 transition-colors"
               >
@@ -996,7 +990,7 @@ function KanbanBoard({ routes, trips, students, onMoveStudent, onBack }: KanbanB
       <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: '60vh' }}>
         {/* Unassigned column */}
         {(() => {
-          const unassigned = students.filter((s) => s.school_id === SCHOOL_ID && !s.route_name)
+          const unassigned = students.filter((s) => !s.route_name)
           const isDragOver = dragOverRouteId === '__unassigned__'
           return (
             <div
@@ -1054,9 +1048,7 @@ function KanbanBoard({ routes, trips, students, onMoveStudent, onBack }: KanbanB
           const isRunning = !!activeTrip
           const tripDuration = routeTripDuration(route.id, trips)
           const isDragOver = dragOverRouteId === route.id
-          const routeStudents = students.filter(
-            (s) => s.school_id === SCHOOL_ID && s.route_name === route.name,
-          )
+          const routeStudents = students.filter((s) => s.route_name === route.name)
           const pickupStudents = routeStudents
           const dropStudents: Student[] = []
           const orderedStops = [...(route.stops ?? [])].sort((a, b) => a.order_index - b.order_index)
@@ -1120,8 +1112,12 @@ function KanbanBoard({ routes, trips, students, onMoveStudent, onBack }: KanbanB
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)] px-0.5">
                     Boarding Points
                   </p>
-                  {orderedStops.map((stop, idx) => (
-                    <BoardingPointCard key={stop.id} stop={stop} stopIndex={idx} />
+                  {orderedStops.map((stop) => (
+                    <BoardingPointCard
+                      key={stop.id}
+                      stop={stop}
+                      students={routeStudents.filter((s) => s.pickup_stop_id === stop.id || s.drop_stop_id === stop.id)}
+                    />
                   ))}
                 </div>
               )}
@@ -1270,18 +1266,29 @@ export default function Routes() {
     },
   })
 
+  // A student's route is derived server-side from pickup_stop_id/drop_stop_id
+  // (there's no directly-settable route_name column), so "adding" a student to
+  // a route means assigning them to one of that route's stops.
+  const assignStudentToRouteMutation = useMutation({
+    mutationFn: ({ studentId, stopId }: { studentId: string; stopId: string }) =>
+      updateStudent(studentId, { pickup_stop_id: stopId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+    },
+  })
+
   const stats = useMemo(() => {
     const total = routes.length
     const active = routes.filter((r) => !!getActiveTrip(r.id, trips)).length
     const totalStops = routes.reduce((sum, r) => sum + (r.stops?.length ?? 0), 0)
     const totalStudents = routes.reduce((sum, r) => {
-      return sum + students.filter((s) => s.school_id === SCHOOL_ID && s.route_name === r.name).length
+      return sum + students.filter((s) => s.route_name === r.name).length
     }, 0)
     return { total, active, totalStops, totalStudents }
   }, [routes, trips, students])
 
   const unassignedStudents = useMemo(
-    () => students.filter((s) => s.school_id === SCHOOL_ID && !s.route_name),
+    () => students.filter((s) => !s.route_name),
     [students],
   )
 
@@ -1334,10 +1341,9 @@ export default function Routes() {
 
   function handleAddStudent(routeId: string, student: Student) {
     const route = routes.find((r) => r.id === routeId)
-    if (!route) return
-    setStudents((prev) =>
-      prev.map((s) => (s.id === student.id ? { ...s, route_name: route.name } : s)),
-    )
+    const firstStop = [...(route?.stops ?? [])].sort((a, b) => a.order_index - b.order_index)[0]
+    if (!route || !firstStop) return
+    assignStudentToRouteMutation.mutate({ studentId: student.id, stopId: firstStop.id })
   }
 
   function handleAddStop(routeId: string, stop: Stop) {
@@ -1428,9 +1434,7 @@ export default function Routes() {
           className="grid grid-cols-1 gap-6 lg:grid-cols-2"
         >
           {routes.map((route) => {
-            const studentsOnRoute = students.filter(
-              (s) => s.school_id === SCHOOL_ID && s.route_name === route.name,
-            )
+            const studentsOnRoute = students.filter((s) => s.route_name === route.name)
             return (
               <motion.div key={route.id} variants={item}>
                 <RouteCard

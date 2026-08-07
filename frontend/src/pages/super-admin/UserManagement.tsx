@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import {
-  Users, UserPlus, CalendarCheck, MoreHorizontal, Pencil, Trash2, KeyRound, Building2, AlertCircle, RefreshCw,
+  Users, UserPlus, CalendarCheck, MoreHorizontal, Pencil, Trash2, KeyRound, Building2, AlertCircle, RefreshCw, Copy,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -21,7 +21,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { formatDate, getInitials } from '@/lib/utils'
-import { listUsers, createUser, updateUser, deleteUser } from '@/lib/api/users'
+import { listUsers, createUser, updateUser, deleteUser, sendUserCredentials } from '@/lib/api/users'
 import { listSchools } from '@/lib/api/schools'
 import type { User as AuthUser } from '@/store/slices/authSlice'
 
@@ -105,13 +105,28 @@ export default function UserManagement() {
   })
   const schools = schoolsData?.schools ?? []
 
+  const [credentialsResult, setCredentialsResult] = useState<{
+    name: string; password: string; status: 'sent' | 'failed' | 'logged_only'
+  } | null>(null)
+
+  const sendCredentialsMutation = useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string; name: string }) => sendUserCredentials(id, password),
+    onSuccess: (result, variables) => {
+      setCredentialsResult({ name: variables.name, password: variables.password, status: result.emailStatus })
+    },
+    onError: (_err, variables) => {
+      setCredentialsResult({ name: variables.name, password: variables.password, status: 'failed' })
+    },
+  })
+
   const createMutation = useMutation({
     mutationFn: createUser,
-    onSuccess: () => {
+    onSuccess: (user, variables) => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
       setAddOpen(false)
       setForm(emptyForm)
       setFormError('')
+      sendCredentialsMutation.mutate({ id: user.id, password: variables.password, name: user.name })
     },
     onError: (err) => setFormError(extractErrorMessage(err)),
   })
@@ -128,10 +143,10 @@ export default function UserManagement() {
   })
 
   const resetPasswordMutation = useMutation({
-    mutationFn: ({ id, password }: { id: string; password: string }) => updateUser(id, { password }),
+    mutationFn: ({ id, password }: { id: string; password: string; name: string }) => updateUser(id, { password }),
     onSuccess: (_user, variables) => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
-      window.alert(`Password reset. New temporary password: ${variables.password}`)
+      sendCredentialsMutation.mutate({ id: variables.id, password: variables.password, name: variables.name })
     },
     onError: (err) => window.alert(extractErrorMessage(err)),
   })
@@ -188,8 +203,8 @@ export default function UserManagement() {
   }
 
   function resetPassword(admin: AdminUser) {
-    if (!window.confirm(`Reset password for ${admin.name}?`)) return
-    resetPasswordMutation.mutate({ id: admin.id, password: generateTempPassword() })
+    if (!window.confirm(`Reset password for ${admin.name}? A new login email will be sent to them.`)) return
+    resetPasswordMutation.mutate({ id: admin.id, password: generateTempPassword(), name: admin.name })
   }
 
   function removeAdmin(admin: AdminUser) {
@@ -238,7 +253,7 @@ export default function UserManagement() {
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => openEdit(row)}><Pencil size={14} /> Edit</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => resetPassword(row)}><KeyRound size={14} /> Reset Password</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => resetPassword(row)}><KeyRound size={14} /> Regenerate & Send Password</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem destructive onClick={() => removeAdmin(row)}><Trash2 size={14} /> Delete</DropdownMenuItem>
             </DropdownMenuContent>
@@ -288,7 +303,7 @@ export default function UserManagement() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add School Admin</DialogTitle>
-            <DialogDescription>Create a school administrator account. Share the temporary password with them securely.</DialogDescription>
+            <DialogDescription>Create a school administrator account. Their login credentials will be emailed to them automatically.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {formError && <ErrorBanner message={formError} />}
@@ -367,6 +382,40 @@ export default function UserManagement() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
             <Button onClick={saveEdit} loading={updateMutation.isPending}><Pencil size={14} /> Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Credentials email result */}
+      <Dialog open={credentialsResult !== null} onOpenChange={(v) => { if (!v) setCredentialsResult(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{credentialsResult?.status === 'sent' ? 'Credentials Emailed' : 'Credentials Generated'}</DialogTitle>
+            <DialogDescription>
+              {credentialsResult?.status === 'sent'
+                ? `A login email was sent to ${credentialsResult.name}.`
+                : `Email delivery isn't configured yet, so nothing was actually emailed — share the password below with ${credentialsResult?.name} directly.`}
+            </DialogDescription>
+          </DialogHeader>
+          {credentialsResult && (
+            <div className="space-y-1.5">
+              <Label>Password</Label>
+              <div className="flex items-center gap-2">
+                <Input readOnly value={credentialsResult.password} className="font-mono" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => navigator.clipboard.writeText(credentialsResult.password)}
+                  title="Copy password"
+                >
+                  <Copy size={14} />
+                </Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCredentialsResult(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

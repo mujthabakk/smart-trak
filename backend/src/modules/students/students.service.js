@@ -62,6 +62,17 @@ async function getParentsByStudentId(studentIds) {
   return map;
 }
 
+/** A student "belongs" to a parent when the parent's login email matches an
+ * email on file in parent_details for that student — parent accounts are
+ * provisioned with the same email already recorded as a parent contact. */
+function parentChildCondition(paramIndex) {
+  return `EXISTS (
+    SELECT 1 FROM parent_details pd
+    JOIN users u ON lower(u.email) = lower(pd.email)
+    WHERE pd.student_id = s.id AND u.id = $${paramIndex}
+  )`;
+}
+
 function resolveName(data) {
   return data.name !== undefined ? data.name : data.fullName;
 }
@@ -105,6 +116,10 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
     params.push(filters.is_active === 'true');
     conditions.push(`s.is_active = $${params.length}`);
   }
+  if (filters.parentUserId) {
+    params.push(filters.parentUserId);
+    conditions.push(parentChildCondition(params.length));
+  }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const { rows: countRows } = await query(`SELECT COUNT(*)::int AS total FROM students s ${where}`, params);
@@ -123,10 +138,18 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   };
 }
 
-async function getById(id, schoolId) {
-  const params = schoolId ? [id, schoolId] : [id];
-  const where = schoolId ? 'WHERE s.id = $1 AND s.school_id = $2' : 'WHERE s.id = $1';
-  const { rows } = await query(`${BASE_SELECT} ${where}`, params);
+async function getById(id, schoolId, parentUserId) {
+  const conditions = ['s.id = $1'];
+  const params = [id];
+  if (schoolId) {
+    params.push(schoolId);
+    conditions.push(`s.school_id = $${params.length}`);
+  }
+  if (parentUserId) {
+    params.push(parentUserId);
+    conditions.push(parentChildCondition(params.length));
+  }
+  const { rows } = await query(`${BASE_SELECT} WHERE ${conditions.join(' AND ')}`, params);
   if (!rows[0]) throw ApiError.notFound('Student not found');
   const parentsByStudent = await getParentsByStudentId([id]);
   return toResponse(rows[0], parentsByStudent[id] || []);

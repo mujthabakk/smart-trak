@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Plus, Check, X, Pencil, Sparkles, Users, Bus, UserCheck, Calculator, AlertCircle,
+  Plus, Check, X, Pencil, Sparkles, Users, Bus, UserCheck, Calculator, AlertCircle, Trash2,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -21,9 +21,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { formatCurrency, formatNumber } from '@/lib/utils'
-import { listPlans, createPlan, updatePlan } from '@/lib/api/plans'
-import { PLAN_FEATURES } from '@/lib/constants'
-import type { Plan } from '@/types'
+import { listPlans, createPlan, updatePlan, deletePlan } from '@/lib/api/plans'
+import { listFeatureCatalog } from '@/lib/api/featureCatalog'
+import type { Plan, PlanFeature } from '@/types'
 
 const container = {
   hidden: { opacity: 0 },
@@ -37,56 +37,8 @@ const PLAN_RING: Record<string, string> = {
   premium: 'border-[var(--border)]',
 }
 
-const FEATURE_MATRIX: Array<{ feature: string; basic: boolean; standard: boolean; premium: boolean }> = [
-  { feature: 'Real-time GPS Tracking', basic: true, standard: true, premium: true },
-  { feature: 'QR Attendance', basic: true, standard: true, premium: true },
-  { feature: 'Push Notifications', basic: true, standard: true, premium: true },
-  { feature: 'WhatsApp Notifications', basic: false, standard: true, premium: true },
-  { feature: 'SMS Notifications', basic: false, standard: false, premium: true },
-  { feature: 'Leave Management', basic: false, standard: true, premium: true },
-  { feature: 'Lost & Found', basic: false, standard: true, premium: true },
-  { feature: 'Bus Transfer Module', basic: false, standard: true, premium: true },
-  { feature: 'Training Centre', basic: false, standard: true, premium: true },
-  { feature: 'Guest Driver Module', basic: false, standard: false, premium: true },
-  { feature: 'Advanced Reports', basic: false, standard: true, premium: true },
-  { feature: 'Full Analytics & Audit Logs', basic: false, standard: false, premium: true },
-  { feature: 'API Access', basic: false, standard: false, premium: true },
-]
-
-const ALL_FEATURES = FEATURE_MATRIX.map((f) => f.feature)
-
-// Per-student / month cost for each feature
-const FEATURE_PRICE: Record<string, number> = {
-  'Real-time GPS Tracking':        0.10,
-  'QR Attendance':                 0.05,
-  'Push Notifications':            0.03,
-  'WhatsApp Notifications':        0.08,
-  'SMS Notifications':             0.10,
-  'Leave Management':              0.05,
-  'Lost & Found':                  0.05,
-  'Bus Transfer Module':           0.05,
-  'Training Centre':               0.04,
-  'Guest Driver Module':           0.08,
-  'Advanced Reports':              0.06,
-  'Full Analytics & Audit Logs':   0.10,
-  'API Access':                    0.15,
-}
-
-function calcRateFromToggles(toggles: Record<string, boolean>): number {
-  return parseFloat(
-    ALL_FEATURES
-      .filter((f) => toggles[f])
-      .reduce((sum, f) => sum + (FEATURE_PRICE[f] ?? 0), 0)
-      .toFixed(2),
-  )
-}
-
-function defaultToggles(planKey: string): Record<string, boolean> {
-  const result: Record<string, boolean> = {}
-  for (const row of FEATURE_MATRIX) {
-    result[row.feature] = planKey === 'premium' ? row.premium : planKey === 'standard' ? row.standard : row.basic
-  }
-  return result
+function sumFeaturePrices(features: PlanFeature[]): number {
+  return parseFloat(features.reduce((sum, f) => sum + (Number(f.price) || 0), 0).toFixed(2))
 }
 
 function CheckCell({ on }: { on: boolean }) {
@@ -124,6 +76,11 @@ export default function Plans() {
     queryFn: listPlans,
   })
 
+  const { data: featureCatalog = [] } = useQuery({
+    queryKey: ['feature-catalog'],
+    queryFn: listFeatureCatalog,
+  })
+
   const createMutation = useMutation({
     mutationFn: (payload: Partial<Plan>) => createPlan(payload),
     onSuccess: () => {
@@ -140,18 +97,25 @@ export default function Plans() {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deletePlan(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['plans'] })
+      setDeleteTarget(null)
+    },
+  })
+  const [deleteTarget, setDeleteTarget] = useState<Plan | null>(null)
+
   // ── Edit state ────────────────────────────────────────────────────────────
   const [editOpen, setEditOpen] = useState(false)
   const [activePlan, setActivePlan] = useState<Plan | null>(null)
   const [editForm, setEditForm] = useState(EMPTY_EDIT_FORM)
-  const [editToggles, setEditToggles] = useState<Record<string, boolean>>({})
+  const [editFeatures, setEditFeatures] = useState<PlanFeature[]>([])
 
   // ── Create state ──────────────────────────────────────────────────────────
   const [createOpen, setCreateOpen] = useState(false)
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM)
-  const [createToggles, setCreateToggles] = useState<Record<string, boolean>>(
-    Object.fromEntries(ALL_FEATURES.map((f) => [f, false])),
-  )
+  const [createFeatures, setCreateFeatures] = useState<PlanFeature[]>([])
 
   // ── Dialog auto-calc ──────────────────────────────────────────────────────
   const editCalc = useMemo(() => {
@@ -206,7 +170,7 @@ export default function Plans() {
       max_buses: plan.max_buses,
       max_drivers: plan.max_drivers,
     })
-    setEditToggles(defaultToggles(plan.name.toLowerCase()))
+    setEditFeatures(plan.features.map((f) => ({ ...f })))
     setEditOpen(true)
   }
 
@@ -222,14 +186,14 @@ export default function Plans() {
         max_students: Number(editForm.max_students),
         max_buses: Number(editForm.max_buses),
         max_drivers: Number(editForm.max_drivers),
-        features: ALL_FEATURES.filter((f) => editToggles[f]),
+        features: editFeatures.filter((f) => f.name.trim()),
       },
     })
   }
 
   function openCreate() {
     setCreateForm(EMPTY_CREATE_FORM)
-    setCreateToggles(Object.fromEntries(ALL_FEATURES.map((f) => [f, false])))
+    setCreateFeatures([])
     setCreateOpen(true)
   }
 
@@ -245,18 +209,28 @@ export default function Plans() {
       max_students: Number(createForm.max_students) || 0,
       max_buses: Number(createForm.max_buses) || 0,
       max_drivers: Number(createForm.max_drivers) || 0,
-      features: ALL_FEATURES.filter((f) => createToggles[f]),
+      features: createFeatures.filter((f) => f.name.trim()),
     })
   }
 
-  const featureLists = useMemo(
-    () =>
-      plans.map((p) => ({
-        id: p.id,
-        list: PLAN_FEATURES[p.name as keyof typeof PLAN_FEATURES] ?? p.features,
-      })),
-    [plans],
-  )
+  function toggleFeature(list: PlanFeature[], setList: (v: PlanFeature[]) => void, name: string, on: boolean) {
+    if (on) {
+      setList([...list, { name, price: 0 }])
+    } else {
+      setList(list.filter((f) => f.name !== name))
+    }
+  }
+
+  function setFeaturePrice(list: PlanFeature[], setList: (v: PlanFeature[]) => void, name: string, price: number) {
+    setList(list.map((f) => (f.name === name ? { ...f, price } : f)))
+  }
+
+  // Union of every feature name across all real plans, for the comparison table below.
+  const allFeatureNames = useMemo(() => {
+    const names = new Set<string>()
+    plans.forEach((p) => p.features.forEach((f) => names.add(f.name)))
+    return Array.from(names)
+  }, [plans])
 
   return (
     <Layout>
@@ -291,7 +265,7 @@ export default function Plans() {
         <motion.div variants={item} className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
           {plans.map((plan) => {
             const key = plan.name.toLowerCase()
-            const features = featureLists.find((f) => f.id === plan.id)?.list ?? plan.features
+            const features = plan.features
             return (
               <motion.div key={plan.id} variants={item}>
                 <Card className={`relative rounded-2xl ${PLAN_RING[key] ?? 'border-[var(--border)]'}`}>
@@ -339,21 +313,41 @@ export default function Plans() {
                     <Separator />
 
                     <ul className="space-y-2">
-                      {features.map((feat) => (
-                        <li key={feat} className="flex items-start gap-2 text-sm">
-                          <Check size={15} className="text-green-600 mt-0.5 flex-shrink-0" />
-                          <span className="text-[var(--foreground)]">{feat}</span>
-                        </li>
-                      ))}
+                      {features.length === 0 ? (
+                        <li className="text-sm text-[var(--muted-foreground)] italic">No features configured yet.</li>
+                      ) : (
+                        features.map((feat) => (
+                          <li key={feat.name} className="flex items-start justify-between gap-2 text-sm">
+                            <span className="flex items-start gap-2 text-[var(--foreground)]">
+                              <Check size={15} className="text-green-600 mt-0.5 flex-shrink-0" />
+                              {feat.name}
+                            </span>
+                            {feat.price > 0 && (
+                              <span className="text-xs text-[var(--muted-foreground)] flex-shrink-0">+{formatCurrency(feat.price)}</span>
+                            )}
+                          </li>
+                        ))
+                      )}
                     </ul>
 
-                    <Button
-                      variant={plan.is_popular ? 'default' : 'outline'}
-                      className="w-full"
-                      onClick={() => openEdit(plan)}
-                    >
-                      <Pencil size={14} /> Edit Plan
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant={plan.is_popular ? 'default' : 'outline'}
+                        className="flex-1"
+                        onClick={() => openEdit(plan)}
+                      >
+                        <Pencil size={14} /> Edit Plan
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="flex-shrink-0 text-red-500 hover:text-red-600 hover:border-red-300"
+                        onClick={() => setDeleteTarget(plan)}
+                        title="Delete plan"
+                      >
+                        <Trash2 size={15} />
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -434,36 +428,40 @@ export default function Plans() {
           </Card>
         </motion.div>
 
-        {/* Feature comparison table */}
-        <motion.div variants={item}>
-          <Card className="rounded-2xl overflow-hidden">
-            <CardHeader>
-              <h3 className="text-base font-semibold text-[var(--foreground)]">Feature Comparison</h3>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-1/2">Feature</TableHead>
-                    <TableHead className="text-center">Basic</TableHead>
-                    <TableHead className="text-center">Standard</TableHead>
-                    <TableHead className="text-center">Premium</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {FEATURE_MATRIX.map((row) => (
-                    <TableRow key={row.feature}>
-                      <TableCell className="font-medium text-[var(--foreground)]">{row.feature}</TableCell>
-                      <TableCell className="text-center"><CheckCell on={row.basic} /></TableCell>
-                      <TableCell className="text-center"><CheckCell on={row.standard} /></TableCell>
-                      <TableCell className="text-center"><CheckCell on={row.premium} /></TableCell>
+        {/* Feature comparison table — built from each plan's real features */}
+        {allFeatureNames.length > 0 && (
+          <motion.div variants={item}>
+            <Card className="rounded-2xl overflow-hidden">
+              <CardHeader>
+                <h3 className="text-base font-semibold text-[var(--foreground)]">Feature Comparison</h3>
+              </CardHeader>
+              <CardContent className="p-0 overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-1/3">Feature</TableHead>
+                      {plans.map((p) => (
+                        <TableHead key={p.id} className="text-center">{p.label}</TableHead>
+                      ))}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </motion.div>
+                  </TableHeader>
+                  <TableBody>
+                    {allFeatureNames.map((name) => (
+                      <TableRow key={name}>
+                        <TableCell className="font-medium text-[var(--foreground)]">{name}</TableCell>
+                        {plans.map((p) => (
+                          <TableCell key={p.id} className="text-center">
+                            <CheckCell on={p.features.some((f) => f.name === name)} />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
         </>
         )}
       </motion.div>
@@ -550,22 +548,24 @@ export default function Plans() {
               </p>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="plan-per-student">Price Per Student / Month (USD)</Label>
-                  <span className="text-[10px] text-amber-600 font-semibold bg-amber-100 dark:bg-amber-900/30 rounded px-1.5 py-0.5">
-                    auto from features
-                  </span>
-                </div>
+                <Label htmlFor="plan-per-student">Price Per Student / Month (USD)</Label>
                 <Input
                   id="plan-per-student"
                   type="number"
                   step="0.01"
                   min={0}
-                  readOnly
-                  className="bg-[var(--muted)]/40 cursor-not-allowed"
                   value={editForm.price_per_student}
+                  onChange={(e) => setEditForm((f) => ({ ...f, price_per_student: Number(e.target.value) }))}
                 />
-                <p className="text-xs text-[var(--muted-foreground)]">Sum of enabled feature costs. Toggle features below to update.</p>
+                {sumFeaturePrices(editFeatures) !== editForm.price_per_student && (
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--primary)] hover:underline"
+                    onClick={() => setEditForm((f) => ({ ...f, price_per_student: sumFeaturePrices(editFeatures) }))}
+                  >
+                    Use sum of features below ({formatCurrency(sumFeaturePrices(editFeatures))})
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -637,37 +637,37 @@ export default function Plans() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Features</Label>
-                <span className="text-xs text-[var(--muted-foreground)]">
-                  Enabling features auto-updates per-student rate & pricing
-                </span>
+                <span className="text-xs text-[var(--muted-foreground)]">Enable a feature and set its price for this plan</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {ALL_FEATURES.map((feat) => {
-                  const price = FEATURE_PRICE[feat] ?? 0
-                  const on = editToggles[feat] ?? false
-                  return (
-                    <div
-                      key={feat}
-                      className={`flex items-center justify-between rounded-lg border px-3 py-2 transition-colors ${on ? 'border-[var(--primary)]/40 bg-[var(--primary)]/5' : 'border-[var(--border)]'}`}
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm text-[var(--foreground)] truncate">{feat}</p>
-                        <p className="text-[11px] text-[var(--primary)] font-medium">+{formatCurrency(price)}/student/mo</p>
+              {featureCatalog.length === 0 ? (
+                <p className="text-xs text-[var(--muted-foreground)] italic">
+                  No features in the catalog yet — add some from the Plan Features page first.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {featureCatalog.map((cat) => {
+                    const enabled = editFeatures.some((f) => f.name === cat.name)
+                    const price = editFeatures.find((f) => f.name === cat.name)?.price ?? 0
+                    return (
+                      <div
+                        key={cat.id}
+                        className={`flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${enabled ? 'border-[var(--primary)]/40 bg-[var(--primary)]/5' : 'border-[var(--border)]'}`}
+                      >
+                        <Switch checked={enabled} onCheckedChange={(v) => toggleFeature(editFeatures, setEditFeatures, cat.name, v)} />
+                        <p className="text-sm text-[var(--foreground)] flex-1 truncate">{cat.name}</p>
+                        <Input
+                          type="number" step="0.01" min={0}
+                          placeholder="0.00"
+                          disabled={!enabled}
+                          value={price}
+                          className="w-24 flex-shrink-0"
+                          onChange={(e) => setFeaturePrice(editFeatures, setEditFeatures, cat.name, Number(e.target.value))}
+                        />
                       </div>
-                      <Switch
-                        checked={on}
-                        onCheckedChange={(v) => {
-                          const next = { ...editToggles, [feat]: v }
-                          const rate = calcRateFromToggles(next)
-                          const monthly = Math.round(editForm.max_students * rate)
-                          setEditToggles(next)
-                          setEditForm((f) => ({ ...f, price_per_student: rate, price_monthly: monthly, price_annual: Math.round(monthly * 10) }))
-                        }}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -767,23 +767,25 @@ export default function Plans() {
               </p>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="new-plan-per-student">Price Per Student / Month (USD)</Label>
-                  <span className="text-[10px] text-amber-600 font-semibold bg-amber-100 dark:bg-amber-900/30 rounded px-1.5 py-0.5">
-                    auto from features
-                  </span>
-                </div>
+                <Label htmlFor="new-plan-per-student">Price Per Student / Month (USD)</Label>
                 <Input
                   id="new-plan-per-student"
                   type="number"
                   step="0.01"
                   min={0}
-                  readOnly
-                  className="bg-[var(--muted)]/40 cursor-not-allowed"
                   value={createForm.price_per_student}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, price_per_student: e.target.value }))}
                   placeholder="0.00"
                 />
-                <p className="text-xs text-[var(--muted-foreground)]">Sum of enabled feature costs. Toggle features below to update.</p>
+                {sumFeaturePrices(createFeatures) !== (Number(createForm.price_per_student) || 0) && (
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--primary)] hover:underline"
+                    onClick={() => setCreateForm((f) => ({ ...f, price_per_student: String(sumFeaturePrices(createFeatures)) }))}
+                  >
+                    Use sum of features below ({formatCurrency(sumFeaturePrices(createFeatures))})
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -858,46 +860,65 @@ export default function Plans() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Features</Label>
-                <span className="text-xs text-[var(--muted-foreground)]">
-                  Enabling features auto-updates per-student rate & pricing
-                </span>
+                <span className="text-xs text-[var(--muted-foreground)]">Enable a feature and set its price for this plan</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {ALL_FEATURES.map((feat) => {
-                  const price = FEATURE_PRICE[feat] ?? 0
-                  const on = createToggles[feat] ?? false
-                  return (
-                    <div
-                      key={feat}
-                      className={`flex items-center justify-between rounded-lg border px-3 py-2 transition-colors ${on ? 'border-[var(--primary)]/40 bg-[var(--primary)]/5' : 'border-[var(--border)]'}`}
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm text-[var(--foreground)] truncate">{feat}</p>
-                        <p className="text-[11px] text-[var(--primary)] font-medium">+{formatCurrency(price)}/student/mo</p>
+              {featureCatalog.length === 0 ? (
+                <p className="text-xs text-[var(--muted-foreground)] italic">
+                  No features in the catalog yet — add some from the Plan Features page first.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {featureCatalog.map((cat) => {
+                    const enabled = createFeatures.some((f) => f.name === cat.name)
+                    const price = createFeatures.find((f) => f.name === cat.name)?.price ?? 0
+                    return (
+                      <div
+                        key={cat.id}
+                        className={`flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${enabled ? 'border-[var(--primary)]/40 bg-[var(--primary)]/5' : 'border-[var(--border)]'}`}
+                      >
+                        <Switch checked={enabled} onCheckedChange={(v) => toggleFeature(createFeatures, setCreateFeatures, cat.name, v)} />
+                        <p className="text-sm text-[var(--foreground)] flex-1 truncate">{cat.name}</p>
+                        <Input
+                          type="number" step="0.01" min={0}
+                          placeholder="0.00"
+                          disabled={!enabled}
+                          value={price}
+                          className="w-24 flex-shrink-0"
+                          onChange={(e) => setFeaturePrice(createFeatures, setCreateFeatures, cat.name, Number(e.target.value))}
+                        />
                       </div>
-                      <Switch
-                        checked={on}
-                        onCheckedChange={(v) => {
-                          const next = { ...createToggles, [feat]: v }
-                          const rate = calcRateFromToggles(next)
-                          const monthly = createForm.max_students
-                            ? String(Math.round(Number(createForm.max_students) * rate))
-                            : createForm.price_monthly
-                          const annual = monthly ? String(Math.round(Number(monthly) * 10)) : ''
-                          setCreateToggles(next)
-                          setCreateForm((f) => ({ ...f, price_per_student: String(rate), price_monthly: monthly, price_annual: annual }))
-                        }}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button onClick={saveCreate} disabled={!createForm.label.trim()} loading={createMutation.isPending}><Plus size={14} /> Create Plan</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Plan Confirmation */}
+      <Dialog open={deleteTarget !== null} onOpenChange={(v) => { if (!v) setDeleteTarget(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete {deleteTarget?.label} Plan</DialogTitle>
+            <DialogDescription>
+              This can't be undone. Any school currently subscribed to this plan will need to be moved to a different plan.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+              loading={deleteMutation.isPending}
+            >
+              <Trash2 size={14} /> Delete Plan
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

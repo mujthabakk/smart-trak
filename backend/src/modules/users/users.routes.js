@@ -16,5 +16,6 @@ router.get('/:id', validate({ params: schema.idParam }), controller.getOne);
 router.post('/', validate({ body: schema.createUser }), controller.create);
 router.patch('/:id', validate({ params: schema.idParam, body: schema.updateUser }), controller.update);
 router.delete('/:id', validate({ params: schema.idParam }), controller.remove);
+router.post('/:id/send-credentials', validate({ params: schema.idParam, body: schema.sendCredentialsBody }), controller.sendCredentials);
 
 module.exports = router;

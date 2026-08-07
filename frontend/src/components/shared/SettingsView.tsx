@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
+import { useMutation } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
   Check, User, Bell, Shield, Mail, Smartphone, MessageCircle, Globe,
-  Lock, Camera,
+  Lock, Camera, AlertCircle,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -13,6 +15,7 @@ import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { updateUser as updateUserAction } from '@/store/slices/authSlice'
+import { changePassword } from '@/lib/api/auth'
 import { getInitials, cn } from '@/lib/utils'
 
 const NOTIFICATION_PREFS = [
@@ -43,6 +46,36 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
     dispatch(updateUserAction({ name, email, phone }))
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [pwError, setPwError] = useState('')
+  const [pwSaved, setPwSaved] = useState(false)
+
+  const changePasswordMutation = useMutation({
+    mutationFn: () => changePassword(currentPw, newPw),
+    onSuccess: () => {
+      setCurrentPw('')
+      setNewPw('')
+      setConfirmPw('')
+      setPwError('')
+      setPwSaved(true)
+      setTimeout(() => setPwSaved(false), 2500)
+    },
+    onError: (err) => {
+      const message = isAxiosError(err) ? (err.response?.data as { error?: string } | undefined)?.error : undefined
+      setPwError(message || 'Failed to update password.')
+    },
+  })
+
+  function handleChangePassword() {
+    setPwError('')
+    if (!currentPw) { setPwError('Enter your current password.'); return }
+    if (newPw.length < 6) { setPwError('New password must be at least 6 characters.'); return }
+    if (newPw !== confirmPw) { setPwError('New passwords do not match.'); return }
+    changePasswordMutation.mutate()
   }
 
   return (
@@ -151,19 +184,34 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
               <CardDescription>Use a strong, unique password.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 max-w-md">
+              {pwError && (
+                <div
+                  className="flex items-start gap-2 p-3 rounded-xl text-sm"
+                  style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+                >
+                  <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {pwError}
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="cur-pw">Current Password</Label>
-                <Input id="cur-pw" type="password" placeholder="••••••••" />
+                <Input id="cur-pw" type="password" placeholder="••••••••" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="new-pw">New Password</Label>
-                <Input id="new-pw" type="password" placeholder="••••••••" />
+                <Input id="new-pw" type="password" placeholder="••••••••" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="conf-pw">Confirm New Password</Label>
-                <Input id="conf-pw" type="password" placeholder="••••••••" />
+                <Input id="conf-pw" type="password" placeholder="••••••••" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
               </div>
-              <Button>Update Password</Button>
+              <div className="flex items-center gap-3">
+                <Button onClick={handleChangePassword} loading={changePasswordMutation.isPending}>Update Password</Button>
+                {pwSaved && (
+                  <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-green-600 flex items-center gap-1">
+                    <Check size={15} /> Password updated
+                  </motion.span>
+                )}
+              </div>
             </CardContent>
           </Card>
 

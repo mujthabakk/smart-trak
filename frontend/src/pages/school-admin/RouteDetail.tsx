@@ -34,8 +34,6 @@ import {
   ArrowRightLeft, Search, UserMinus, CalendarCheck, AlertCircle,
 } from 'lucide-react'
 
-const SCHOOL_ID = 'sch_001'
-
 const fadeUp = {
   hidden: { opacity: 0, y: 14 },
   show: { opacity: 1, y: 0, transition: { duration: 0.25 } },
@@ -686,7 +684,7 @@ export default function RouteDetail() {
 
   const studentsQuery = useQuery({
     queryKey: ['students'],
-    queryFn: () => listStudents({ school_id: SCHOOL_ID, pageSize: 1000 }),
+    queryFn: () => listStudents({ pageSize: 1000 }),
   })
 
   const todayStr = useMemo(() => {
@@ -723,11 +721,10 @@ export default function RouteDetail() {
   useEffect(() => {
     if (baseRoute && studentsQuery.data && hydratedRouteIdRef.current !== baseRoute.id) {
       hydratedRouteIdRef.current = baseRoute.id
-      const hydratedStudents = studentsQuery.data.students.filter((s) => s.school_id === SCHOOL_ID)
-      setSchoolStudents(hydratedStudents)
+      setSchoolStudents(studentsQuery.data.students)
       setIsActive(baseRoute.is_active)
       setStops([...(baseRoute.stops ?? [])])
-      const hydratedRouteStudents = hydratedStudents.filter((s) => s.route_name === baseRoute.name)
+      const hydratedRouteStudents = studentsQuery.data.students.filter((s) => s.route_name === baseRoute.name)
       setStudentStopMap(buildInitialStopMap(baseRoute.stops ?? [], hydratedRouteStudents))
     }
   }, [baseRoute, studentsQuery.data])
@@ -750,7 +747,7 @@ export default function RouteDetail() {
   const [editStudentDivision, setEditStudentDivision] = useState('')
 
   const sameTypeRoutes = useMemo(
-    () => allRoutesData.filter((r) => r.school_id === SCHOOL_ID && r.type === (baseRoute?.type ?? 'pickup')),
+    () => allRoutesData.filter((r) => r.type === (baseRoute?.type ?? 'pickup')),
     [allRoutesData, baseRoute?.type],
   )
   const otherRoutes = useMemo(
@@ -764,6 +761,25 @@ export default function RouteDetail() {
   const [transferSearch, setTransferSearch] = useState('')
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([])
   const [transferMode, setTransferMode] = useState<'quick' | 'drag'>('quick')
+
+  const orderedStops = useMemo(() => [...stops].sort((a, b) => a.order_index - b.order_index), [stops])
+
+  // Must run on every render (before the loading/error early-returns below) —
+  // calling a hook conditionally after those returns violates the Rules of
+  // Hooks and crashes the page once routeQuery finishes loading.
+  const studentsByStop = useMemo(() => {
+    const map: Record<string, Student[]> = {}
+    orderedStops.forEach((s) => { map[s.id] = [] })
+    routeStudents.forEach((s) => {
+      const stopId = studentStopMap[s.id]
+      if (stopId && map[stopId]) map[stopId].push(s)
+      else if (orderedStops[0]) {
+        if (!map[orderedStops[0].id]) map[orderedStops[0].id] = []
+        map[orderedStops[0].id].push(s)
+      }
+    })
+    return map
+  }, [routeStudents, studentStopMap, orderedStops])
 
   if (routeQuery.isLoading) {
     return (
@@ -798,21 +814,6 @@ export default function RouteDetail() {
   }
 
   const route = { ...baseRoute, stops, is_active: isActive }
-  const orderedStops = [...stops].sort((a, b) => a.order_index - b.order_index)
-
-  const studentsByStop = useMemo(() => {
-    const map: Record<string, Student[]> = {}
-    orderedStops.forEach((s) => { map[s.id] = [] })
-    routeStudents.forEach((s) => {
-      const stopId = studentStopMap[s.id]
-      if (stopId && map[stopId]) map[stopId].push(s)
-      else if (orderedStops[0]) {
-        if (!map[orderedStops[0].id]) map[orderedStops[0].id] = []
-        map[orderedStops[0].id].push(s)
-      }
-    })
-    return map
-  }, [routeStudents, studentStopMap, orderedStops])
 
   const unassignedForRoute = schoolStudents.filter(
     (s) => !s.route_name || s.route_name !== route.name,

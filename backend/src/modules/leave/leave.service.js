@@ -33,6 +33,28 @@ async function assertStudentInScope(studentId, schoolId) {
   if (!rows[0]) throw ApiError.notFound('Student not found');
 }
 
+/** A student "belongs" to a parent when the parent's login email matches an
+ * email on file in parent_details for that student (same match used by the
+ * students module — parent accounts are provisioned with that same email). */
+function parentChildCondition(studentIdColumn, paramIndex) {
+  return `EXISTS (
+    SELECT 1 FROM parent_details pd
+    JOIN users u ON lower(u.email) = lower(pd.email)
+    WHERE pd.student_id = ${studentIdColumn} AND u.id = $${paramIndex}
+  )`;
+}
+
+/** Throws unless the student is one of this parent's own children. */
+async function assertStudentBelongsToParent(studentId, parentUserId) {
+  const { rows } = await query(
+    `SELECT 1 FROM parent_details pd
+     JOIN users u ON lower(u.email) = lower(pd.email)
+     WHERE pd.student_id = $1 AND u.id = $2`,
+    [studentId, parentUserId]
+  );
+  if (!rows[0]) throw ApiError.forbidden('You may only request leave for your own child');
+}
+
 async function list(schoolId, { page, pageSize, offset }, filters) {
   const conditions = [];
   const params = [];
@@ -59,6 +81,10 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
     params.push(filters.to);
     conditions.push(`lv.from_date <= $${params.length}`);
   }
+  if (filters.parentUserId) {
+    params.push(filters.parentUserId);
+    conditions.push(parentChildCondition('lv.student_id', params.length));
+  }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const { rows: countRows } = await query(`SELECT COUNT(*)::int AS total FROM leaves lv ${where}`, params);
@@ -73,16 +99,25 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   return { leaves: rows.map(toResponse), pagination: paginationMeta(page, pageSize, total) };
 }
 
-async function getById(id, schoolId) {
-  const params = schoolId ? [id, schoolId] : [id];
-  const where = schoolId ? 'WHERE lv.id = $1 AND lv.school_id = $2' : 'WHERE lv.id = $1';
-  const { rows } = await query(`${BASE_SELECT} ${where}`, params);
+async function getById(id, schoolId, parentUserId) {
+  const conditions = ['lv.id = $1'];
+  const params = [id];
+  if (schoolId) {
+    params.push(schoolId);
+    conditions.push(`lv.school_id = $${params.length}`);
+  }
+  if (parentUserId) {
+    params.push(parentUserId);
+    conditions.push(parentChildCondition('lv.student_id', params.length));
+  }
+  const { rows } = await query(`${BASE_SELECT} WHERE ${conditions.join(' AND ')}`, params);
   if (!rows[0]) throw ApiError.notFound('Leave request not found');
   return toResponse(rows[0]);
 }
 
-async function create(schoolId, data) {
+async function create(schoolId, data, parentUserId) {
   await assertStudentInScope(data.student_id, schoolId);
+  if (parentUserId) await assertStudentBelongsToParent(data.student_id, parentUserId);
   const { rows } = await query(
     `INSERT INTO leaves (student_id, school_id, from_date, to_date, reason, status)
      VALUES ($1, $2, $3, $4, $5, 'pending')
@@ -123,7 +158,12 @@ async function update(id, schoolId, data, actingUserId) {
   return getById(id, schoolId);
 }
 
-async function remove(id, schoolId) {
+async function remove(id, schoolId, parentUserId) {
+  if (parentUserId) {
+    // Re-use getById's ownership check so a parent deleting someone else's
+    // leave request 404s (no existence leak) instead of a bare delete no-op.
+    await getById(id, schoolId, parentUserId);
+  }
   const params = schoolId ? [id, schoolId] : [id];
   const where = schoolId ? 'id = $1 AND school_id = $2' : 'id = $1';
   const { rowCount } = await query(`DELETE FROM leaves WHERE ${where}`, params);

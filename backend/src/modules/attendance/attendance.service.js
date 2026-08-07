@@ -40,6 +40,21 @@ async function assertStudentInScope(studentId, schoolId) {
   if (!rows[0]) throw ApiError.notFound('Student not found');
 }
 
+/** trip_id for a given attendance record — used to apply driver-ownership checks on update/remove. */
+async function getTripIdForRecord(id) {
+  const { rows } = await query('SELECT trip_id FROM attendance_records WHERE id = $1', [id]);
+  if (!rows[0]) throw ApiError.notFound('Attendance record not found');
+  return rows[0].trip_id;
+}
+
+async function findStudentByQrCode(qrCode, schoolId) {
+  const where = schoolId ? 'student_qr_code = $1 AND school_id = $2' : 'student_qr_code = $1';
+  const params = schoolId ? [qrCode, schoolId] : [qrCode];
+  const { rows } = await query(`SELECT id FROM students WHERE ${where}`, params);
+  if (!rows[0]) throw ApiError.notFound('No student found for this QR code');
+  return rows[0];
+}
+
 async function list(schoolId, { page, pageSize, offset }, filters) {
   const conditions = [];
   const params = [];
@@ -54,6 +69,20 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   if (filters.student_id) {
     params.push(filters.student_id);
     conditions.push(`ar.student_id = $${params.length}`);
+  }
+  if (filters.driver_id) {
+    params.push(filters.driver_id);
+    conditions.push(`t.driver_id = $${params.length}`);
+  }
+  if (filters.parentUserId) {
+    // Restricts results to attendance for the caller's own children, matched by
+    // the parent's login email against parent_details.email (see students module).
+    params.push(filters.parentUserId);
+    conditions.push(`EXISTS (
+      SELECT 1 FROM parent_details pd
+      JOIN users u ON lower(u.email) = lower(pd.email)
+      WHERE pd.student_id = s.id AND u.id = $${params.length}
+    )`);
   }
   if (filters.status) {
     params.push(filters.status);
@@ -71,7 +100,10 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const { rows: countRows } = await query(
-    `SELECT COUNT(*)::int AS total FROM attendance_records ar JOIN students s ON s.id = ar.student_id ${where}`,
+    `SELECT COUNT(*)::int AS total FROM attendance_records ar
+       JOIN students s ON s.id = ar.student_id
+       LEFT JOIN trips t ON t.id = ar.trip_id
+     ${where}`,
     params
   );
   const total = countRows[0].total;
@@ -121,6 +153,24 @@ async function markAttendance(schoolId, data) {
     ]
   );
   return getById(rows[0].id, schoolId);
+}
+
+/** Scan-to-attendance: resolves the student by QR code, then marks them present
+ * for the trip, stamping pickup_time or drop_time depending on the trip's type. */
+async function markByQrCode(schoolId, tripId, qrCode, stopId) {
+  const student = await findStudentByQrCode(qrCode, schoolId);
+  const { rows: tripRows } = await query('SELECT trip_type FROM trips WHERE id = $1', [tripId]);
+  if (!tripRows[0]) throw ApiError.notFound('Trip not found');
+
+  const now = new Date().toISOString();
+  return markAttendance(schoolId, {
+    trip_id: tripId,
+    student_id: student.id,
+    stop_id: stopId || null,
+    status: 'present',
+    pickup_time: tripRows[0].trip_type === 'pickup' ? now : undefined,
+    drop_time: tripRows[0].trip_type === 'drop' ? now : undefined,
+  });
 }
 
 /** Marks a whole trip's roster at once (school admin "mark all" flow), upserting each row in a transaction. */
@@ -174,4 +224,13 @@ async function remove(id, schoolId) {
   if (!rowCount) throw ApiError.notFound('Attendance record not found');
 }
 
-module.exports = { list, getById, markAttendance, bulkMark, update, remove };
+module.exports = {
+  list,
+  getById,
+  getTripIdForRecord,
+  markAttendance,
+  markByQrCode,
+  bulkMark,
+  update,
+  remove,
+};

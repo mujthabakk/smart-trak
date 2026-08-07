@@ -11,7 +11,10 @@ const planBody = z.object({
   max_students: z.number().int().nonnegative(),
   max_buses: z.number().int().nonnegative(),
   max_drivers: z.number().int().nonnegative(),
-  features: z.array(z.string()).default([]),
+  features: z.array(z.object({
+    name: z.string().min(1),
+    price: z.number().nonnegative(),
+  })).default([]),
   is_popular: z.boolean().optional(),
 });
 

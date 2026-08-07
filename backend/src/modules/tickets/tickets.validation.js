@@ -25,6 +25,7 @@ const listQuery = z.object({
   status: z.enum(['open', 'in_progress', 'resolved', 'escalated']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   school_id: z.string().optional(),
+  mine: z.enum(['true', 'false']).optional(),
 });
 
 module.exports = { createTicket, updateTicket, addReply, idParam, listQuery };

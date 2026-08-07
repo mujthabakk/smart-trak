@@ -22,14 +22,16 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import type { Route, Student, AttendanceRecord } from '@/types'
+import type { Route, Student, AttendanceRecord, Trip } from '@/types'
 import { getInitials, formatDate, cn } from '@/lib/utils'
-import { getBusTripDurationDisplay } from '@/lib/tripDuration'
+import { getBusTripDurationDisplay, getTripDurationDisplay } from '@/lib/tripDuration'
 import { getBus, getBusLocation } from '@/lib/api/buses'
 import { listRoutes } from '@/lib/api/routes'
 import { listStudents } from '@/lib/api/students'
 import { listTrips } from '@/lib/api/trips'
 import { listAttendance } from '@/lib/api/attendance'
+import { listDrivers } from '@/lib/api/drivers'
+import { useAppSelector } from '@/store/hooks'
 
 function extractErrorMessage(err: unknown): string {
   if (isAxiosError(err)) {
@@ -42,9 +44,6 @@ function extractErrorMessage(err: unknown): string {
 // ─── Animation variants ──────────────────────────────────────────────────────
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.07 } } }
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
-
-// ─── Mock data helpers ───────────────────────────────────────────────────────
-const MOCK_DRIVER_PHONE = '+971 55 123 4567'
 
 function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -121,17 +120,45 @@ function countAttendance(students: Student[], attendance: AttendanceRecord[]): {
   return { onboarded, notYet, absent, total: students.length }
 }
 
-const MOCK_SCHEDULE = [
-  { id: 'sch1', label: 'Morning Trip', time: '7:00 AM – 8:30 AM', route: 'Route A - Pickup', students: 28, type: 'pickup', completedAt: '8:28 AM', duration: '88 min' },
-  { id: 'sch2', label: 'Afternoon Trip', time: '2:30 PM – 3:45 PM', route: 'Route A - Drop', students: 25, type: 'drop', completedAt: '3:47 PM', duration: '77 min' },
-]
+interface ScheduleEntry {
+  id: string
+  label: string
+  time: string
+  route: string
+  type: 'pickup' | 'drop'
+  completedAt?: string
+  duration: string
+  isLive: boolean
+}
 
-// Mock history
-function makeBusHistory(busId: string) {
-  return Array.from({ length: 14 }, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - i)
-    return { date: toLocalDateStr(d), dot: (i % 5 === 3 ? 'amber' : 'green') as 'green' | 'amber' }
-  })
+function buildSchedule(trips: Trip[]): ScheduleEntry[] {
+  return [...trips]
+    .filter((t) => t.started_at)
+    .sort((a, b) => new Date(b.started_at!).getTime() - new Date(a.started_at!).getTime())
+    .slice(0, 5)
+    .map((t) => {
+      const duration = getTripDurationDisplay(t)
+      return {
+        id: t.id,
+        label: t.trip_type === 'pickup' ? 'Pickup Trip' : 'Drop Trip',
+        time: t.ended_at
+          ? `${formatDate(t.started_at!, 'time')} – ${formatDate(t.ended_at, 'time')}`
+          : `${formatDate(t.started_at!, 'time')} – in progress`,
+        route: t.route_name,
+        type: t.trip_type,
+        completedAt: t.ended_at ? formatDate(t.ended_at, 'time') : undefined,
+        duration: duration.label,
+        isLive: duration.isLive,
+      }
+    })
+}
+
+/** Buckets a day's attendance records (for this bus's students) into a calendar dot. */
+function dayAttendanceDot(records: AttendanceRecord[], studentIds: Set<string>): 'green' | 'amber' | 'none' {
+  const relevant = records.filter((r) => studentIds.has(r.student_id))
+  if (relevant.length === 0) return 'none'
+  const hasAbsence = relevant.some((r) => r.status === 'absent' || r.status === 'leave')
+  return hasAbsence ? 'amber' : 'green'
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -271,6 +298,7 @@ function DetailRow({ label, value, danger, children }: { label: string; value?: 
 export default function BusDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const user = useAppSelector((state) => state.auth.user)
   const [callDialogOpen, setCallDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState(TODAY)
@@ -314,6 +342,25 @@ export default function BusDetail() {
   })
   const attendance = useMemo(() => attendanceData?.records ?? [], [attendanceData])
 
+  const { data: driversData } = useQuery({ queryKey: ['drivers'], queryFn: () => listDrivers() })
+  const driver = useMemo(
+    () => driversData?.drivers.find((d) => d.id === bus?.driver_id),
+    [driversData, bus?.driver_id],
+  )
+
+  const last14Days = useMemo(
+    () => Array.from({ length: 14 }, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - i)
+      return toLocalDateStr(d)
+    }),
+    [],
+  )
+  const { data: historyRecordsByDay } = useQuery({
+    queryKey: ['attendance', 'bus-history', id, last14Days],
+    queryFn: () => Promise.all(last14Days.map((date) => listAttendance({ date, pageSize: 1000 }))),
+    enabled: !!id,
+  })
+
   const pickupRoute = busRoutes.find((r) => r.type === 'pickup')
   const dropRoute = busRoutes.find((r) => r.type === 'drop')
   const route = pickupRoute ?? busRoutes[0]
@@ -346,7 +393,16 @@ export default function BusDetail() {
     [pickupRoute, dropRoute, students, attendance],
   )
 
-  const dayMeta = useMemo(() => makeBusHistory(id ?? ''), [id])
+  const busStudentIds = useMemo(() => new Set(allBusStudents.map((s) => s.id)), [allBusStudents])
+  const dayMeta = useMemo(() => {
+    if (!historyRecordsByDay) return []
+    return last14Days.map((date, i) => ({
+      date,
+      dot: dayAttendanceDot(historyRecordsByDay[i]?.records ?? [], busStudentIds),
+    }))
+  }, [historyRecordsByDay, last14Days, busStudentIds])
+
+  const schedule = useMemo(() => buildSchedule(trips), [trips])
 
   function occupancyFor(): number {
     if (!bus) return 0
@@ -545,7 +601,13 @@ export default function BusDetail() {
 
             {/* ── Schedule tab ─────────────────────────────────────────── */}
             <TabsContent value="schedule" className="flex flex-col gap-4">
-              {MOCK_SCHEDULE.map((trip) => (
+              {schedule.length === 0 ? (
+                <Card>
+                  <CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">
+                    No trips recorded for this bus yet.
+                  </CardContent>
+                </Card>
+              ) : schedule.map((trip) => (
                 <Card key={trip.id}>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
@@ -584,8 +646,10 @@ export default function BusDetail() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
-                      <CheckCircle2 size={14} className="text-green-500" />
-                      <span className="text-[var(--foreground)]">Completed at <strong>{trip.completedAt}</strong></span>
+                      <CheckCircle2 size={14} className={trip.isLive ? 'text-blue-500' : 'text-green-500'} />
+                      <span className="text-[var(--foreground)]">
+                        {trip.isLive ? 'In progress' : <>Completed at <strong>{trip.completedAt}</strong></>}
+                      </span>
                       <span className="text-[var(--muted-foreground)] text-xs">({trip.duration})</span>
                     </div>
                   </CardContent>
@@ -639,7 +703,7 @@ export default function BusDetail() {
                     <DetailRow label="Driver Phone">
                       <div className="flex items-center gap-1.5">
                         <Phone size={13} className="text-[var(--muted-foreground)]" />
-                        <span className="text-sm font-medium text-[var(--foreground)]">{MOCK_DRIVER_PHONE}</span>
+                        <span className="text-sm font-medium text-[var(--foreground)]">{driver?.phone ?? 'Not available'}</span>
                       </div>
                     </DetailRow>
                     <DetailRow label="Route">
@@ -664,7 +728,7 @@ export default function BusDetail() {
                         </span>
                       ) : '—'}
                     </DetailRow>
-                    <DetailRow label="School" value="Al-Noor International School" />
+                    <DetailRow label="School" value={user?.school_name ?? '—'} />
                     <DetailRow label="Status">
                       <StatusBadge status={status} size="sm" />
                     </DetailRow>
@@ -693,18 +757,24 @@ export default function BusDetail() {
               </AvatarFallback>
             </Avatar>
             <p className="font-semibold text-[var(--foreground)]">{bus.driver_name ?? 'Unassigned'}</p>
-            <a href={`tel:${MOCK_DRIVER_PHONE.replace(/\s/g, '')}`} className="inline-flex items-center gap-2 text-lg font-bold text-[var(--primary)] hover:underline">
-              <Phone size={18} /> {MOCK_DRIVER_PHONE}
-            </a>
+            {driver?.phone ? (
+              <a href={`tel:${driver.phone.replace(/\s/g, '')}`} className="inline-flex items-center gap-2 text-lg font-bold text-[var(--primary)] hover:underline">
+                <Phone size={18} /> {driver.phone}
+              </a>
+            ) : (
+              <p className="text-sm text-[var(--muted-foreground)]">No phone number on file</p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCallDialogOpen(false)}>Close</Button>
-            <a
-              href={`tel:${MOCK_DRIVER_PHONE.replace(/\s/g, '')}`}
-              className="inline-flex items-center gap-2 h-9 px-4 py-2 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] text-sm font-medium hover:opacity-90"
-            >
-              <Phone size={15} /> Call Now
-            </a>
+            {driver?.phone && (
+              <a
+                href={`tel:${driver.phone.replace(/\s/g, '')}`}
+                className="inline-flex items-center gap-2 h-9 px-4 py-2 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] text-sm font-medium hover:opacity-90"
+              >
+                <Phone size={15} /> Call Now
+              </a>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

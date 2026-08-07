@@ -17,6 +17,12 @@ router.post(
   controller.mark
 );
 router.post(
+  '/scan',
+  requireRole('super_admin', 'school_admin', 'driver'),
+  validate({ body: schema.scanAttendance }),
+  controller.scan
+);
+router.post(
   '/bulk',
   requireRole('super_admin', 'school_admin', 'driver'),
   validate({ body: schema.bulkMark }),

@@ -1,6 +1,7 @@
 const { query } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { paginationMeta } = require('../../utils/pagination');
+const { sendPush } = require('../../utils/push');
 
 function toResponse(row) {
   return {
@@ -85,6 +86,18 @@ async function createNotification({ school_id, user_id, title, body, type, actio
      RETURNING *`,
     [school_id || null, user_id || null, title, body, type, action_url || null]
   );
+
+  // Best-effort push — the in-app inbox row above is the source of truth;
+  // a push failure (or missing/stubbed token) must never fail notification creation.
+  if (user_id) {
+    try {
+      const { rows: userRows } = await query('SELECT fcm_token FROM users WHERE id = $1', [user_id]);
+      await sendPush({ token: userRows[0]?.fcm_token, title, body, data: { type, action_url } });
+    } catch (err) {
+      console.error('Failed to send push notification', err);
+    }
+  }
+
   return toResponse(rows[0]);
 }
 

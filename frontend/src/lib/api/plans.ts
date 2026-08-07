@@ -6,6 +6,12 @@ export async function listPlans(): Promise<Plan[]> {
   return data.plans
 }
 
+/** Unauthenticated variant for the public marketing pricing page. */
+export async function listPublicPlans(): Promise<Plan[]> {
+  const { data } = await apiClient.get<{ plans: Plan[] }>('/plans/public')
+  return data.plans
+}
+
 export async function getPlan(id: string): Promise<Plan> {
   const { data } = await apiClient.get<{ plan: Plan }>(`/plans/${id}`)
   return data.plan

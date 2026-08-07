@@ -20,4 +20,13 @@ const resetPassword = z.object({
   password: z.string().min(6),
 });
 
-module.exports = { login, forgotPassword, verifyOtp, resetPassword };
+const changePassword = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6),
+});
+
+const updateFcmToken = z.object({
+  fcm_token: z.string().min(1),
+});
+
+module.exports = { login, forgotPassword, verifyOtp, resetPassword, changePassword, updateFcmToken };

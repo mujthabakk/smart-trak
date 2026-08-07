@@ -6,6 +6,10 @@ const schema = require('./plans.validation');
 
 const router = express.Router();
 
+// Plan pricing is marketing content, not tenant data — the public pricing
+// page needs to read it without being logged in.
+router.get('/public', controller.list);
+
 router.use(requireAuth);
 
 router.get('/', controller.list);

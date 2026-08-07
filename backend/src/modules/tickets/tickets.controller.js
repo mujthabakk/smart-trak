@@ -8,6 +8,7 @@ const list = asyncHandler(async (req, res) => {
     status: req.query.status,
     priority: req.query.priority,
     school_id: req.query.school_id,
+    mine: req.query.mine,
   });
   res.json(result);
 });

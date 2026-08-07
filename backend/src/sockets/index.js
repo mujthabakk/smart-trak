@@ -6,10 +6,13 @@ const { query } = require('../config/db');
 /**
  * Live Map realtime channel.
  *
- * Rooms are per-school ("school:<id>") so a school_admin only receives GPS
- * pings for their own tenant; a driver client emits "bus:location" for the
- * bus/trip it is running, and the server rebroadcasts + persists a row to
- * bus_locations so REST clients (and the polling fallback) can catch up.
+ * Every client auto-joins "school:<id>" (unchanged, backward compatible) so a
+ * school_admin dashboard watching the whole fleet still gets every bus's
+ * ticks. Clients that only care about one bus/trip (e.g. a parent app
+ * watching their child's ride) can additionally opt into "trip:<id>" /
+ * "bus:<id>" rooms via join:trip/join:bus, so a driver's "bus:location"
+ * emit is rebroadcast to all three rooms and a narrowly-scoped client no
+ * longer has to filter every other bus's pings out client-side.
  */
 function attachSockets(httpServer) {
   const io = new Server(httpServer, {
@@ -34,6 +37,19 @@ function attachSockets(httpServer) {
       socket.join(`school:${schoolId}`);
     }
 
+    socket.on('join:trip', (tripId) => {
+      if (tripId) socket.join(`trip:${tripId}`);
+    });
+    socket.on('leave:trip', (tripId) => {
+      if (tripId) socket.leave(`trip:${tripId}`);
+    });
+    socket.on('join:bus', (busId) => {
+      if (busId) socket.join(`bus:${busId}`);
+    });
+    socket.on('leave:bus', (busId) => {
+      if (busId) socket.leave(`bus:${busId}`);
+    });
+
     socket.on('bus:location', async (payload) => {
       if (role !== 'driver' && role !== 'guest_driver') return;
       const { trip_id, bus_id, latitude, longitude, speed, current_stop, status } = payload || {};
@@ -54,13 +70,14 @@ function attachSockets(httpServer) {
         console.error('Failed to persist bus location', err);
       }
 
-      const room = schoolId ? `school:${schoolId}` : null;
       const event = {
         trip_id, bus_id, latitude, longitude, speed: speed || 0,
         current_stop: current_stop || undefined, status: status || 'in_progress',
         recorded_at: new Date().toISOString(),
       };
-      if (room) io.to(room).emit('bus:location', event);
+      if (schoolId) io.to(`school:${schoolId}`).emit('bus:location', event);
+      io.to(`trip:${trip_id}`).emit('bus:location', event);
+      io.to(`bus:${bus_id}`).emit('bus:location', event);
     });
   });
 

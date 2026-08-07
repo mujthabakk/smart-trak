@@ -36,4 +36,10 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getOne, create, update, remove };
+const sendCredentials = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const result = await service.sendCredentials(req.params.id, req.user.role, schoolId, req.body.password);
+  res.json({ emailStatus: result.status });
+});
+
+module.exports = { list, getOne, create, update, remove, sendCredentials };

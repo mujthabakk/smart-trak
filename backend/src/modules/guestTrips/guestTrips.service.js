@@ -59,6 +59,10 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
     params.push(filters.status);
     conditions.push(`status = $${params.length}`);
   }
+  if (filters.phone) {
+    params.push(filters.phone);
+    conditions.push(`guest_driver_phone = $${params.length}`);
+  }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const { rows: countRows } = await query(`SELECT COUNT(*)::int AS total FROM guest_trips ${where}`, params);
@@ -76,10 +80,24 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   return { trips, pagination: paginationMeta(page, pageSize, total) };
 }
 
-async function getById(id, schoolId) {
-  const params = schoolId ? [id, schoolId] : [id];
-  const where = schoolId ? 'WHERE id = $1 AND school_id = $2' : 'WHERE id = $1';
-  const { rows } = await query(`SELECT * FROM guest_trips ${where}`, params);
+/**
+ * `ownerPhone`, when passed, additionally requires guest_driver_phone to match —
+ * used to scope a guest_driver caller to their own trips (matched the same way
+ * create() establishes the link: by the caller's own phone, not a client-supplied one).
+ * A mismatch 404s rather than 403, consistent with tickets/notifications.
+ */
+async function getById(id, schoolId, ownerPhone) {
+  const conditions = ['id = $1'];
+  const params = [id];
+  if (schoolId) {
+    params.push(schoolId);
+    conditions.push(`school_id = $${params.length}`);
+  }
+  if (ownerPhone) {
+    params.push(ownerPhone);
+    conditions.push(`guest_driver_phone = $${params.length}`);
+  }
+  const { rows } = await query(`SELECT * FROM guest_trips WHERE ${conditions.join(' AND ')}`, params);
   if (!rows[0]) throw ApiError.notFound('Guest trip not found');
   const students = await getStudentsForTrip(rows[0].id);
   return { ...toResponse(rows[0]), students };

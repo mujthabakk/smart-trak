@@ -28,6 +28,17 @@ export interface User {
   last_login?: string
 }
 
+export interface PlanFeature {
+  name: string
+  price: number
+}
+
+export interface FeatureCatalogItem {
+  id: string
+  name: string
+  created_at: string
+}
+
 export interface Plan {
   id: string
   name: string
@@ -39,7 +50,7 @@ export interface Plan {
   max_students: number
   max_buses: number
   max_drivers: number
-  features: string[]
+  features: PlanFeature[]
   is_popular?: boolean
 }
 
@@ -66,6 +77,20 @@ export interface School {
   admin_email?: string
   created_at: string
   logo_url?: string
+}
+
+export interface EmailLog {
+  id: string
+  school_id?: string
+  school_name?: string
+  user_id?: string
+  recipient_email: string
+  subject: string
+  body: string
+  trigger_type: string
+  status: 'sent' | 'failed' | 'logged_only'
+  error_message?: string
+  sent_at: string
 }
 
 export interface Subscription {

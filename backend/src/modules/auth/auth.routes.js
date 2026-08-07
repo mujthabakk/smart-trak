@@ -12,5 +12,7 @@ router.post('/verify-otp', validate({ body: schema.verifyOtp }), controller.veri
 router.post('/reset-password', validate({ body: schema.resetPassword }), controller.resetPassword);
 router.get('/me', requireAuth, controller.me);
 router.post('/logout', requireAuth, controller.logout);
+router.patch('/change-password', requireAuth, validate({ body: schema.changePassword }), controller.changePassword);
+router.patch('/fcm-token', requireAuth, validate({ body: schema.updateFcmToken }), controller.updateFcmToken);
 
 module.exports = router;

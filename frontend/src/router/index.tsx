@@ -22,6 +22,8 @@ import AddSchool from '@/pages/super-admin/AddSchool'
 import SchoolProfile from '@/pages/super-admin/SchoolProfile'
 import Subscriptions from '@/pages/super-admin/Subscriptions'
 import Plans from '@/pages/super-admin/Plans'
+import Features from '@/pages/super-admin/Features'
+import EmailLogs from '@/pages/super-admin/EmailLogs'
 import BulkMessaging from '@/pages/super-admin/BulkMessaging'
 import SupportTickets from '@/pages/super-admin/SupportTickets'
 import UserManagement from '@/pages/super-admin/UserManagement'
@@ -83,6 +85,8 @@ export const router = createHashRouter([
   { path: '/super-admin/schools/:id', element: <SchoolProfile /> },
   { path: '/super-admin/subscriptions', element: <Subscriptions /> },
   { path: '/super-admin/plans', element: <Plans /> },
+  { path: '/super-admin/features', element: <Features /> },
+  { path: '/super-admin/email-logs', element: <EmailLogs /> },
   { path: '/super-admin/bulk-messaging', element: <BulkMessaging /> },
   { path: '/super-admin/support', element: <SupportTickets /> },
   { path: '/super-admin/users', element: <UserManagement /> },

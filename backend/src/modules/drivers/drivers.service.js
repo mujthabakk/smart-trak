@@ -164,6 +164,15 @@ async function remove(id, schoolId) {
   if (!rowCount) throw ApiError.notFound('Driver not found');
 }
 
+/** Resolves the drivers.id row linked to a logged-in driver's user account, if any.
+ * Used to default a driver-role caller's queries to "my own records only". */
+async function getIdByUserId(userId, schoolId) {
+  const params = schoolId ? [userId, schoolId] : [userId];
+  const where = schoolId ? 'user_id = $1 AND school_id = $2' : 'user_id = $1';
+  const { rows } = await query(`SELECT id FROM drivers WHERE ${where}`, params);
+  return rows[0]?.id || null;
+}
+
 /** Drivers whose license expires within the next `days` days (for DocumentExpiry.tsx). */
 async function expiringDocuments(schoolId, days) {
   const conditions = ['d.license_expiry >= CURRENT_DATE', 'd.license_expiry <= (CURRENT_DATE + $1::int)'];
@@ -177,4 +186,4 @@ async function expiringDocuments(schoolId, days) {
   return rows.map(toResponse);
 }
 
-module.exports = { list, getById, create, update, remove, expiringDocuments };
+module.exports = { list, getById, create, update, remove, expiringDocuments, getIdByUserId };

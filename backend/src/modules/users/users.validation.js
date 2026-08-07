@@ -25,4 +25,8 @@ const listQuery = z.object({
   pageSize: z.string().optional(),
 });
 
-module.exports = { createUser, updateUser, idParam, listQuery, ROLES };
+const sendCredentialsBody = z.object({
+  password: z.string().min(6),
+});
+
+module.exports = { createUser, updateUser, idParam, listQuery, sendCredentialsBody, ROLES };

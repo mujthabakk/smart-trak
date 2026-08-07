@@ -25,6 +25,13 @@ const bulkMark = z.object({
   records: z.array(bulkRecordInput).min(1),
 });
 
+const scanAttendance = z.object({
+  school_id: z.string().optional(),
+  trip_id: z.string().min(1),
+  qr_code: z.string().min(1),
+  stop_id: z.string().optional(),
+});
+
 const updateAttendance = z.object({
   status: statusEnum.optional(),
   stop_id: z.string().optional(),
@@ -44,4 +51,4 @@ const listQuery = z.object({
   pageSize: z.string().optional(),
 });
 
-module.exports = { markAttendance, bulkMark, updateAttendance, idParam, listQuery };
+module.exports = { markAttendance, bulkMark, scanAttendance, updateAttendance, idParam, listQuery };

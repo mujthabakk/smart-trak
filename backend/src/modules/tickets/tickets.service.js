@@ -69,7 +69,12 @@ async function list(user, { page, pageSize, offset }, filters) {
   const conditions = [];
   const params = [];
 
-  if (user.role === 'super_admin') {
+  if (filters.mine === 'true') {
+    // Narrows to just the caller's own reported tickets, regardless of role —
+    // e.g. a mobile "My Tickets" view instead of the whole school's queue.
+    params.push(user.id);
+    conditions.push(`t.reporter_id = $${params.length}`);
+  } else if (user.role === 'super_admin') {
     if (filters.school_id) {
       params.push(filters.school_id);
       conditions.push(`t.school_id = $${params.length}`);

@@ -78,6 +78,30 @@ async function resetPassword(email, otp, newPassword) {
   await query('UPDATE password_resets SET consumed_at = now() WHERE id = $1', [resetRow.id]);
 }
 
+/** Self-service "change my own password" while logged in — requires proving
+ * the current password first, unlike the admin-driven reset in users.service.js. */
+async function changeOwnPassword(userId, currentPassword, newPassword) {
+  const { rows } = await query('SELECT * FROM users WHERE id = $1', [userId]);
+  const user = rows[0];
+  if (!user) throw ApiError.notFound('User not found');
+
+  const ok = await bcrypt.compare(currentPassword, user.password_hash);
+  if (!ok) throw ApiError.badRequest('Current password is incorrect');
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await query('UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2', [passwordHash, userId]);
+}
+
+/**
+ * Self-service push-token registration — lets a mobile client (driver,
+ * guest_driver, parent) register its own device token without needing the
+ * admin-only PATCH /users/:id.
+ */
+async function updateFcmToken(userId, token) {
+  await query('UPDATE users SET fcm_token = $1, updated_at = now() WHERE id = $2', [token, userId]);
+  return findUserById(userId);
+}
+
 module.exports = {
   toUserResponse,
   findUserByEmail,
@@ -86,4 +110,6 @@ module.exports = {
   createOtp,
   verifyOtp,
   resetPassword,
+  changeOwnPassword,
+  updateFcmToken,
 };

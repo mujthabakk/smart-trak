@@ -1,0 +1,710 @@
+{
+  "info": {
+    "_postman_id": "b6f2a1e0-1a2b-4c3d-9e4f-5a6b7c8d9e0f",
+    "name": "SmartTrack API",
+    "description": "Backend API for the SmartTrack school-transport platform. Covers auth + the mobile-relevant flows (driver, guest_driver, parent) plus the admin CRUD needed to set up test data. See docs/mobile-api-integration.md and docs/school-admin-mobile-handoff.md in the repo for full context.\n\nHow to use:\n1. Run every request in \"1. Auth\" > \"Logins\" once — each saves its token into a collection variable automatically.\n2. Run \"2. Lookups (capture IDs)\" once — these list existing seed data and capture ids/QR codes into collection variables used by later requests.\n3. Run the rest of the folders in any order. Requests that create data (trip, leave, guest trip, ticket, lost item) auto-capture the new id.\n\nSeeded demo accounts (see backend/src/db/seed.js) are pre-filled as collection variables — change them if your DB has different data.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api", "type": "string" },
+    { "key": "super_admin_email", "value": "superadmin@smarttrack.ae", "type": "string" },
+    { "key": "super_admin_password", "value": "Super@123", "type": "string" },
+    { "key": "school_admin_email", "value": "admin@greenfield.ae", "type": "string" },
+    { "key": "school_admin_password", "value": "School@123", "type": "string" },
+    { "key": "driver_email", "value": "driver@smarttrack.ae", "type": "string" },
+    { "key": "driver_password", "value": "Driver@123", "type": "string" },
+    { "key": "guest_driver_email", "value": "guest@smarttrack.ae", "type": "string" },
+    { "key": "guest_driver_password", "value": "Guest@123", "type": "string" },
+    { "key": "parent_email", "value": "parent@smarttrack.ae", "type": "string" },
+    { "key": "parent_password", "value": "Parent@123", "type": "string" },
+    { "key": "super_admin_token", "value": "", "type": "string" },
+    { "key": "school_admin_token", "value": "", "type": "string" },
+    { "key": "driver_token", "value": "", "type": "string" },
+    { "key": "guest_driver_token", "value": "", "type": "string" },
+    { "key": "parent_token", "value": "", "type": "string" },
+    { "key": "school_id", "value": "SCH-001", "type": "string" },
+    { "key": "student_id", "value": "", "type": "string" },
+    { "key": "student_qr_code", "value": "", "type": "string" },
+    { "key": "bus_id", "value": "", "type": "string" },
+    { "key": "safety_qr_code", "value": "", "type": "string" },
+    { "key": "route_id", "value": "", "type": "string" },
+    { "key": "route_qr_code", "value": "", "type": "string" },
+    { "key": "stop_id", "value": "", "type": "string" },
+    { "key": "driver_id", "value": "", "type": "string" },
+    { "key": "trip_id", "value": "", "type": "string" },
+    { "key": "attendance_id", "value": "", "type": "string" },
+    { "key": "leave_id", "value": "", "type": "string" },
+    { "key": "lost_found_id", "value": "", "type": "string" },
+    { "key": "guest_trip_id", "value": "", "type": "string" },
+    { "key": "ticket_id", "value": "", "type": "string" },
+    { "key": "notification_id", "value": "", "type": "string" },
+    { "key": "otp", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Login - Super Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.token) pm.collectionVariables.set('super_admin_token', data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{super_admin_email}}\",\n  \"password\": \"{{super_admin_password}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login - School Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.token) pm.collectionVariables.set('school_admin_token', data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{school_admin_email}}\",\n  \"password\": \"{{school_admin_password}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login - Driver",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.token) pm.collectionVariables.set('driver_token', data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{driver_email}}\",\n  \"password\": \"{{driver_password}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login - Guest Driver",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.token) pm.collectionVariables.set('guest_driver_token', data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{guest_driver_email}}\",\n  \"password\": \"{{guest_driver_password}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login - Parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.token) pm.collectionVariables.set('parent_token', data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{parent_email}}\",\n  \"password\": \"{{parent_password}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Get Me (driver)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] }
+          }
+        },
+        {
+          "name": "Update FCM Token (driver) [NEW]",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"fcm_token\": \"demo-device-token-abc123\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/fcm-token", "host": ["{{baseUrl}}"], "path": ["auth", "fcm-token"] },
+            "description": "New self-service endpoint — any role can register its own push token. Sending is currently stubbed server-side (logged, not actually delivered)."
+          }
+        },
+        {
+          "name": "Forgot Password (parent)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.devOtp) pm.collectionVariables.set('otp', String(data.devOtp));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{parent_email}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["auth", "forgot-password"] },
+            "description": "Non-production responses include devOtp (no real email/SMS provider is wired up yet) — captured automatically into {{otp}} for the next two requests."
+          }
+        },
+        {
+          "name": "Verify OTP (parent)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{parent_email}}\",\n  \"otp\": \"{{otp}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/verify-otp", "host": ["{{baseUrl}}"], "path": ["auth", "verify-otp"] }
+          }
+        },
+        {
+          "name": "Reset Password (parent)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{parent_email}}\",\n  \"otp\": \"{{otp}}\",\n  \"password\": \"{{parent_password}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/reset-password", "host": ["{{baseUrl}}"], "path": ["auth", "reset-password"] },
+            "description": "Resets to the same {{parent_password}} so subsequent Login - Parent requests keep working."
+          }
+        },
+        {
+          "name": "Change Password (driver)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"{{driver_password}}\",\n  \"newPassword\": \"{{driver_password}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/change-password", "host": ["{{baseUrl}}"], "path": ["auth", "change-password"] },
+            "description": "Sets the new password to the same value as before, so it's safe to run repeatedly without breaking other requests."
+          }
+        },
+        {
+          "name": "Logout (driver)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/auth/logout", "host": ["{{baseUrl}}"], "path": ["auth", "logout"] },
+            "description": "Stateless JWT — this is a 204 no-op; the token remains valid until it expires. Re-run 'Login - Driver' afterwards if you need a fresh {{driver_token}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Lookups (capture IDs)",
+      "item": [
+        {
+          "name": "List Students (school_admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.students && data.students.length) {",
+                  "  pm.collectionVariables.set('student_id', data.students[0].id);",
+                  "  if (data.students[0].student_qr_code) pm.collectionVariables.set('student_qr_code', data.students[0].student_qr_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/students", "host": ["{{baseUrl}}"], "path": ["students"] }
+          }
+        },
+        {
+          "name": "List Drivers (school_admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.drivers && data.drivers.length) pm.collectionVariables.set('driver_id', data.drivers[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/drivers", "host": ["{{baseUrl}}"], "path": ["drivers"] }
+          }
+        },
+        {
+          "name": "List Buses (school_admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.buses && data.buses.length) {",
+                  "  pm.collectionVariables.set('bus_id', data.buses[0].id);",
+                  "  if (data.buses[0].safety_qr_code) pm.collectionVariables.set('safety_qr_code', data.buses[0].safety_qr_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/buses", "host": ["{{baseUrl}}"], "path": ["buses"] }
+          }
+        },
+        {
+          "name": "List Routes (school_admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.routes && data.routes.length) {",
+                  "  pm.collectionVariables.set('route_id', data.routes[0].id);",
+                  "  if (data.routes[0].route_qr_code) pm.collectionVariables.set('route_qr_code', data.routes[0].route_qr_code);",
+                  "  if (data.routes[0].stops && data.routes[0].stops.length) pm.collectionVariables.set('stop_id', data.routes[0].stops[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/routes", "host": ["{{baseUrl}}"], "path": ["routes"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. QR [NEW]",
+      "item": [
+        {
+          "name": "Resolve Student QR (driver)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/qr/{{student_qr_code}}", "host": ["{{baseUrl}}"], "path": ["qr", "{{student_qr_code}}"] },
+            "description": "Run '2. Lookups' first so {{student_qr_code}} is populated. Returns { type: 'student', entity: {...} }."
+          }
+        },
+        {
+          "name": "Resolve Bus QR (school_admin)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/qr/{{safety_qr_code}}", "host": ["{{baseUrl}}"], "path": ["qr", "{{safety_qr_code}}"] }
+          }
+        },
+        {
+          "name": "Resolve Route QR (school_admin)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/qr/{{route_qr_code}}", "host": ["{{baseUrl}}"], "path": ["qr", "{{route_qr_code}}"] }
+          }
+        },
+        {
+          "name": "Resolve Unknown QR - expect 404",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/qr/DOES-NOT-EXIST", "host": ["{{baseUrl}}"], "path": ["qr", "DOES-NOT-EXIST"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Trips",
+      "item": [
+        {
+          "name": "Create Trip (school_admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.trip) pm.collectionVariables.set('trip_id', data.trip.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"route_id\": \"{{route_id}}\",\n  \"driver_id\": \"{{driver_id}}\",\n  \"bus_id\": \"{{bus_id}}\",\n  \"trip_type\": \"pickup\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/trips", "host": ["{{baseUrl}}"], "path": ["trips"] },
+            "description": "Run '2. Lookups' first so route_id/driver_id/bus_id are populated. driver_id must be the DRV-xxxx id (from /drivers), not a user id."
+          }
+        },
+        {
+          "name": "List Trips (driver - scoped to own trips)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/trips", "host": ["{{baseUrl}}"], "path": ["trips"] },
+            "description": "[CHANGED] Only returns trips belonging to this driver, regardless of any driver_id query param passed."
+          }
+        },
+        {
+          "name": "List Trips (driver, spoofed driver_id - should be ignored)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/trips?driver_id=DRV-9999", "host": ["{{baseUrl}}"], "path": ["trips"], "query": [ { "key": "driver_id", "value": "DRV-9999" } ] },
+            "description": "[CHANGED] Demonstrates that a driver can't view another driver's trips by passing driver_id — the server overrides it with the caller's own driver id."
+          }
+        },
+        {
+          "name": "Update Trip Status (driver - own trip)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"in_progress\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/trips/{{trip_id}}", "host": ["{{baseUrl}}"], "path": ["trips", "{{trip_id}}"] },
+            "description": "A driver may only PATCH the status field of their own trip (pre-existing behavior, unchanged)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Attendance",
+      "item": [
+        {
+          "name": "Mark Attendance (driver)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.record) pm.collectionVariables.set('attendance_id', data.record.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"trip_id\": \"{{trip_id}}\",\n  \"student_id\": \"{{student_id}}\",\n  \"status\": \"present\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/attendance", "host": ["{{baseUrl}}"], "path": ["attendance"] },
+            "description": "[CHANGED] Now 403s if trip_id doesn't belong to this driver."
+          }
+        },
+        {
+          "name": "Scan Attendance (driver) [NEW]",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"trip_id\": \"{{trip_id}}\",\n  \"qr_code\": \"{{student_qr_code}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/attendance/scan", "host": ["{{baseUrl}}"], "path": ["attendance", "scan"] },
+            "description": "Resolves the student by QR code and marks them present in one call, stamping pickup_time or drop_time depending on the trip's type."
+          }
+        },
+        {
+          "name": "Bulk Mark Attendance (school_admin)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"trip_id\": \"{{trip_id}}\",\n  \"records\": [\n    { \"student_id\": \"{{student_id}}\", \"status\": \"present\" }\n  ]\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/attendance/bulk", "host": ["{{baseUrl}}"], "path": ["attendance", "bulk"] }
+          }
+        },
+        {
+          "name": "List Attendance (driver - own trips only)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/attendance", "host": ["{{baseUrl}}"], "path": ["attendance"] },
+            "description": "[CHANGED] Scoped to this driver's own trips."
+          }
+        },
+        {
+          "name": "List Attendance (parent - own children only)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{parent_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/attendance", "host": ["{{baseUrl}}"], "path": ["attendance"] },
+            "description": "[CHANGED] Scoped to attendance for this parent's own child(ren), matched by login email against parent_details.email. Empty unless the parent's login email matches a parent_details row."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Leave",
+      "item": [
+        {
+          "name": "Create Leave Request (parent)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.leave) pm.collectionVariables.set('leave_id', data.leave.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{parent_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"student_id\": \"{{student_id}}\",\n  \"from_date\": \"2026-09-01\",\n  \"to_date\": \"2026-09-02\",\n  \"reason\": \"Family trip\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/leave", "host": ["{{baseUrl}}"], "path": ["leave"] },
+            "description": "[CHANGED] Fails unless {{student_id}} is this parent's own child (matched by login email). If '2. Lookups' captured a student that isn't this parent's, expect a 403."
+          }
+        },
+        {
+          "name": "List Leave (parent - own children only)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{parent_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/leave", "host": ["{{baseUrl}}"], "path": ["leave"] }
+          }
+        },
+        {
+          "name": "Approve Leave (school_admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"approved\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/leave/{{leave_id}}", "host": ["{{baseUrl}}"], "path": ["leave", "{{leave_id}}"] }
+          }
+        },
+        {
+          "name": "Attempt Create Leave (driver) - expect 403 [CHANGED]",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"student_id\": \"{{student_id}}\",\n  \"from_date\": \"2026-09-01\",\n  \"to_date\": \"2026-09-02\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/leave", "host": ["{{baseUrl}}"], "path": ["leave"] },
+            "description": "Drivers/guest_drivers can no longer create leave requests at all — this should now 403 (previously any authenticated role could)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Lost & Found",
+      "item": [
+        {
+          "name": "Report Lost Item (driver)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.item) pm.collectionVariables.set('lost_found_id', data.item.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{driver_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"bus_id\": \"{{bus_id}}\",\n  \"driver_id\": \"{{driver_id}}\",\n  \"description\": \"Blue water bottle found on back seat\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/lost-found", "host": ["{{baseUrl}}"], "path": ["lost-found"] }
+          }
+        },
+        {
+          "name": "List Lost Items (parent)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{parent_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/lost-found", "host": ["{{baseUrl}}"], "path": ["lost-found"] }
+          }
+        },
+        {
+          "name": "Claim Lost Item (parent)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{parent_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"student_id\": \"{{student_id}}\",\n  \"claim_note\": \"That's my child's bottle\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/lost-found/{{lost_found_id}}/claims", "host": ["{{baseUrl}}"], "path": ["lost-found", "{{lost_found_id}}", "claims"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Guest Trips",
+      "item": [
+        {
+          "name": "Create Guest Trip (guest_driver)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.trip) pm.collectionVariables.set('guest_trip_id', data.trip.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{guest_driver_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"guest_driver_name\": \"SPOOFED NAME (should be overridden)\",\n  \"guest_driver_phone\": \"000-000-0000 (should be overridden)\",\n  \"bus_registration\": \"BUS-TEST-1\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/guest-trips", "host": ["{{baseUrl}}"], "path": ["guest-trips"] },
+            "description": "[CHANGED] The name/phone above are intentionally wrong — check the response and confirm guest_driver_name/guest_driver_phone came back as the guest_driver account's real name/phone instead, not what was sent."
+          }
+        },
+        {
+          "name": "List My Guest Trips (guest_driver)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{guest_driver_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/guest-trips", "host": ["{{baseUrl}}"], "path": ["guest-trips"] },
+            "description": "[CHANGED] Scoped to guest trips matching this account's own phone number."
+          }
+        },
+        {
+          "name": "Approve Guest Trip (school_admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"approved\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/guest-trips/{{guest_trip_id}}", "host": ["{{baseUrl}}"], "path": ["guest-trips", "{{guest_trip_id}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Notifications",
+      "item": [
+        {
+          "name": "List Notifications (parent)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{parent_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/notifications", "host": ["{{baseUrl}}"], "path": ["notifications"] }
+          }
+        },
+        {
+          "name": "Unread Count (parent)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{parent_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/notifications/unread-count", "host": ["{{baseUrl}}"], "path": ["notifications", "unread-count"] }
+          }
+        },
+        {
+          "name": "Send Notification (school_admin -> parent) [triggers push stub]",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"school_id\": \"{{school_id}}\",\n  \"user_id\": \"REPLACE_WITH_PARENT_USER_ID\",\n  \"title\": \"Test notification\",\n  \"body\": \"Checking the push stub logs a line in the server console\",\n  \"type\": \"info\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/notifications", "host": ["{{baseUrl}}"], "path": ["notifications"] },
+            "description": "Replace user_id with the parent's actual USR-xxxx id (visible in the Login - Parent response). Check the backend server console for a '[push:stub] would send to ...' log line — push sending isn't real yet."
+          }
+        },
+        {
+          "name": "Mark All Read (parent)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Authorization", "value": "Bearer {{parent_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/notifications/read-all", "host": ["{{baseUrl}}"], "path": ["notifications", "read-all"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Tickets",
+      "item": [
+        {
+          "name": "Create Ticket (guest_driver)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.ticket) pm.collectionVariables.set('ticket_id', data.ticket.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{guest_driver_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"Vehicle Issue\",\n  \"priority\": \"medium\",\n  \"description\": \"AC not working on assigned bus\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/tickets", "host": ["{{baseUrl}}"], "path": ["tickets"] }
+          }
+        },
+        {
+          "name": "List My Tickets (guest_driver) [NEW - mine=true]",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{guest_driver_token}}" } ],
+            "url": { "raw": "{{baseUrl}}/tickets?mine=true", "host": ["{{baseUrl}}"], "path": ["tickets"], "query": [ { "key": "mine", "value": "true" } ] },
+            "description": "Narrows to just this caller's own reported tickets, regardless of role."
+          }
+        },
+        {
+          "name": "Reply to Ticket (school_admin)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{school_admin_token}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"content\": \"Scheduling a mechanic to look at the AC tomorrow.\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/tickets/{{ticket_id}}/replies", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticket_id}}", "replies"] }
+          }
+        }
+      ]
+    }
+  ]
+}

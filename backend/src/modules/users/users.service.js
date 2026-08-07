@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const { query } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { paginationMeta } = require('../../utils/pagination');
+const { emailUserCredentials } = require('../../utils/userCredentialsEmail');
 
 // Roles a school_admin (as opposed to a super_admin) is allowed to manage.
 const SCHOOL_ADMIN_MANAGEABLE_ROLES = ['driver', 'guest_driver', 'parent'];
@@ -142,4 +143,16 @@ async function remove(id, actorRole, schoolId) {
   if (!rowCount) throw ApiError.notFound('User not found');
 }
 
-module.exports = { toResponse, list, getById, create, update, remove };
+/**
+ * Emails the given plaintext password to a user as their login credentials —
+ * called right after creating a user (assigning them to a school) or after
+ * resetting/regenerating their password. Doesn't touch password_hash itself;
+ * the caller is expected to have already set it via create()/update().
+ */
+async function sendCredentials(id, actorRole, schoolId, password) {
+  const existing = await getById(id, schoolId);
+  assertManageableRole(actorRole, existing.role);
+  return emailUserCredentials(existing, password, { triggerType: 'user_credentials' });
+}
+
+module.exports = { toResponse, list, getById, create, update, remove, sendCredentials };

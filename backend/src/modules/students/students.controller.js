@@ -12,13 +12,17 @@ const list = asyncHandler(async (req, res) => {
     class: req.query.class,
     division: req.query.division,
     is_active: req.query.is_active,
+    // Parents only ever see their own child(ren) — matched by login email
+    // against parent_details.email, never every student in the school.
+    parentUserId: req.user.role === 'parent' ? req.user.id : undefined,
   });
   res.json(result);
 });
 
 const getOne = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
-  res.json({ student: await service.getById(req.params.id, schoolId) });
+  const parentUserId = req.user.role === 'parent' ? req.user.id : undefined;
+  res.json({ student: await service.getById(req.params.id, schoolId, parentUserId) });
 });
 
 const create = asyncHandler(async (req, res) => {

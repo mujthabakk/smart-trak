@@ -34,3 +34,9 @@ export async function resetPassword(email: string, otp: string, password: string
   const { data } = await apiClient.post('/auth/reset-password', { email, otp, password })
   return data
 }
+
+/** Self-service "change my own password" while logged in — requires the current password. */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
+  const { data } = await apiClient.patch('/auth/change-password', { currentPassword, newPassword })
+  return data
+}

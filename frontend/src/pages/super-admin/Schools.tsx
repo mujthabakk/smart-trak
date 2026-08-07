@@ -227,6 +227,9 @@ export default function Schools() {
     }
   }
 
+  function approveSchool(row: School) {
+    statusMutation.mutate({ id: row.id, status: 'active' })
+  }
   function toggleSuspend(row: School) {
     statusMutation.mutate({ id: row.id, status: row.status === 'suspended' ? 'active' : 'suspended' })
   }
@@ -327,8 +330,12 @@ export default function Schools() {
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => navigate(`/super-admin/schools/${row.id}`)}><Eye size={14} /> View Profile</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate(`/super-admin/schools/${row.id}`)}><Pencil size={14} /> Edit</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toggleSuspend(row)}><Power size={14} />{row.status === 'suspended' ? 'Reactivate' : 'Suspend'}</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate(`/super-admin/schools/${row.id}`, { state: { tab: 'edit' } })}><Pencil size={14} /> Edit</DropdownMenuItem>
+              {row.status === 'pending' ? (
+                <DropdownMenuItem onClick={() => approveSchool(row)}><CheckCircle size={14} /> Approve</DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => toggleSuspend(row)}><Power size={14} />{row.status === 'suspended' ? 'Reactivate' : 'Suspend'}</DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => openPayment(row, 'alert')}><Bell size={14} /> Send Payment Alert</DropdownMenuItem>
               <DropdownMenuItem onClick={() => openPayment(row, 'invoice')}><FileText size={14} /> Send Invoice</DropdownMenuItem>
@@ -487,17 +494,31 @@ export default function Schools() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="sc-students">Students</Label>
-                  <Input id="sc-students" type="number" min={0} value={form.student_count} onChange={(e) => setForm((f) => ({ ...f, student_count: e.target.value }))} placeholder="350" />
+                  <Label htmlFor="sc-students">{editingId ? 'Students' : 'Expected Students'}</Label>
+                  <Input
+                    id="sc-students" type="number" min={0} value={form.student_count} disabled={!!editingId}
+                    onChange={(e) => setForm((f) => ({ ...f, student_count: e.target.value }))} placeholder="350"
+                  />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="sc-buses">Buses</Label>
-                  <Input id="sc-buses" type="number" min={0} value={form.bus_count} onChange={(e) => setForm((f) => ({ ...f, bus_count: e.target.value }))} placeholder="8" />
+                  <Label htmlFor="sc-buses">{editingId ? 'Buses' : 'Expected Buses'}</Label>
+                  <Input
+                    id="sc-buses" type="number" min={0} value={form.bus_count} disabled={!!editingId}
+                    onChange={(e) => setForm((f) => ({ ...f, bus_count: e.target.value }))} placeholder="8"
+                  />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="sc-drivers">Drivers</Label>
-                  <Input id="sc-drivers" type="number" min={0} value={form.driver_count} onChange={(e) => setForm((f) => ({ ...f, driver_count: e.target.value }))} placeholder="6" />
+                  <Label htmlFor="sc-drivers">{editingId ? 'Drivers' : 'Expected Drivers'}</Label>
+                  <Input
+                    id="sc-drivers" type="number" min={0} value={form.driver_count} disabled={!!editingId}
+                    onChange={(e) => setForm((f) => ({ ...f, driver_count: e.target.value }))} placeholder="6"
+                  />
                 </div>
+                <p className="col-span-2 text-xs text-[var(--muted-foreground)]">
+                  {editingId
+                    ? "Students, buses and drivers are counted automatically from real records — add them from the school's own pages rather than typing a number here."
+                    : 'Used only to estimate the monthly/annual cost below — the real counts start at 0 and grow as students, buses and drivers are actually added to this school.'}
+                </p>
               </div>
             </div>
 

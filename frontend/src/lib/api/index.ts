@@ -1,6 +1,8 @@
 export * from './client'
 export * as authApi from './auth'
 export * as plansApi from './plans'
+export * as featureCatalogApi from './featureCatalog'
+export * as emailLogsApi from './emailLogs'
 export * as schoolsApi from './schools'
 export * as subscriptionsApi from './subscriptions'
 export * as usersApi from './users'

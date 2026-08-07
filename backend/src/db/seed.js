@@ -28,12 +28,60 @@ async function wipe() {
 }
 
 async function seedPlans() {
-  await query(`
-    INSERT INTO plans (id, name, label, price_monthly, price_annual, price_per_student, billing_cycle, max_students, max_buses, max_drivers, features, is_popular) VALUES
-    ('plan_basic', 'basic', 'Basic', 49, 470, 0.50, 'monthly', 200, 5, 10, ARRAY['GPS Tracking','QR Attendance','Push Notifications','Basic Reports','Email Support'], false),
-    ('plan_standard', 'standard', 'Standard', 99, 950, 0.80, 'monthly', 500, 15, 25, ARRAY['Everything in Basic','WhatsApp Alerts','Leave Management','Lost & Found','Bus Transfer','Training Centre','Priority Support'], true),
-    ('plan_premium', 'premium', 'Premium', 199, 1910, 1.20, 'monthly', 99999, 99999, 99999, ARRAY['Everything in Standard','Unlimited All','Guest Driver Module','SMS Notifications','Full Analytics','Audit Logs','API Access','Dedicated Support'], false)
-  `);
+  const plans = [
+    {
+      id: 'plan_basic', name: 'basic', label: 'Basic',
+      price_monthly: 49, price_annual: 470, price_per_student: 0.50,
+      max_students: 200, max_buses: 5, max_drivers: 10, is_popular: false,
+      features: [
+        { name: 'GPS Tracking', price: 0.10 },
+        { name: 'QR Attendance', price: 0.05 },
+        { name: 'Push Notifications', price: 0.03 },
+        { name: 'Basic Reports', price: 0.02 },
+        { name: 'Email Support', price: 0 },
+      ],
+    },
+    {
+      id: 'plan_standard', name: 'standard', label: 'Standard',
+      price_monthly: 99, price_annual: 950, price_per_student: 0.80,
+      max_students: 500, max_buses: 15, max_drivers: 25, is_popular: true,
+      features: [
+        { name: 'Everything in Basic', price: 0 },
+        { name: 'WhatsApp Alerts', price: 0.08 },
+        { name: 'Leave Management', price: 0.05 },
+        { name: 'Lost & Found', price: 0.05 },
+        { name: 'Bus Transfer', price: 0.05 },
+        { name: 'Training Centre', price: 0.04 },
+        { name: 'Priority Support', price: 0 },
+      ],
+    },
+    {
+      id: 'plan_premium', name: 'premium', label: 'Premium',
+      price_monthly: 199, price_annual: 1910, price_per_student: 1.20,
+      max_students: 99999, max_buses: 99999, max_drivers: 99999, is_popular: false,
+      features: [
+        { name: 'Everything in Standard', price: 0 },
+        { name: 'Unlimited All', price: 0 },
+        { name: 'Guest Driver Module', price: 0.08 },
+        { name: 'SMS Notifications', price: 0.10 },
+        { name: 'Full Analytics', price: 0.10 },
+        { name: 'Audit Logs', price: 0 },
+        { name: 'API Access', price: 0.15 },
+        { name: 'Dedicated Support', price: 0 },
+      ],
+    },
+  ];
+  for (const p of plans) {
+    await query(
+      `INSERT INTO plans (id, name, label, price_monthly, price_annual, price_per_student,
+         billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
+       VALUES ($1,$2,$3,$4,$5,$6,'monthly',$7,$8,$9,$10,$11)`,
+      [
+        p.id, p.name, p.label, p.price_monthly, p.price_annual, p.price_per_student,
+        p.max_students, p.max_buses, p.max_drivers, JSON.stringify(p.features), p.is_popular,
+      ]
+    );
+  }
 }
 
 async function seedSchools() {

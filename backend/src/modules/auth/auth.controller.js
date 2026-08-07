@@ -43,4 +43,15 @@ const resetPassword = asyncHandler(async (req, res) => {
   res.json({ message: 'Password reset successfully' });
 });
 
-module.exports = { login, me, logout, forgotPassword, verifyOtp, resetPassword };
+const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  await authService.changeOwnPassword(req.user.id, currentPassword, newPassword);
+  res.json({ message: 'Password updated successfully' });
+});
+
+const updateFcmToken = asyncHandler(async (req, res) => {
+  const user = await authService.updateFcmToken(req.user.id, req.body.fcm_token);
+  res.json({ user });
+});
+
+module.exports = { login, me, logout, forgotPassword, verifyOtp, resetPassword, changePassword, updateFcmToken };

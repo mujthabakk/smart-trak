@@ -39,7 +39,7 @@ async function create(data) {
     [
       id, data.name, data.label, data.price_monthly, data.price_annual, data.price_per_student,
       data.billing_cycle, data.max_students, data.max_buses, data.max_drivers,
-      data.features || [], data.is_popular || false,
+      JSON.stringify(data.features || []), data.is_popular || false,
     ]
   );
   return toResponse(rows[0]);
@@ -55,7 +55,7 @@ async function update(id, data) {
      WHERE id=$12 RETURNING *`,
     [
       merged.name, merged.label, merged.price_monthly, merged.price_annual, merged.price_per_student,
-      merged.billing_cycle, merged.max_students, merged.max_buses, merged.max_drivers, merged.features,
+      merged.billing_cycle, merged.max_students, merged.max_buses, merged.max_drivers, JSON.stringify(merged.features),
       merged.is_popular, id,
     ]
   );

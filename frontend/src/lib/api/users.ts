@@ -36,3 +36,14 @@ export async function updateUser(id: string, payload: Partial<User> & { password
 export async function deleteUser(id: string): Promise<void> {
   await apiClient.delete(`/users/${id}`)
 }
+
+export interface SendCredentialsResult {
+  emailStatus: 'sent' | 'failed' | 'logged_only'
+}
+
+/** Emails the given plaintext password to the user as their login credentials.
+ * Call right after creating a user, or after setting a new password via updateUser. */
+export async function sendUserCredentials(id: string, password: string): Promise<SendCredentialsResult> {
+  const { data } = await apiClient.post<SendCredentialsResult>(`/users/${id}/send-credentials`, { password })
+  return data
+}

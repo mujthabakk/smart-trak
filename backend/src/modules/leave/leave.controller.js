@@ -14,19 +14,23 @@ const list = asyncHandler(async (req, res) => {
     status: req.query.status,
     from: req.query.from,
     to: req.query.to,
+    // Parents only ever see/manage leave requests for their own child(ren).
+    parentUserId: req.user.role === 'parent' ? req.user.id : undefined,
   });
   res.json(result);
 });
 
 const getOne = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
-  res.json({ leave: await service.getById(req.params.id, schoolId) });
+  const parentUserId = req.user.role === 'parent' ? req.user.id : undefined;
+  res.json({ leave: await service.getById(req.params.id, schoolId, parentUserId) });
 });
 
 const create = asyncHandler(async (req, res) => {
   const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.user.school_id;
   if (!schoolId) throw ApiError.badRequest('school_id is required');
-  const leave = await service.create(schoolId, req.body);
+  const parentUserId = req.user.role === 'parent' ? req.user.id : undefined;
+  const leave = await service.create(schoolId, req.body, parentUserId);
   res.status(201).json({ leave });
 });
 
@@ -35,13 +39,18 @@ const update = asyncHandler(async (req, res) => {
     throw ApiError.forbidden('Only school admins can approve or reject leave requests');
   }
   const schoolId = resolveSchoolId(req);
+  if (req.user.role === 'parent') {
+    // Confirms the record is theirs before allowing the edit; 404s otherwise.
+    await service.getById(req.params.id, schoolId, req.user.id);
+  }
   const leave = await service.update(req.params.id, schoolId, req.body, req.user.id);
   res.json({ leave });
 });
 
 const remove = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
-  await service.remove(req.params.id, schoolId);
+  const parentUserId = req.user.role === 'parent' ? req.user.id : undefined;
+  await service.remove(req.params.id, schoolId, parentUserId);
   res.status(204).send();
 });
 

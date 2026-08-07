@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -24,7 +24,6 @@ import { getInitials, formatDate, formatCurrency, formatNumber } from '@/lib/uti
 import { getSchool, updateSchool } from '@/lib/api/schools'
 import { listPlans } from '@/lib/api/plans'
 import { listSubscriptions } from '@/lib/api/subscriptions'
-import { PLAN_FEATURES } from '@/lib/constants'
 import type { School, Subscription } from '@/types'
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -134,11 +133,12 @@ function SectionLabel({ children }: { children: string }) {
 export default function SchoolProfile() {
   const navigate = useNavigate()
   const { id } = useParams()
+  const location = useLocation()
   const queryClient = useQueryClient()
 
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState(() => (location.state as { tab?: string } | null)?.tab ?? 'overview')
 
   const { data: school, isLoading, isError } = useQuery({
     queryKey: ['school', id],
@@ -170,7 +170,7 @@ export default function SchoolProfile() {
   )
 
   const currentSub = subscriptions[0]
-  const planFeatures = plan ? (PLAN_FEATURES[plan.name as keyof typeof PLAN_FEATURES] ?? plan.features) : []
+  const planFeatures = plan?.features ?? []
 
   const updateMutation = useMutation({
     mutationFn: (payload: Partial<School>) => updateSchool(id as string, payload),
@@ -290,10 +290,20 @@ export default function SchoolProfile() {
         ]}
         actions={
           <>
-            <Button variant="outline">
-              <Power size={15} />
-              {school.status === 'suspended' ? 'Reactivate' : 'Suspend'}
-            </Button>
+            {school.status === 'pending' ? (
+              <Button variant="outline" onClick={() => statusMutation.mutate('active')} loading={statusMutation.isPending}>
+                <CheckCircle2 size={15} /> Approve
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => statusMutation.mutate(school.status === 'suspended' ? 'active' : 'suspended')}
+                loading={statusMutation.isPending}
+              >
+                <Power size={15} />
+                {school.status === 'suspended' ? 'Reactivate' : 'Suspend'}
+              </Button>
+            )}
             <Button onClick={() => setActiveTab('edit')}>
               <Pencil size={15} /> Edit School
             </Button>
@@ -417,9 +427,9 @@ export default function SchoolProfile() {
                   <p className="text-sm font-medium text-[var(--foreground)] mb-3">Plan includes</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
                     {planFeatures.map((f) => (
-                      <div key={f} className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+                      <div key={f.name} className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
                         <CheckCircle2 size={15} className="text-[var(--primary)] flex-shrink-0" />
-                        {f}
+                        {f.name}
                       </div>
                     ))}
                   </div>
@@ -571,16 +581,20 @@ export default function SchoolProfile() {
                       </div>
                       <div className="space-y-1.5">
                         <Label htmlFor="e-students">Students</Label>
-                        <Input id="e-students" type="number" min={0} value={form.student_count} onChange={(e) => set('student_count', e.target.value)} placeholder="350" />
+                        <Input id="e-students" type="number" value={form.student_count} disabled />
                       </div>
                       <div className="space-y-1.5">
                         <Label htmlFor="e-buses">Buses</Label>
-                        <Input id="e-buses" type="number" min={0} value={form.bus_count} onChange={(e) => set('bus_count', e.target.value)} placeholder="8" />
+                        <Input id="e-buses" type="number" value={form.bus_count} disabled />
                       </div>
                       <div className="space-y-1.5">
                         <Label htmlFor="e-drivers">Drivers</Label>
-                        <Input id="e-drivers" type="number" min={0} value={form.driver_count} onChange={(e) => set('driver_count', e.target.value)} placeholder="6" />
+                        <Input id="e-drivers" type="number" value={form.driver_count} disabled />
                       </div>
+                      <p className="sm:col-span-2 text-xs text-[var(--muted-foreground)]">
+                        Students, buses and drivers are counted automatically from real records — add them from the
+                        school's Students/Buses/Drivers pages rather than typing a number here.
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

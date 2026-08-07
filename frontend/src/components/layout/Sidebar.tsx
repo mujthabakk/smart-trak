@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -25,6 +25,8 @@ import {
   Bell,
   ArrowLeftRight,
   UserPlus,
+  Sparkles,
+  Mail,
   type LucideIcon,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -54,6 +56,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Bell,
   ArrowLeftRight,
   UserPlus,
+  Sparkles,
+  Mail,
 }
 
 const SIDEBAR_EXPANDED_WIDTH = 240
@@ -66,9 +70,15 @@ export function Sidebar() {
   const toggleSidebar = () => dispatch(toggleSidebarAction())
   const navigate = useNavigate()
   const navRef = useRef<HTMLDivElement>(null)
+  const [isHovering, setIsHovering] = useState(false)
 
   const navKey = role === 'super_admin' ? 'super_admin' : 'school_admin'
   const navItems = SIDEBAR_NAV[navKey] ?? []
+
+  // While collapsed, hovering temporarily expands the sidebar as an overlay
+  // (doesn't touch the persisted `sidebarCollapsed` state, so the main content
+  // layout doesn't shift — it snaps back once the pointer leaves).
+  const isExpanded = !sidebarCollapsed || isHovering
 
   function handleLogout() {
     dispatch(logoutAction())
@@ -93,7 +103,9 @@ export function Sidebar() {
 
       {/* Sidebar */}
       <motion.aside
-        animate={{ width: sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH }}
+        onMouseEnter={() => sidebarCollapsed && setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+        animate={{ width: isExpanded ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
         transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         className={cn(
           'fixed left-0 top-0 bottom-0 z-30 flex flex-col overflow-hidden',
@@ -107,14 +119,14 @@ export function Sidebar() {
         <div
           className={cn(
             'flex items-center h-14 px-4 border-b border-white/10 flex-shrink-0',
-            sidebarCollapsed ? 'justify-center' : 'gap-3',
+            isExpanded ? 'gap-3' : 'justify-center',
           )}
         >
           <div className="h-8 w-8 rounded-lg bg-[var(--primary)] flex items-center justify-center flex-shrink-0 shadow-sm">
             <Bus size={18} className="text-white" />
           </div>
           <AnimatePresence>
-            {!sidebarCollapsed && (
+            {isExpanded && (
               <motion.span
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -136,14 +148,14 @@ export function Sidebar() {
               <NavLink
                 key={item.path}
                 to={item.path}
-                title={sidebarCollapsed ? item.label : undefined}
+                title={isExpanded ? undefined : item.label}
                 className={({ isActive }) =>
                   cn(
                     'group flex items-center rounded-lg px-2 py-2 text-sm font-medium transition-all duration-150 relative',
                     isActive
                       ? 'bg-[var(--sidebar-active,var(--primary))] text-white shadow-sm'
                       : 'text-[var(--sidebar-text,#cbd5e1)] hover:bg-[var(--sidebar-hover,rgba(255,255,255,0.1))] hover:text-[var(--sidebar-active,#ffffff)]',
-                    sidebarCollapsed ? 'justify-center' : 'gap-3',
+                    isExpanded ? 'gap-3' : 'justify-center',
                   )
                 }
               >
@@ -151,7 +163,7 @@ export function Sidebar() {
                   <>
                     <Icon size={18} className={cn('flex-shrink-0', isActive ? 'text-white' : '')} />
                     <AnimatePresence>
-                      {!sidebarCollapsed && (
+                      {isExpanded && (
                         <motion.span
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
@@ -165,7 +177,7 @@ export function Sidebar() {
                     </AnimatePresence>
                     {item.badge !== undefined && item.badge > 0 && (
                       <AnimatePresence>
-                        {!sidebarCollapsed && (
+                        {isExpanded && (
                           <motion.span
                             initial={{ opacity: 0, scale: 0.8 }}
                             animate={{ opacity: 1, scale: 1 }}
@@ -181,7 +193,7 @@ export function Sidebar() {
                       </AnimatePresence>
                     )}
                     {/* Collapsed tooltip */}
-                    {sidebarCollapsed && (
+                    {!isExpanded && (
                       <div className="absolute left-full ml-2 z-50 hidden group-hover:block">
                         <div className="bg-gray-900 text-white text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap shadow-lg">
                           {item.label}
@@ -200,7 +212,7 @@ export function Sidebar() {
           <div
             className={cn(
               'flex items-center rounded-lg p-2 gap-3 mb-2',
-              sidebarCollapsed && 'justify-center',
+              !isExpanded && 'justify-center',
             )}
           >
             {/* Avatar */}
@@ -208,7 +220,7 @@ export function Sidebar() {
               {user ? getInitials(user.name) : '?'}
             </div>
             <AnimatePresence>
-              {!sidebarCollapsed && user && (
+              {isExpanded && user && (
                 <motion.div
                   initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -226,15 +238,15 @@ export function Sidebar() {
           {/* Logout */}
           <button
             onClick={handleLogout}
-            title={sidebarCollapsed ? 'Logout' : undefined}
+            title={isExpanded ? undefined : 'Logout'}
             className={cn(
               'w-full flex items-center rounded-lg px-2 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors',
-              sidebarCollapsed ? 'justify-center' : 'gap-3',
+              isExpanded ? 'gap-3' : 'justify-center',
             )}
           >
             <LogOut size={16} className="flex-shrink-0" />
             <AnimatePresence>
-              {!sidebarCollapsed && (
+              {isExpanded && (
                 <motion.span
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}

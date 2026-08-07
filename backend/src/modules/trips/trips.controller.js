@@ -3,14 +3,24 @@ const { parsePagination } = require('../../utils/pagination');
 const { resolveSchoolId } = require('../../middleware/auth');
 const ApiError = require('../../utils/ApiError');
 const service = require('./trips.service');
+const driversService = require('../drivers/drivers.service');
 
 const list = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const pagination = parsePagination(req.query);
+  let driverId = req.query.driver_id;
+
+  if (req.user.role === 'driver') {
+    // Drivers only ever see their own trips — resolved server-side, overriding
+    // any driver_id a caller might pass to try to view someone else's trips.
+    driverId = await driversService.getIdByUserId(req.user.id, req.user.school_id);
+    driverId = driverId || '__none__';
+  }
+
   const result = await service.list(schoolId, pagination, {
     route_id: req.query.route_id,
     bus_id: req.query.bus_id,
-    driver_id: req.query.driver_id,
+    driver_id: driverId,
     status: req.query.status,
     date: req.query.date,
   });

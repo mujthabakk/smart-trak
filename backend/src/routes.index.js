@@ -4,6 +4,8 @@ const router = express.Router();
 
 router.use('/auth', require('./modules/auth/auth.routes'));
 router.use('/plans', require('./modules/plans/plans.routes'));
+router.use('/feature-catalog', require('./modules/featureCatalog/featureCatalog.routes'));
+router.use('/email-logs', require('./modules/emailLogs/emailLogs.routes'));
 router.use('/schools', require('./modules/schools/schools.routes'));
 router.use('/subscriptions', require('./modules/subscriptions/subscriptions.routes'));
 router.use('/users', require('./modules/users/users.routes'));
@@ -13,6 +15,7 @@ router.use('/buses', require('./modules/buses/buses.routes'));
 router.use('/routes', require('./modules/routesResource/routes.routes'));
 router.use('/trips', require('./modules/trips/trips.routes'));
 router.use('/attendance', require('./modules/attendance/attendance.routes'));
+router.use('/qr', require('./modules/qr/qr.routes'));
 router.use('/leave', require('./modules/leave/leave.routes'));
 router.use('/lost-found', require('./modules/lostFound/lostFound.routes'));
 router.use('/bus-transfers', require('./modules/busTransfers/busTransfers.routes'));
