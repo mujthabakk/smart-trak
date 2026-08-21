@@ -13,8 +13,10 @@ app.use(cors({ origin: env.corsOrigins.length ? env.corsOrigins : '*' }));
 app.use(express.json({ limit: '2mb' }));
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 
+const tenantMiddleware = require('./middleware/tenant');
+
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
-app.use('/api', apiRoutes);
+app.use('/api', tenantMiddleware, apiRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

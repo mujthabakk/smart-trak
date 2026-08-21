@@ -4,7 +4,8 @@
  * API is a drop-in swap. Safe to re-run: wipes seeded tables first.
  */
 const bcrypt = require('bcryptjs');
-const { pool, query, withTransaction } = require('../config/db');
+const { masterPool, getTenantPool } = require('../config/db');
+const { runMigrationsOnPool } = require('./migrate');
 const { generateQrCode } = require('../utils/qrcode');
 
 const DEMO_ACCOUNTS = [
@@ -16,15 +17,40 @@ const DEMO_ACCOUNTS = [
   { role: 'parent', email: 'parent@smarttrack.ae', password: 'Parent@123', name: 'Aisha Mohammed', school_id: 'SCH-001', phone: '+971 50 600 6000' },
 ];
 
-async function wipe() {
-  const tables = [
-    'bus_locations', 'guest_trip_students', 'guest_trips', 'bus_transfers', 'ticket_replies',
-    'support_tickets', 'notifications', 'messages', 'lf_claims', 'lost_found_items', 'leaves',
-    'attendance_records', 'trips', 'parent_details', 'students', 'stops', 'routes', 'drivers',
-    'buses', 'subscriptions', 'users', 'password_resets', 'schools', 'training_modules',
-    'plans', 'audit_logs', 'counters',
-  ];
-  await query(`TRUNCATE ${tables.join(', ')} RESTART IDENTITY CASCADE`);
+async function dropAllDatabases() {
+  try {
+    const { rows: tableCheck } = await masterPool.query(`SELECT to_regclass('public.schools') as exists;`);
+    if (!tableCheck[0].exists) return;
+    
+    const { rows } = await masterPool.query('SELECT id FROM schools');
+    for (const school of rows) {
+      const dbName = `smarttrack_${school.id.replace('-', '_').toLowerCase()}`;
+      try {
+        await masterPool.query(`
+          SELECT pg_terminate_backend(pg_stat_activity.pid)
+          FROM pg_stat_activity
+          WHERE pg_stat_activity.datname = $1 AND pid <> pg_backend_pid();
+        `, [dbName]);
+        await masterPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+        console.log(`Dropped database ${dbName}`);
+      } catch (err) {
+        console.warn(`Failed to drop database ${dbName}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.log('Skipping tenant DB drop (Master DB not ready or no schools).');
+  }
+}
+
+async function wipeMaster() {
+  try {
+    // We can just wipe everything and recreate it using runMigrationsOnPool
+    await masterPool.query('DROP SCHEMA public CASCADE');
+    await masterPool.query('CREATE SCHEMA public');
+    console.log('Wiped Master DB schema.');
+  } catch (err) {
+    console.error('Failed to wipe master schema:', err.message);
+  }
 }
 
 async function seedPlans() {
@@ -72,7 +98,7 @@ async function seedPlans() {
     },
   ];
   for (const p of plans) {
-    await query(
+    await masterPool.query(
       `INSERT INTO plans (id, name, label, price_monthly, price_annual, price_per_student,
          billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
        VALUES ($1,$2,$3,$4,$5,$6,'monthly',$7,$8,$9,$10,$11)`,
@@ -85,18 +111,55 @@ async function seedPlans() {
 }
 
 async function seedSchools() {
-  await query(`
-    INSERT INTO schools (id, name, address, city, state, post_code, country, phone, email, website, plan_id, status, subdomain, admin_name, admin_email) VALUES
-    ('SCH-001', 'Greenfield Academy', '45 Sheikh Zayed Road', 'Dubai', 'Dubai', '00000', 'UAE', '+971-4-555-0100', 'admin@greenfield.ae', 'www.greenfield.ae', 'plan_premium', 'active', 'greenfield', 'Hassan Ahmed', 'admin@greenfield.ae'),
-    ('SCH-002', 'Al-Noor International School', '12 Knowledge Village', 'Abu Dhabi', 'Abu Dhabi', '00000', 'UAE', '+971-2-555-0200', 'admin@alnoor.ae', 'www.alnoor.ae', 'plan_standard', 'active', 'alnoor', 'Fatima Al Ali', 'admin@alnoor.ae')
-  `);
+  const schools = [
+    ['SCH-001', 'Greenfield Academy', '45 Sheikh Zayed Road', 'Dubai', 'Dubai', '00000', 'UAE', '+971-4-555-0100', 'admin@greenfield.ae', 'www.greenfield.ae', 'plan_premium', 'active', 'greenfield', 'Hassan Ahmed', 'admin@greenfield.ae'],
+    ['SCH-002', 'Al-Noor International School', '12 Knowledge Village', 'Abu Dhabi', 'Abu Dhabi', '00000', 'UAE', '+971-2-555-0200', 'admin@alnoor.ae', 'www.alnoor.ae', 'plan_standard', 'active', 'alnoor', 'Fatima Al Ali', 'admin@alnoor.ae']
+  ];
+
+  for (const s of schools) {
+    await masterPool.query(
+      `INSERT INTO schools (id, name, address, city, state, post_code, country, phone, email, website, plan_id, status, subdomain, admin_name, admin_email) 
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      s
+    );
+
+    const schoolId = s[0];
+    const planId = s[10];
+    const dbName = `smarttrack_${schoolId.replace('-', '_').toLowerCase()}`;
+    await masterPool.query(`CREATE DATABASE "${dbName}"`);
+    const tenantPool = getTenantPool(dbName);
+    await runMigrationsOnPool(tenantPool, dbName);
+
+    // Copy the referenced plan
+    const { rows: planRows } = await masterPool.query(`SELECT * FROM plans WHERE id = $1`, [planId]);
+    const p = planRows[0];
+    await tenantPool.query(
+      `INSERT INTO plans (id, name, label, price_monthly, price_annual, price_per_student, billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [p.id, p.name, p.label, p.price_monthly, p.price_annual, p.price_per_student, p.billing_cycle, p.max_students, p.max_buses, p.max_drivers, JSON.stringify(p.features), p.is_popular]
+    );
+
+    // Copy the school to satisfy foreign keys
+    await tenantPool.query(
+      `INSERT INTO schools (id, name, address, city, state, post_code, country, phone, email, website, plan_id, status, subdomain, admin_name, admin_email) 
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      s
+    );
+  }
 }
 
 async function seedUsers() {
   const ids = {};
   for (const acc of DEMO_ACCOUNTS) {
     const passwordHash = await bcrypt.hash(acc.password, 10);
-    const { rows } = await query(
+    
+    let targetPool = masterPool;
+    if (acc.role !== 'super_admin') {
+      const dbName = `smarttrack_${acc.school_id.replace('-', '_').toLowerCase()}`;
+      targetPool = getTenantPool(dbName);
+    }
+    
+    const { rows } = await targetPool.query(
       `INSERT INTO users (name, email, password_hash, phone, role, school_id)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
       [acc.name, acc.email, passwordHash, acc.phone, acc.role, acc.school_id || null]
@@ -107,7 +170,7 @@ async function seedUsers() {
 }
 
 async function seedSubscriptions() {
-  await query(`
+  await masterPool.query(`
     INSERT INTO subscriptions (school_id, plan_id, start_date, end_date, amount_paid, payment_method, status) VALUES
     ('SCH-001', 'plan_premium', '2025-09-01', '2026-08-31', 1910, 'Bank Transfer', 'active'),
     ('SCH-002', 'plan_standard', '2025-10-15', '2026-10-14', 950, 'Online', 'active')
@@ -115,7 +178,10 @@ async function seedSubscriptions() {
 }
 
 async function seedFleetAndRoutes(driverUserId) {
-  return withTransaction(async (client) => {
+  const tenantPool = getTenantPool('smarttrack_sch_001');
+  const client = await tenantPool.connect();
+  try {
+    await client.query('BEGIN');
     const driver1 = await client.query(
       `INSERT INTO drivers (school_id, user_id, name, employee_id, email, phone, whatsapp, license_number, license_expiry)
        VALUES ('SCH-001',$1,'Salim Ahmed Rashid','EMP001','driver@smarttrack.ae','+971551234501','+971551234501','DXB-LIC-78901','2027-08-15') RETURNING id`,
@@ -179,11 +245,17 @@ async function seedFleetAndRoutes(driverUserId) {
         [rows[0].id, `Parent of ${name}`, `parent.${rows[0].id}@example.com`, '+971501234567']
       );
     }
-  });
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function seedTraining() {
-  await query(`
+  await masterPool.query(`
     INSERT INTO training_modules (title, description, video_url, target_role, is_published, view_count, duration_mins) VALUES
     ('Getting Started with SmartTrack', 'Complete overview for school administrators.', 'https://www.youtube.com/embed/EngW7tLk6R8', 'school_admin', true, 145, 12),
     ('Driver App Complete Guide', 'Start trips, mark attendance, handle emergencies.', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'driver', true, 213, 15)
@@ -191,11 +263,16 @@ async function seedTraining() {
 }
 
 async function run() {
-  console.log('Wiping existing seed data...');
-  await wipe();
+  console.log('Dropping existing tenant DBs...');
+  await dropAllDatabases();
+  console.log('Wiping Master DB...');
+  await wipeMaster();
+  console.log('Running Master Migrations...');
+  await runMigrationsOnPool(masterPool, 'MASTER');
+  
   console.log('Seeding plans...');
   await seedPlans();
-  console.log('Seeding schools...');
+  console.log('Seeding schools (and provisioning DBs)...');
   await seedSchools();
   console.log('Seeding users (demo accounts)...');
   const userIds = await seedUsers();
@@ -208,7 +285,7 @@ async function run() {
 
   console.log('\nSeed complete. Demo logins:');
   DEMO_ACCOUNTS.forEach((a) => console.log(`  ${a.role.padEnd(13)} ${a.email} / ${a.password}`));
-  await pool.end();
+  process.exit(0);
 }
 
 run().catch((err) => {

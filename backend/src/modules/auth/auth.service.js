@@ -37,9 +37,19 @@ async function findUserById(id) {
   return toUserResponse(rows[0]);
 }
 
-async function verifyCredentials(email, password) {
+async function verifyCredentials(email, password, schoolId) {
   const user = await findUserByEmail(email);
   if (!user) throw ApiError.unauthorized('Invalid email or password');
+
+  if (user.role !== 'super_admin') {
+    if (!schoolId) {
+      throw ApiError.badRequest('school_id is required');
+    }
+    if (user.school_id !== schoolId) {
+      throw ApiError.unauthorized('Invalid email, password, or school');
+    }
+  }
+
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) throw ApiError.unauthorized('Invalid email or password');
   await query('UPDATE users SET last_login = now() WHERE id = $1', [user.id]);

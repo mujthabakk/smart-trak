@@ -1,4 +1,5 @@
-const { query } = require('../../config/db');
+const { query, masterPool, getTenantPool } = require('../../config/db');
+const { runMigrationsOnPool } = require('../../db/migrate');
 const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
 
@@ -82,7 +83,27 @@ async function create(data) {
       data.admin_name, data.admin_email, data.logo_url, data.status,
     ]
   );
-  return getById(rows[0].id);
+  
+  const schoolId = rows[0].id;
+  const dbName = `smarttrack_${schoolId.replace('-', '_').toLowerCase()}`;
+
+  // 1. Create the database
+  try {
+    await masterPool.query(`CREATE DATABASE "${dbName}"`);
+  } catch (err) {
+    console.error(`Warning: Failed to create database ${dbName} (might already exist):`, err.message);
+  }
+
+  // 2. Run migrations on the new database
+  try {
+    const tenantPool = getTenantPool(dbName);
+    await runMigrationsOnPool(tenantPool, dbName);
+  } catch (err) {
+    console.error(`Failed to run migrations for new school ${dbName}:`, err);
+    throw ApiError.badRequest(`School created, but database provisioning failed: ${err.message}`);
+  }
+
+  return getById(schoolId);
 }
 
 async function update(id, data) {

@@ -3,6 +3,7 @@ const { z } = require('zod');
 const login = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  school_id: z.string().optional(),
 });
 
 const forgotPassword = z.object({

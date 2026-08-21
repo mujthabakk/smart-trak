@@ -4,8 +4,8 @@ const env = require('../../config/env');
 const authService = require('./auth.service');
 
 const login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-  const user = await authService.verifyCredentials(email, password);
+  const { email, password, school_id } = req.body;
+  const user = await authService.verifyCredentials(email, password, school_id);
   const token = signToken({ id: user.id, role: user.role, school_id: user.school_id || null });
   res.json({ user, token });
 });
