@@ -10,6 +10,13 @@ router.use(requireAuth);
 
 router.get('/', validate({ query: schema.listQuery }), controller.list);
 router.get('/:id', validate({ params: schema.idParam }), controller.getOne);
+router.get('/:id/boarding-students', validate({ params: schema.idParam }), controller.getBoardingStudents);
+
+router.post('/start', requireRole('driver'), validate({ body: schema.startTrip }), controller.startTrip);
+router.post('/prepare', requireRole('driver'), validate({ body: schema.prepareTrip }), controller.prepareTrip);
+router.post('/:id/start', requireRole('driver'), validate({ params: schema.idParam }), controller.startPreparedTrip);
+
+router.post('/end', requireRole('driver'), validate({ body: schema.endTrip }), controller.endTrip);
 router.post(
   '/',
   requireRole('super_admin', 'school_admin'),

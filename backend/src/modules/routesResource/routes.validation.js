@@ -14,7 +14,6 @@ const routeInput = z.object({
   bus_id: z.string().min(1).optional(),
   driver_id: z.string().min(1).optional(),
   name: z.string().min(1),
-  type: z.enum(['pickup', 'drop']),
   start_point: z.string().min(1),
   end_point: z.string().min(1),
   is_active: z.boolean().optional(),
@@ -36,5 +35,9 @@ const listQuery = z.object({
   bus_id: z.string().optional(),
   is_active: z.string().optional(),
 });
+const safetyManifestBody = z.object({
+  route_id: z.string().min(1),
+  bus_id: z.string().min(1),
+});
 
-module.exports = { createRoute, updateRoute, idParam, listQuery };
+module.exports = { createRoute, updateRoute, idParam, listQuery, safetyManifestBody };

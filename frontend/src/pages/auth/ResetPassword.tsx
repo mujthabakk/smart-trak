@@ -23,7 +23,7 @@ const CRITERIA: Criterion[] = [
 export default function ResetPassword() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { email, otp } = (location.state as { email?: string; otp?: string } | null) || {}
+  const { email, otp, schoolId } = (location.state as { email?: string; otp?: string; schoolId?: string } | null) || {}
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -48,7 +48,7 @@ export default function ResetPassword() {
     if (!canSubmit || !email || !otp) return
     setSubmitError('')
     try {
-      await resetPassword(email, otp, password)
+      await resetPassword(email, otp, password, schoolId)
       setDone(true)
       setTimeout(() => navigate('/login', { replace: true }), 1800)
     } catch {

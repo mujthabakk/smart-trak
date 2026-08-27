@@ -1,6 +1,7 @@
 const { z } = require('zod');
 
 const createSchool = z.object({
+  school_code: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_-]+$/, 'Must be alphanumeric with dashes or underscores'),
   name: z.string().min(1),
   address: z.string().min(1),
   city: z.string().min(1),

@@ -6,8 +6,8 @@ export interface LoginResponse {
   token: string
 }
 
-export async function login(email: string, password: string): Promise<LoginResponse> {
-  const { data } = await apiClient.post<LoginResponse>('/auth/login', { email, password })
+export async function login(email: string, password: string, school_id?: string): Promise<LoginResponse> {
+  const { data } = await apiClient.post<LoginResponse>('/auth/login', { email, password, school_id })
   return data
 }
 
@@ -20,18 +20,18 @@ export async function logoutRequest(): Promise<void> {
   await apiClient.post('/auth/logout')
 }
 
-export async function forgotPassword(email: string): Promise<{ message: string; devOtp?: string }> {
-  const { data } = await apiClient.post('/auth/forgot-password', { email })
+export async function forgotPassword(email: string, school_id?: string): Promise<{ message: string; devOtp?: string }> {
+  const { data } = await apiClient.post('/auth/forgot-password', { email, school_id })
   return data
 }
 
-export async function verifyOtp(email: string, otp: string): Promise<{ verified: boolean }> {
-  const { data } = await apiClient.post('/auth/verify-otp', { email, otp })
+export async function verifyOtp(email: string, otp: string, school_id?: string): Promise<{ verified: boolean }> {
+  const { data } = await apiClient.post('/auth/verify-otp', { email, otp, school_id })
   return data
 }
 
-export async function resetPassword(email: string, otp: string, password: string): Promise<{ message: string }> {
-  const { data } = await apiClient.post('/auth/reset-password', { email, otp, password })
+export async function resetPassword(email: string, otp: string, password: string, school_id?: string): Promise<{ message: string }> {
+  const { data } = await apiClient.post('/auth/reset-password', { email, otp, password, school_id })
   return data
 }
 

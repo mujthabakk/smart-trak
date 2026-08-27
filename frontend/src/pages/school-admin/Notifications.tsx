@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Bell, Megaphone, CheckCheck, AlertTriangle, CalendarCheck, Settings2,
   Info, CheckCircle2, XCircle, MessageSquare, CalendarOff, MoreVertical,
-  Send, Trash2, Check, AlertCircle,
+  Send, Trash2, Check, AlertCircle, Pencil
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -27,7 +27,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import {
-  listNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification,
+  listNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification, broadcastNotification, listBroadcasts, updateBroadcast, deleteBroadcast
 } from '@/lib/api/notifications'
 import { listRoutes } from '@/lib/api/routes'
 import { listDrivers } from '@/lib/api/drivers'
@@ -122,13 +122,166 @@ function NotificationRow({
   )
 }
 
+function EditBroadcastDialog({ b, open, onOpenChange }: { b: any, open: boolean, onOpenChange: (open: boolean) => void }) {
+  const queryClient = useQueryClient()
+  const [title, setTitle] = useState(b.title)
+  const [message, setMessage] = useState(b.body)
+  const [type, setType] = useState<AppNotification['type']>(b.type)
+  const [errorMsg, setErrorMsg] = useState('')
+  const MAX = 300
+
+  const mutation = useMutation({
+    mutationFn: () => updateBroadcast(b.id, { title, body: message, type }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['broadcasts'] })
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      onOpenChange(false)
+    },
+    onError: () => setErrorMsg('Failed to update broadcast.')
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil size={18} className="text-[var(--primary)]" />
+            Edit Broadcast
+          </DialogTitle>
+          <DialogDescription>Update the message for this broadcast.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-title">Title</Label>
+            <Input
+              id="edit-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="E.g., Bus 42 Delayed"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="edit-message">Message</Label>
+              <span className={cn('text-xs tabular-nums', message.length > MAX ? 'text-red-500' : 'text-[var(--muted-foreground)]')}>
+                {message.length}/{MAX}
+              </span>
+            </div>
+            <Textarea
+              id="edit-message"
+              value={message}
+              maxLength={MAX}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Write your announcement…"
+              className="min-h-[100px] resize-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select value={type} onValueChange={(v: AppNotification['type']) => setType(v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {NOTIFICATION_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full">
+          {errorMsg ? <div className="text-sm text-red-500 font-medium mb-2 sm:mb-0">{errorMsg}</div> : <div />}
+          <div className="flex gap-2 justify-end">
+            <DialogClose asChild>
+              <Button variant="outline" disabled={mutation.isPending}>Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={!title.trim() || !message.trim() || mutation.isPending}
+              onClick={() => mutation.mutate()}
+            >
+              {mutation.isPending ? <LoadingSpinner className="mr-2 h-4 w-4" /> : <Check size={15} className="mr-2" />}
+              Save Changes
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function SentBroadcastRow({
+  b, index, onDelete
+}: {
+  b: any
+  index: number
+  onDelete: (id: string) => void
+}) {
+  const conf = typeConf(b.type)
+  const Icon = conf.icon
+  const [editOpen, setEditOpen] = useState(false)
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+      transition={{ duration: 0.25, delay: Math.min(index * 0.03, 0.3) }}
+      className="group relative flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3.5 transition-colors"
+    >
+      <div className={cn('flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full ring-1', conf.color, conf.ring)}>
+        <Icon size={18} />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-medium text-[var(--foreground)] leading-snug">
+            {b.title}
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-xs px-2 py-0.5 rounded-md bg-[var(--muted)] text-[var(--muted-foreground)]">
+              Audience: {b.audience.replace('_', ' ')}
+            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="rounded-md p-1 text-[var(--muted-foreground)] opacity-0 transition-opacity hover:bg-[var(--muted)] focus:outline-none group-hover:opacity-100 data-[state=open]:opacity-100">
+                  <MoreVertical size={16} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                  <Pencil size={14} className="mr-2" /> Edit
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem destructive onClick={() => onDelete(b.id)}>
+                  <Trash2 size={14} className="mr-2" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+        <p className="mt-0.5 text-sm text-[var(--muted-foreground)] leading-relaxed">{b.body}</p>
+        <p className="mt-1.5 text-xs text-[var(--muted-foreground)]">
+          {formatDate(b.created_at, 'relative')} by {b.sender_name || b.sender_email || 'Admin'}
+        </p>
+      </div>
+      <EditBroadcastDialog b={b} open={editOpen} onOpenChange={setEditOpen} />
+    </motion.div>
+  )
+}
+
 function BroadcastDialog() {
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
-  const [audience, setAudience] = useState('all_parents')
+  const [audience, setAudience] = useState<'all_parents' | 'specific_route' | 'drivers'>('all_parents')
+  const [type, setType] = useState<AppNotification['type']>('info')
   const [selectedRoutes, setSelectedRoutes] = useState<string[]>([])
   const [selectedDrivers, setSelectedDrivers] = useState<string[]>([])
+  const [errorMsg, setErrorMsg] = useState('')
   const MAX = 300
 
   const { data: routesData } = useQuery({
@@ -142,6 +295,24 @@ function BroadcastDialog() {
     queryFn: () => listDrivers(),
   })
   const schoolDrivers = driversData?.drivers ?? []
+
+  const mutation = useMutation({
+    mutationFn: () => broadcastNotification({
+      title,
+      body: message,
+      type,
+      audience,
+      route_ids: audience === 'specific_route' ? selectedRoutes : undefined,
+      driver_ids: audience === 'drivers' ? selectedDrivers : undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['broadcasts'] })
+      handleClose()
+    },
+    onError: () => {
+      setErrorMsg('Failed to send broadcast.')
+    }
+  })
 
   function toggleDriver(id: string) {
     setSelectedDrivers((prev) =>
@@ -167,8 +338,10 @@ function BroadcastDialog() {
     setTitle('')
     setMessage('')
     setAudience('all_parents')
+    setType('info')
     setSelectedRoutes([])
     setSelectedDrivers([])
+    setErrorMsg('')
     setOpen(false)
   }
 
@@ -214,7 +387,7 @@ function BroadcastDialog() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Audience</Label>
-              <Select value={audience} onValueChange={(v) => { setAudience(v); setSelectedRoutes([]); setSelectedDrivers([]) }}>
+              <Select value={audience} onValueChange={(v: 'all_parents' | 'specific_route' | 'drivers') => { setAudience(v); setSelectedRoutes([]); setSelectedDrivers([]) }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all_parents">All Parents</SelectItem>
@@ -225,7 +398,7 @@ function BroadcastDialog() {
             </div>
             <div className="space-y-1.5">
               <Label>Type</Label>
-              <Select defaultValue="info">
+              <Select value={type} onValueChange={(v: AppNotification['type']) => setType(v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {NOTIFICATION_TYPES.map((t) => (
@@ -307,20 +480,25 @@ function BroadcastDialog() {
           )}
         </div>
 
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline" onClick={handleClose}>Cancel</Button>
-          </DialogClose>
-          <Button
-            disabled={
-              !title.trim() || !message.trim() ||
-              (audience === 'specific_route' && selectedRoutes.length === 0) ||
-              (audience === 'drivers' && selectedDrivers.length === 0)
-            }
-            onClick={handleClose}
-          >
-            <Send size={15} /> Send Broadcast
-          </Button>
+        <DialogFooter className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full">
+          {errorMsg ? <div className="text-sm text-red-500 font-medium mb-2 sm:mb-0">{errorMsg}</div> : <div />}
+          <div className="flex gap-2 justify-end">
+            <DialogClose asChild>
+              <Button variant="outline" onClick={handleClose} disabled={mutation.isPending}>Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={
+                !title.trim() || !message.trim() ||
+                (audience === 'specific_route' && selectedRoutes.length === 0) ||
+                (audience === 'drivers' && selectedDrivers.length === 0) ||
+                mutation.isPending
+              }
+              onClick={() => mutation.mutate()}
+            >
+              {mutation.isPending ? <LoadingSpinner className="mr-2 h-4 w-4" /> : <Send size={15} className="mr-2" />}
+              Send Broadcast
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -337,6 +515,12 @@ export default function Notifications() {
   })
   const items = useMemo(() => data?.notifications ?? [], [data])
 
+  const { data: broadcastsData, isLoading: isLoadingBroadcasts } = useQuery({
+    queryKey: ['broadcasts'],
+    queryFn: () => listBroadcasts({ pageSize: 100 }),
+  })
+  const sentBroadcasts = useMemo(() => broadcastsData?.broadcasts ?? [], [broadcastsData])
+
   const markReadMutation = useMutation({
     mutationFn: (id: string) => markNotificationRead(id),
     onSuccess: () => {
@@ -352,6 +536,14 @@ export default function Notifications() {
   const markAllReadMutation = useMutation({
     mutationFn: () => markAllNotificationsRead(),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+  
+  const deleteBroadcastMutation = useMutation({
+    mutationFn: (id: string) => deleteBroadcast(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['broadcasts'] })
       queryClient.invalidateQueries({ queryKey: ['notifications'] })
     },
   })
@@ -388,6 +580,7 @@ export default function Notifications() {
     { value: 'emergency', label: 'Emergency', icon: AlertTriangle },
     { value: 'attendance', label: 'Attendance', icon: CalendarCheck },
     { value: 'system', label: 'System', icon: Settings2 },
+    { value: 'sent', label: 'Sent Broadcasts', icon: Send },
   ]
 
   return (
@@ -432,20 +625,44 @@ export default function Notifications() {
               <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> Failed to load notifications. Please try again.
             </div>
           )}
-          {isLoading ? (
-            <div className="flex items-center justify-center py-24">
-              <LoadingSpinner size="lg" />
-            </div>
-          ) : filtered.length === 0 ? (
-            <Card className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--muted)]">
-                <Bell size={28} className="text-[var(--muted-foreground)]" strokeWidth={1.5} />
+          {tab === 'sent' ? (
+            isLoadingBroadcasts ? (
+              <div className="flex items-center justify-center py-24">
+                <LoadingSpinner size="lg" />
               </div>
-              <p className="text-base font-semibold text-[var(--foreground)]">You're all caught up</p>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">No notifications in this category.</p>
-            </Card>
-          ) : (
-            <div className="space-y-6">
+            ) : sentBroadcasts.length === 0 ? (
+              <Card className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--muted)]">
+                  <Send size={28} className="text-[var(--muted-foreground)]" strokeWidth={1.5} />
+                </div>
+                <p className="text-base font-semibold text-[var(--foreground)]">No broadcasts sent yet</p>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Your sent broadcasts will appear here.</p>
+              </Card>
+            ) : (
+              <div className="space-y-6">
+                <div className="space-y-2.5">
+                  <AnimatePresence initial={false}>
+                    {sentBroadcasts.map((b: any, i: number) => (
+                      <SentBroadcastRow key={b.id} b={b} index={i} onDelete={(id) => deleteBroadcastMutation.mutate(id)} />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </div>
+            )
+          ) : isLoading ? (
+            <div className="flex items-center justify-center py-24">
+                <LoadingSpinner size="lg" />
+              </div>
+            ) : filtered.length === 0 ? (
+              <Card className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--muted)]">
+                  <Bell size={28} className="text-[var(--muted-foreground)]" strokeWidth={1.5} />
+                </div>
+                <p className="text-base font-semibold text-[var(--foreground)]">You're all caught up</p>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">No notifications in this category.</p>
+              </Card>
+            ) : (
+              <div className="space-y-6">
               {grouped.today.length > 0 && (
                 <div>
                   <h3 className="mb-2.5 px-1 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Today</h3>

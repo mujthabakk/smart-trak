@@ -9,6 +9,7 @@ import {
   Eye, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
+import QRCode from 'qrcode'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
@@ -85,30 +86,24 @@ function generateStops(routeId: string, start: string, end: string): Stop[] {
 }
 
 // ─── QR download ──────────────────────────────────────────────────────────────
-function downloadRouteQR(route: RouteType) {
-  const canvas = document.createElement('canvas')
-  canvas.width = 200
-  canvas.height = 200
-  const ctx = canvas.getContext('2d')!
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, 200, 200)
-  ctx.fillStyle = '#000000'
-  const data = route.name + route.id
-  for (let i = 0; i < 20; i++)
-    for (let j = 0; j < 20; j++)
-      if ((data.charCodeAt((i * 20 + j) % data.length) + i + j) % 2 === 0)
-        ctx.fillRect(i * 10, j * 10, 10, 10)
-  const fc = (x: number, y: number) => {
-    ctx.fillRect(x, y, 70, 10)
-    ctx.fillRect(x, y, 10, 70)
-    ctx.fillRect(x + 60, y, 10, 70)
-    ctx.fillRect(x, y + 60, 70, 10)
+async function downloadRouteQR(route: RouteType) {
+  try {
+    const payload = JSON.stringify({ type: 'route', id: route.id })
+    const dataUrl = await QRCode.toDataURL(payload, {
+      width: 400,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#ffffff'
+      }
+    })
+    const link = document.createElement('a')
+    link.download = `route-qr-${route.name.replace(/\s+/g, '-')}.png`
+    link.href = dataUrl
+    link.click()
+  } catch (err) {
+    console.error('Failed to generate QR', err)
   }
-  fc(0, 0); fc(130, 0); fc(0, 130)
-  const link = document.createElement('a')
-  link.download = `route-qr-${route.name.replace(/\s+/g, '-')}.png`
-  link.href = canvas.toDataURL('image/png')
-  link.click()
 }
 
 // ─── Stop Timeline with click-to-expand students ─────────────────────────────
@@ -135,7 +130,9 @@ function StopTimeline({ route, studentsOnRoute }: StopTimelineProps) {
   // Group students by their actual assigned pickup/drop stop
   const studentsByStop: Record<string, Student[]> = {}
   studentsOnRoute.forEach((s) => {
-    const stopId = route.type === 'drop' ? s.drop_stop_id : s.pickup_stop_id
+    let stopId = null
+    if (route.stops?.some(stop => stop.id === s.pickup_stop_id)) stopId = s.pickup_stop_id
+    else if (route.stops?.some(stop => stop.id === s.drop_stop_id)) stopId = s.drop_stop_id
     if (!stopId) return
     if (!studentsByStop[stopId]) studentsByStop[stopId] = []
     studentsByStop[stopId].push(s)
@@ -257,7 +254,6 @@ function AddRouteDialog({ allStudentsState, onAdd }: AddRouteDialogProps) {
       name: name.trim(),
       start_point: startPoint.trim(),
       end_point: endPoint.trim(),
-      type: 'pickup',
       is_active: true,
       stops: autoStops,
     }
@@ -655,15 +651,8 @@ function RouteCard({
   const isRunning = !!activeTrip
   const tripDuration = routeTripDuration(route.id, trips)
 
-  const pickupStudents = studentsOnRoute.filter(
-    (s) => !s.route_name?.toLowerCase().includes('drop'),
-  )
-  const dropStudents = studentsOnRoute.filter(
-    (s) => s.route_name?.toLowerCase().includes('drop'),
-  )
-  // For pickup-type routes show all students in pickup tab, drop tab empty (and vice versa)
-  const tabPickup = route.type === 'pickup' ? studentsOnRoute : []
-  const tabDrop = route.type === 'drop' ? studentsOnRoute : []
+  const tabPickup = studentsOnRoute.filter((s) => route.stops?.some(stop => stop.id === s.pickup_stop_id))
+  const tabDrop = studentsOnRoute.filter((s) => route.stops?.some(stop => stop.id === s.drop_stop_id))
 
   return (
     <Card className="flex h-full flex-col overflow-hidden">
@@ -676,7 +665,6 @@ function RouteCard({
             <div className="min-w-0">
               <h3 className="truncate text-base font-bold text-[var(--foreground)]">{route.name}</h3>
               <p className="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
-                <Badge variant="muted" className="font-mono text-[10px]">{route.type}</Badge>
                 {route.route_qr_code && <span className="font-mono">{route.route_qr_code}</span>}
               </p>
             </div>

@@ -36,7 +36,6 @@ function toResponse(row, stops = []) {
     bus_id: row.bus_id || undefined,
     bus_number: row.bus_number || undefined,
     name: row.name,
-    type: row.type,
     start_point: row.start_point,
     end_point: row.end_point,
     route_qr_code: row.route_qr_code || undefined,
@@ -82,10 +81,6 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   if (filters.search) {
     params.push(`%${filters.search}%`);
     conditions.push(`r.name ILIKE $${params.length}`);
-  }
-  if (filters.type) {
-    params.push(filters.type);
-    conditions.push(`r.type = $${params.length}`);
   }
   if (filters.bus_id) {
     params.push(filters.bus_id);
@@ -163,11 +158,11 @@ async function upsertStops(client, routeId, stops) {
 async function create(schoolId, data) {
   const routeId = await withTransaction(async (client) => {
     const { rows } = await client.query(
-      `INSERT INTO routes (school_id, bus_id, driver_id, name, type, start_point, end_point, route_qr_code, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9, true))
+      `INSERT INTO routes (school_id, bus_id, driver_id, name, start_point, end_point, route_qr_code, is_active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, true))
        RETURNING id`,
       [
-        schoolId, data.bus_id || null, data.driver_id || null, data.name, data.type,
+        schoolId, data.bus_id || null, data.driver_id || null, data.name,
         data.start_point, data.end_point, generateQrCode('RT'), data.is_active,
       ]
     );
@@ -181,7 +176,7 @@ async function create(schoolId, data) {
 async function update(id, schoolId, data) {
   await getById(id, schoolId);
   await withTransaction(async (client) => {
-    const fields = ['bus_id', 'driver_id', 'name', 'type', 'start_point', 'end_point', 'is_active'];
+    const fields = ['bus_id', 'driver_id', 'name', 'start_point', 'end_point', 'is_active'];
     const sets = [];
     const params = [];
     for (const field of fields) {
@@ -209,4 +204,100 @@ async function remove(id, schoolId) {
   if (!rowCount) throw ApiError.notFound('Route not found');
 }
 
-module.exports = { list, getById, create, update, remove };
+async function getSafetyManifest(routeId, busId, schoolId) {
+  // Verify bus belongs to school (accepts either bus ID or safety QR code)
+  const { rows: busRows } = await query(
+    'SELECT id FROM buses WHERE (id = $1 OR safety_qr_code = $1) AND school_id = $2',
+    [busId, schoolId]
+  );
+  if (!busRows[0]) throw ApiError.notFound('Bus not found or does not belong to your school');
+
+  // Verify route exists and belongs to school
+  const { rows: routeRows } = await query('SELECT id FROM routes WHERE id = $1 AND school_id = $2', [routeId, schoolId]);
+  if (!routeRows[0]) throw ApiError.notFound('Route not found or does not belong to your school');
+
+  // Fetch stops for the route
+  const { rows: stops } = await query(
+    `SELECT id as stop_id, name as stop_name, latitude, longitude, order_index
+     FROM stops 
+     WHERE route_id = $1
+     ORDER BY order_index ASC, created_at ASC`,
+    [routeId]
+  );
+
+  if (!stops.length) {
+    return { route_id: routeId, stops: [] };
+  }
+
+  const stopIds = stops.map((s) => s.stop_id);
+
+  const { rows: trips } = await query(
+    `SELECT id, trip_type FROM trips WHERE route_id = $1 AND status = 'in_progress' ORDER BY started_at DESC LIMIT 1`,
+    [routeId]
+  );
+  const tripId = trips[0] ? trips[0].id : null;
+  const tripType = trips[0] ? trips[0].trip_type : null;
+
+  const { rows: students } = await query(
+    `SELECT s.id, s.name, s.class, s.division, s.roll_number, s.photo_url,
+            COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) AS pickup_stop_id,
+            COALESCE(tso.override_drop_stop_id, s.drop_stop_id) AS drop_stop_id,
+            (SELECT ar.status FROM attendance_records ar 
+             WHERE ar.student_id = s.id AND ar.date = CURRENT_DATE 
+             ORDER BY ar.created_at DESC LIMIT 1) as attendance_status
+     FROM students s
+     LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = $2
+     WHERE (COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) = ANY($1::text[]) 
+         OR COALESCE(tso.override_drop_stop_id, s.drop_stop_id) = ANY($1::text[]))
+       AND s.is_active = true`,
+    [stopIds, tripId]
+  );
+
+  const stopsWithStudents = stops.map((stop) => {
+    const stopStudents = students
+      .filter((st) => {
+        if (tripType === 'pickup') return st.pickup_stop_id === stop.stop_id;
+        if (tripType === 'drop') return st.drop_stop_id === stop.stop_id;
+        return st.pickup_stop_id === stop.stop_id || st.drop_stop_id === stop.stop_id;
+      })
+      .map((st) => ({
+        id: st.id,
+        name: st.name,
+        class: st.class,
+        division: st.division,
+        roll_number: st.roll_number,
+        photo_url: st.photo_url || '',
+        attendance_status: st.attendance_status || '',
+      }));
+    
+    return {
+      stop_id: stop.stop_id,
+      stop_name: stop.stop_name,
+      latitude: Number(stop.latitude),
+      longitude: Number(stop.longitude),
+      order_index: stop.order_index,
+      students: stopStudents,
+    };
+  });
+
+  return {
+    route_id: routeId,
+    stops: stopsWithStudents
+  };
+}
+
+async function getRouteLocations(routeId, schoolId) {
+  const { rows: routeRows } = await query('SELECT id FROM routes WHERE id = $1 AND school_id = $2', [routeId, schoolId]);
+  if (!routeRows[0]) throw ApiError.notFound('Route not found');
+
+  const { rows } = await query(
+    `SELECT id, name, latitude, longitude, order_index, estimated_time
+     FROM stops 
+     WHERE route_id = $1
+     ORDER BY order_index ASC`,
+    [routeId]
+  );
+  return rows;
+}
+
+module.exports = { list, getById, create, update, remove, getSafetyManifest, getRouteLocations };

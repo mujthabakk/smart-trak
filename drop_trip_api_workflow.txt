@@ -1,0 +1,260 @@
+DROP TRIP WORKFLOW - API SPECIFICATION
+
+This document outlines the API workflow for a "Drop Trip", from scanning the bus QR code to marking students as offboarded (or not offboarded with reasons).
+
+=======================================================
+STEP 1: PREPARE TRIP & FETCH BOARDING STUDENTS
+=======================================================
+When the driver scans the bus safety QR code, the app will initialize the trip (in a 'not_started' state) and fetch the list of students on that route for boarding attendance.
+
+Endpoint: POST /trips/prepare
+Headers:
+  Authorization: Bearer <driver_token>
+
+Request Body:
+{
+  "route_id": "uuid-of-route",
+  "safety_qr_code": "scanned-qr-code-string",
+  "trip_type": "drop"
+}
+
+Response (201 Created):
+{
+  "trip": {
+    "id": "uuid-trip-id",
+    "route_id": "uuid-route-id",
+    "route_name": "Morning Route A",
+    "driver_id": "uuid-driver-id",
+    "driver_name": "John Smith",
+    "bus_id": "uuid-bus-id",
+    "bus_number": "BUS-101",
+    "trip_type": "drop",
+    "status": "not_started",
+    "started_at": null,
+    "ended_at": null,
+    "student_count": 25
+  },
+  "students": [
+    {
+      "id": "uuid-student-1",
+      "name": "Alice Johnson",
+      "class": "10",
+      "division": "A",
+      "student_qr_code": "qr-student-1",
+      "is_leave_applied": false
+    },
+    {
+      "id": "uuid-student-2",
+      "name": "Bob Williams",
+      "class": "9",
+      "division": "B",
+      "student_qr_code": "qr-student-2",
+      "is_leave_applied": true
+    }
+  ]
+}
+
+=======================================================
+STEP 2: BOARDING ATTENDANCE (AT SCHOOL)
+=======================================================
+As students board the bus at the school, the driver takes attendance.
+
+Endpoint: POST /attendance/bulk
+Headers:
+  Authorization: Bearer <driver_token>
+
+Request Body:
+{
+  "trip_id": "uuid-trip-id",
+  "records": [
+    {
+      "student_id": "uuid-student-1",
+      "status": "present"
+    },
+    {
+      "student_id": "uuid-student-2",
+      "status": "absent"
+    }
+  ]
+}
+
+Response (201 Created):
+[
+  {
+    "id": "uuid-attendance-1",
+    "trip_id": "uuid-trip-id",
+    "student_id": "uuid-student-1",
+    "student_name": "Alice Johnson",
+    "student_class": "10",
+    "stop_id": null,
+    "stop_name": null,
+    "status": "present",
+    "pickup_time": null,
+    "drop_time": null,
+    "offboard_status": null,
+    "offboard_reason": null,
+    "route_name": "Morning Route A",
+    "date": "2026-08-24"
+  },
+  {
+    "id": "uuid-attendance-2",
+    "trip_id": "uuid-trip-id",
+    "student_id": "uuid-student-2",
+    "student_name": "Bob Williams",
+    "student_class": "9",
+    "stop_id": null,
+    "stop_name": null,
+    "status": "absent",
+    "pickup_time": null,
+    "drop_time": null,
+    "offboard_status": null,
+    "offboard_reason": null,
+    "route_name": "Morning Route A",
+    "date": "2026-08-24"
+  }
+]
+
+=======================================================
+STEP 3: START TRIP
+=======================================================
+Once the driver hits "Start Trip" on the UI to leave the school, call this API to officially start the trip and notify parents.
+
+Endpoint: POST /trips/:trip_id/start
+Headers:
+  Authorization: Bearer <driver_token>
+
+Response (200 OK):
+{
+  "trip": {
+    "id": "uuid-trip-id",
+    "route_id": "uuid-route-id",
+    "route_name": "Morning Route A",
+    "driver_id": "uuid-driver-id",
+    "driver_name": "John Smith",
+    "bus_id": "uuid-bus-id",
+    "bus_number": "BUS-101",
+    "trip_type": "drop",
+    "status": "in_progress",
+    "started_at": "2026-08-24T08:30:00.000Z",
+    "ended_at": null,
+    "student_count": 25
+  },
+  "locations": [
+    {
+      "stop_id": "uuid-stop-id-2",
+      "stop_name": "Oak St & 2nd Ave",
+      "latitude": "40.7138000",
+      "longitude": "-74.0070000",
+      "order_index": 2,
+      "students": [
+        {
+          "id": "uuid-student-2",
+          "name": "Bob Williams",
+          "class": "9",
+          "division": "B",
+          "student_qr_code": "qr-student-2"
+        }
+      ]
+    },
+    {
+      "stop_id": "uuid-stop-id-1",
+      "stop_name": "Main St & 1st Ave",
+      "latitude": "40.7128000",
+      "longitude": "-74.0060000",
+      "order_index": 1,
+      "students": [
+        {
+          "id": "uuid-student-1",
+          "name": "Alice Johnson",
+          "class": "10",
+          "division": "A",
+          "student_qr_code": "qr-student-1"
+        }
+      ]
+    }
+  ]
+}
+
+=======================================================
+STEP 4: OFFBOARDING STUDENTS (AT STOPS)
+=======================================================
+When the bus reaches a stop, the driver marks the "present" students as offboarded. If a student is not offboarded, the driver must select a reason.
+
+Endpoint: PATCH /attendance/bulk-offboard
+Headers:
+  Authorization: Bearer <driver_token>
+
+Options for `offboard_reason`:
+- "parent_not_available": Parent/Guardian not at stop
+- "student_asleep": Student fell asleep / missed stop
+- "wrong_stop": Incorrect stop / safety concern
+- "returned_to_school": Returned to school
+- "other": Other reason
+
+Request Body (Successful & Unsuccessful Offboarding combined):
+{
+  "trip_id": "uuid-trip-id",
+  "records": [
+    {
+      "attendance_id": "uuid-attendance-1",
+      "offboard_status": "offboarded",
+      "drop_time": "2026-08-24T08:30:00.000Z"
+    },
+    {
+      "attendance_id": "uuid-attendance-2",
+      "offboard_status": "not_offboarded",
+      "offboard_reason": "parent_not_available"
+    }
+  ]
+}
+
+Response (200 OK):
+{
+  "id": "uuid-attendance-1",
+  "trip_id": "uuid-trip-id",
+  "student_id": "uuid-student-1",
+  "student_name": "Alice Johnson",
+  "student_class": "10",
+  "stop_id": "uuid-stop-id",
+  "stop_name": "Main St & 1st Ave",
+  "status": "present",
+  "pickup_time": null,
+  "drop_time": null,
+  "offboard_status": "not_offboarded",
+  "offboard_reason": "parent_not_available",
+  "route_name": "Morning Route A",
+  "date": "2026-08-24"
+}
+
+=======================================================
+STEP 5: END TRIP
+=======================================================
+Once the trip is complete, the driver ends the trip.
+
+Endpoint: POST /trips/end
+Headers:
+  Authorization: Bearer <driver_token>
+
+Request Body:
+{
+  "trip_id": "uuid-trip-id",
+  "safety_qr_code": "scanned-qr-code-string"
+}
+
+Response (200 OK):
+{
+  "trip": {
+    "id": "uuid-trip-id",
+    "route_id": "uuid-route-id",
+    "route_name": "Morning Route A",
+    "driver_id": "uuid-driver-id",
+    "driver_name": "John Smith",
+    "bus_id": "uuid-bus-id",
+    "bus_number": "BUS-101",
+    "trip_type": "drop",
+    "status": "completed",
+    "started_at": "2026-08-24T08:00:00.000Z",
+    "ended_at": "2026-08-24T09:00:00.000Z",
+    "student_count": 25
+  }
+}

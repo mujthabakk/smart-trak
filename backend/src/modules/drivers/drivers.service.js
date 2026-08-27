@@ -186,4 +186,48 @@ async function expiringDocuments(schoolId, days) {
   return rows.map(toResponse);
 }
 
-module.exports = { list, getById, create, update, remove, expiringDocuments, getIdByUserId };
+async function getRouteStudents(driverUserId, schoolId) {
+  // Find driver
+  const driverId = await getIdByUserId(driverUserId, schoolId);
+  if (!driverId) throw ApiError.badRequest('Driver profile not found');
+
+  // Find active trip
+  const { rows: trips } = await query(
+    `SELECT id, route_id FROM trips WHERE driver_id = $1 AND status = 'in_progress' ORDER BY started_at DESC LIMIT 1`,
+    [driverId]
+  );
+
+  // If no active trip, driver hasn't scanned QR yet
+  if (!trips[0]) {
+    throw ApiError.badRequest('scan route qr and safety qr');
+  }
+
+  const routeId = trips[0].route_id;
+  const tripId = trips[0].id;
+
+  // Fetch route info
+  const { rows: routeRows } = await query('SELECT * FROM routes WHERE id = $1', [routeId]);
+  
+  // Fetch students whose pickup or drop stop belongs to this route
+  const { rows: students } = await query(`
+    SELECT s.id, s.name, s.class, s.division, 
+           COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) AS pickup_stop_id, 
+           COALESCE(tso.override_drop_stop_id, s.drop_stop_id) AS drop_stop_id,
+           ps.name as pickup_stop_name, ds.name as drop_stop_name
+    FROM students s
+    LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = $1
+    LEFT JOIN stops ps ON ps.id = COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id)
+    LEFT JOIN stops ds ON ds.id = COALESCE(tso.override_drop_stop_id, s.drop_stop_id)
+    WHERE (COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) IN (SELECT id FROM stops WHERE route_id = $2)
+        OR COALESCE(tso.override_drop_stop_id, s.drop_stop_id) IN (SELECT id FROM stops WHERE route_id = $2))
+      AND s.is_active = true
+    ORDER BY s.name ASC
+  `, [tripId, routeId]);
+
+  return {
+    route: routeRows[0],
+    students,
+  };
+}
+
+module.exports = { list, getById, create, update, remove, expiringDocuments, getIdByUserId, getRouteStudents };

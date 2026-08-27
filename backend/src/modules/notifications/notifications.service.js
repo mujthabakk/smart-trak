@@ -120,11 +120,136 @@ async function remove(id, userId) {
   if (!rowCount) throw ApiError.notFound('Notification not found');
 }
 
+async function broadcastNotification(schoolId, senderId, payload) {
+  const { title, body, type, audience, route_ids, driver_ids } = payload;
+  let userIds = [];
+
+  if (audience === 'all_parents') {
+    const { rows } = await query(`
+      SELECT DISTINCT u.id 
+      FROM parent_details p
+      JOIN users u ON u.email = p.email
+      JOIN students s ON s.id = p.student_id
+      WHERE s.school_id = $1
+    `, [schoolId]);
+    userIds = rows.map(r => r.id);
+  } else if (audience === 'specific_route' && route_ids?.length) {
+    const { rows } = await query(`
+      SELECT DISTINCT u.id 
+      FROM students s
+      JOIN parent_details p ON p.student_id = s.id
+      JOIN users u ON u.email = p.email
+      WHERE s.school_id = $1 AND (
+        s.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = ANY($2)) OR
+        s.drop_stop_id IN (SELECT id FROM stops WHERE route_id = ANY($2))
+      )
+    `, [schoolId, route_ids]);
+    userIds = rows.map(r => r.id);
+  } else if (audience === 'drivers' && driver_ids?.length) {
+    const { rows } = await query(`
+      SELECT DISTINCT user_id AS id 
+      FROM drivers 
+      WHERE school_id = $1 AND id = ANY($2)
+    `, [schoolId, driver_ids]);
+    userIds = rows.map(r => r.id).filter(Boolean);
+  }
+
+  if (!userIds.length) {
+    return { count: 0, message: 'No users found for the selected audience' };
+  }
+
+  // Insert into broadcasts table
+  const { rows: broadcastRows } = await query(`
+    INSERT INTO broadcasts (school_id, sender_id, title, body, type, audience, target_route_ids, target_driver_ids)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING id
+  `, [schoolId, senderId, title, body, type, audience, route_ids || null, driver_ids || null]);
+  const broadcastId = broadcastRows[0].id;
+
+  const values = [];
+  const queryParams = [];
+  let paramCount = 1;
+  for (const uid of userIds) {
+    values.push(`($${paramCount++}, $${paramCount++}, $${paramCount++}, $${paramCount++}, $${paramCount++}, $${paramCount++})`);
+    queryParams.push(schoolId, uid, title, body, type, broadcastId);
+  }
+
+  await query(`
+    INSERT INTO notifications (school_id, user_id, title, body, type, broadcast_id)
+    VALUES ${values.join(', ')}
+  `, queryParams);
+
+  // Send push notifications
+  try {
+    const { rows: tokens } = await query(`
+      SELECT fcm_token FROM users WHERE id = ANY($1) AND fcm_token IS NOT NULL
+    `, [userIds]);
+    for (const t of tokens) {
+      await sendPush({ token: t.fcm_token, title, body, data: { type } }).catch(() => {});
+    }
+  } catch (err) {
+    console.error('Failed to send broadcast push notifications', err);
+  }
+
+  return { count: userIds.length, message: 'Broadcast sent successfully', userIds };
+}
+
+async function listBroadcasts(schoolId, { page, pageSize, offset }) {
+  const { rows: countRows } = await query('SELECT COUNT(*)::int AS total FROM broadcasts WHERE school_id = $1', [schoolId]);
+  const total = countRows[0].total;
+
+  const { rows } = await query(`
+    SELECT b.*, u.name as sender_name, u.email as sender_email
+    FROM broadcasts b
+    LEFT JOIN users u ON b.sender_id = u.id
+    WHERE b.school_id = $1
+    ORDER BY b.created_at DESC
+    LIMIT $2 OFFSET $3
+  `, [schoolId, pageSize, offset]);
+
+  return { broadcasts: rows, pagination: paginationMeta(page, pageSize, total) };
+}
+
+async function updateBroadcast(schoolId, id, { title, body, type }) {
+  const { rowCount } = await query(`
+    UPDATE broadcasts SET title = $1, body = $2, type = $3 
+    WHERE id = $4 AND school_id = $5
+  `, [title, body, type, id, schoolId]);
+  
+  if (rowCount) {
+    const { rows: updatedRows } = await query(`
+      UPDATE notifications SET title = $1, body = $2, type = $3 
+      WHERE broadcast_id = $4
+      RETURNING user_id
+    `, [title, body, type, id]);
+    return { userIds: updatedRows.map(r => r.user_id) };
+  } else {
+    throw ApiError.notFound('Broadcast not found');
+  }
+}
+
+async function deleteBroadcast(schoolId, id) {
+  // Grab user_ids before deleting
+  const { rows } = await query('SELECT user_id FROM notifications WHERE broadcast_id = $1', [id]);
+  const userIds = rows.map(r => r.user_id);
+
+  const { rowCount } = await query(`
+    DELETE FROM broadcasts WHERE id = $1 AND school_id = $2
+  `, [id, schoolId]);
+  if (!rowCount) throw ApiError.notFound('Broadcast not found');
+  
+  return { userIds };
+}
+
 module.exports = {
   toResponse,
   list,
   unreadCount,
   createNotification,
+  broadcastNotification,
+  listBroadcasts,
+  updateBroadcast,
+  deleteBroadcast,
   markRead,
   markAllRead,
   remove,

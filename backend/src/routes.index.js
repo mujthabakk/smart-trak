@@ -26,5 +26,6 @@ router.use('/tickets', require('./modules/tickets/tickets.routes'));
 router.use('/training', require('./modules/training/training.routes'));
 router.use('/audit-logs', require('./modules/auditLogs/auditLogs.routes'));
 router.use('/reports', require('./modules/reports/reports.routes'));
+router.use('/upload', require('./modules/upload/upload.routes'));
 
 module.exports = router;

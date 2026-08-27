@@ -39,12 +39,13 @@ interface FormState {
   post_code: string
   country: string
   plan_id: string
+  school_code: string
 }
 
 const EMPTY_FORM: FormState = {
   name: '', subdomain: '', subdomainTouched: false, phone: '', email: '', website: '',
   admin_name: '', admin_email: '', address: '', city: '', state: '', post_code: '', country: 'UAE',
-  plan_id: '',
+  plan_id: '', school_code: '',
 }
 
 export default function AddSchool() {
@@ -60,7 +61,7 @@ export default function AddSchool() {
   })
 
   const createMutation = useMutation({
-    mutationFn: (payload: Partial<School>) => createSchool(payload),
+    mutationFn: (payload: Partial<School> & { school_code?: string }) => createSchool(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schools'] })
       setSaved(true)
@@ -86,12 +87,13 @@ export default function AddSchool() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.address.trim() ||
+    if (!form.name.trim() || !form.school_code.trim() || !form.email.trim() || !form.phone.trim() || !form.address.trim() ||
         !form.city.trim() || !form.state.trim() || !form.plan_id || !form.subdomain.trim()) {
       setError('Please fill in all required fields.')
       return
     }
-    const payload: Partial<School> = {
+    const payload: Partial<School> & { school_code: string } = {
+      school_code: form.school_code,
       name: form.name,
       address: form.address,
       city: form.city,
@@ -153,6 +155,10 @@ export default function AddSchool() {
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 space-y-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">School Information</p>
             <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1.5">
+                <Label htmlFor="as-school-code">School Code *</Label>
+                <Input id="as-school-code" value={form.school_code} onChange={(e) => set('school_code', e.target.value)} placeholder="SCH-001" required />
+              </div>
               <div className="col-span-2 space-y-1.5">
                 <Label htmlFor="as-name">School name *</Label>
                 <Input id="as-name" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Greenfield Academy" required />

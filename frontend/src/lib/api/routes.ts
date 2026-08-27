@@ -6,14 +6,12 @@ export interface ListRoutesParams {
   page?: number
   pageSize?: number
   search?: string
-  type?: TripType
   bus_id?: string
   is_active?: boolean
 }
 
 export interface RouteInput {
   name: string
-  type: TripType
   start_point: string
   end_point: string
   bus_id?: string

@@ -308,7 +308,7 @@ function StopCard({
 // ─── Route transfer panel ─────────────────────────────────────────────────────
 interface RouteTransferPanelProps {
   currentRoute: Route
-  sameTypeRoutes: Route[]
+  otherRoutes: Route[]
   studentsOnCurrentRoute: Student[]
   allStudents: Student[]
   dragStudentId: string | null
@@ -405,7 +405,7 @@ function RouteColumn({
 }
 
 function RouteTransferPanel({
-  currentRoute, sameTypeRoutes, studentsOnCurrentRoute, allStudents,
+  currentRoute, otherRoutes, studentsOnCurrentRoute, allStudents,
   dragStudentId, dragOverRouteId, targetRouteId, targetStopId, compareRouteId,
   transferSearch, selectedStudentIds, transferMode,
   onTargetRouteChange, onTargetStopChange, onCompareRouteChange,
@@ -413,8 +413,8 @@ function RouteTransferPanel({
   onMoveStudents, onUnassignStudents,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
 }: RouteTransferPanelProps) {
-  const targetRoute = sameTypeRoutes.find((r) => r.id === targetRouteId)
-  const compareRoute = sameTypeRoutes.find((r) => r.id === compareRouteId)
+  const targetRoute = otherRoutes.find((r) => r.id === targetRouteId)
+  const compareRoute = otherRoutes.find((r) => r.id === compareRouteId)
   const targetStops = [...(targetRoute?.stops ?? [])].sort((a, b) => a.order_index - b.order_index)
 
   const filteredStudents = studentsOnCurrentRoute.filter(
@@ -471,7 +471,7 @@ function RouteTransferPanel({
               <SelectValue placeholder="Select destination route" />
             </SelectTrigger>
             <SelectContent>
-              {sameTypeRoutes
+              {otherRoutes
                 .filter((r) => r.id !== currentRoute.id)
                 .map((r) => (
                   <SelectItem key={r.id} value={r.id}>
@@ -573,7 +573,7 @@ function RouteTransferPanel({
                   <Select
                     value=""
                     onValueChange={(routeId) => {
-                      const dest = sameTypeRoutes.find((r) => r.id === routeId)
+                      const dest = otherRoutes.find((r) => r.id === routeId)
                       if (dest) onMoveStudents([s.id], dest.name, dest.id)
                     }}
                   >
@@ -581,7 +581,7 @@ function RouteTransferPanel({
                       <SelectValue placeholder="Move to..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {sameTypeRoutes
+                      {otherRoutes
                         .filter((r) => r.id !== currentRoute.id)
                         .map((r) => (
                           <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
@@ -604,7 +604,7 @@ function RouteTransferPanel({
                   <SelectValue placeholder="Select route to compare" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sameTypeRoutes
+                  {otherRoutes
                     .filter((r) => r.id !== currentRoute.id)
                     .map((r) => (
                       <SelectItem key={r.id} value={r.id}>
@@ -746,14 +746,7 @@ export default function RouteDetail() {
   const [editStudentClass, setEditStudentClass] = useState('')
   const [editStudentDivision, setEditStudentDivision] = useState('')
 
-  const sameTypeRoutes = useMemo(
-    () => allRoutesData.filter((r) => r.type === (baseRoute?.type ?? 'pickup')),
-    [allRoutesData, baseRoute?.type],
-  )
-  const otherRoutes = useMemo(
-    () => sameTypeRoutes.filter((r) => r.id !== id),
-    [sameTypeRoutes, id],
-  )
+  const otherRoutes = useMemo(() => allRoutesData.filter(r => r.id !== id), [allRoutesData, id])
 
   const [targetRouteId, setTargetRouteId] = useState(() => otherRoutes[0]?.id ?? '')
   const [targetStopId, setTargetStopId] = useState('__auto__')
@@ -865,7 +858,7 @@ export default function RouteDetail() {
         studentIds.includes(s.id) ? { ...s, route_name: routeName } : s,
       ),
     )
-    const destRoute = sameTypeRoutes.find((r) => r.id === routeId)
+    const destRoute = otherRoutes.find((r) => r.id === routeId)
     const destStops = [...(destRoute?.stops ?? [])].sort((a, b) => a.order_index - b.order_index)
     const resolvedStopId = stopId ?? destStops[0]?.id
     if (resolvedStopId) {
@@ -1000,16 +993,6 @@ export default function RouteDetail() {
             <button type="button" onClick={() => setIsActive((v) => !v)} className="focus:outline-none">
               <StatusBadge status={isActive ? 'active' : 'inactive'} />
             </button>
-            <Badge
-              className={cn(
-                'capitalize font-semibold px-3 py-1',
-                route.type === 'pickup'
-                  ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20'
-                  : 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20',
-              )}
-            >
-              {route.type}
-            </Badge>
           </div>
         }
       />
@@ -1141,7 +1124,7 @@ export default function RouteDetail() {
               <CardContent>
                 <RouteTransferPanel
                   currentRoute={route}
-                  sameTypeRoutes={sameTypeRoutes}
+                  otherRoutes={otherRoutes}
                   studentsOnCurrentRoute={routeStudents}
                   allStudents={schoolStudents}
                   dragStudentId={dragStudentId}
@@ -1203,14 +1186,10 @@ export default function RouteDetail() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-lg border border-[var(--border)] px-3 py-2.5">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Type</p>
-                      <p className="mt-0.5 text-sm font-semibold capitalize text-[var(--foreground)]">{route.type}</p>
-                    </div>
-                    <div className="rounded-lg border border-[var(--border)] px-3 py-2.5">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Bus</p>
                       <p className="mt-0.5 text-sm font-semibold text-[var(--foreground)]">{route.bus_number ?? '—'}</p>
                     </div>
-                    <div className="rounded-lg border border-[var(--border)] px-3 py-2.5 col-span-2">
+                    <div className="rounded-lg border border-[var(--border)] px-3 py-2.5">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Driver</p>
                       <p className="mt-0.5 text-sm font-semibold text-[var(--foreground)]">{route.driver_name ?? '—'}</p>
                     </div>

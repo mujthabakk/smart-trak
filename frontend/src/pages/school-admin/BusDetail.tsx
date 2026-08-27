@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { motion } from 'framer-motion'
 import {
@@ -32,6 +32,7 @@ import { listTrips } from '@/lib/api/trips'
 import { listAttendance } from '@/lib/api/attendance'
 import { listDrivers } from '@/lib/api/drivers'
 import { useAppSelector } from '@/store/hooks'
+import { getSocket } from '@/lib/socket'
 
 function extractErrorMessage(err: unknown): string {
   if (isAxiosError(err)) {
@@ -64,6 +65,7 @@ interface StopStudent {
 }
 
 interface StopGroup {
+  stop_id?: string
   stop: string
   type: 'pickup' | 'drop'
   estimatedTime?: string
@@ -81,27 +83,36 @@ function attendanceStatusForStudent(studentId: string, attendance: AttendanceRec
 function buildStopGroups(route: Route | undefined, type: 'pickup' | 'drop', allStudents: Student[], attendance: AttendanceRecord[]): StopGroup[] {
   if (!route) return []
   const students = allStudents.filter((s) => s.route_name === route.name)
-  const stops = [...(route.stops ?? [])].sort((a, b) => a.order_index - b.order_index)
+  let stops = [...(route.stops ?? [])].sort((a, b) => a.order_index - b.order_index)
+  if (type === 'drop') {
+    stops = stops.reverse()
+  }
   if (stops.length === 0) return []
 
   const groups: StopGroup[] = stops.map((stop) => ({
+    stop_id: stop.id, // Store stop ID to map students correctly
     stop: stop.name,
     type,
     estimatedTime: stop.estimated_time,
     students: [],
   }))
 
-  students.forEach((student, index) => {
-    const group = groups[index % groups.length]
-    group.students.push({
-      id: student.id,
-      name: student.name,
-      class: `Class ${student.class} - ${student.division}`,
-      location: group.stop,
-      pickupTime: type === 'pickup' ? group.estimatedTime : undefined,
-      dropTime: type === 'drop' ? group.estimatedTime : undefined,
-      status: attendanceStatusForStudent(student.id, attendance),
-    })
+  students.forEach((student) => {
+    // Find the correct stop group for this student based on trip type
+    const targetStopId = type === 'pickup' ? student.pickup_stop_id : student.drop_stop_id
+    const group = groups.find(g => g.stop_id === targetStopId) || groups[0] // fallback if not found
+
+    if (group) {
+      group.students.push({
+        id: student.id,
+        name: student.name,
+        class: `Class ${student.class} - ${student.division}`,
+        location: group.stop,
+        pickupTime: type === 'pickup' ? group.estimatedTime : undefined,
+        dropTime: type === 'drop' ? group.estimatedTime : undefined,
+        status: attendanceStatusForStudent(student.id, attendance),
+      })
+    }
   })
 
   return groups
@@ -302,6 +313,21 @@ export default function BusDetail() {
   const [callDialogOpen, setCallDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState(TODAY)
+  const queryClient = useQueryClient()
+
+  // Live attendance updates via WebSockets
+  useEffect(() => {
+    const socket = getSocket()
+    
+    function handleAttendanceUpdate() {
+      queryClient.invalidateQueries({ queryKey: ['attendance'] })
+    }
+
+    socket.on('attendance:updated', handleAttendanceUpdate)
+    return () => {
+      socket.off('attendance:updated', handleAttendanceUpdate)
+    }
+  }, [queryClient])
 
   const { data: bus, isLoading, isError, error } = useQuery({
     queryKey: ['bus', id],
@@ -323,6 +349,12 @@ export default function BusDetail() {
   })
   const busRoutes = useMemo(() => routesData?.routes ?? [], [routesData])
 
+  const { data: allRoutesData } = useQuery({
+    queryKey: ['routes'],
+    queryFn: () => listRoutes(),
+  })
+  const allRoutes = useMemo(() => allRoutesData?.routes ?? [], [allRoutesData])
+
   const { data: studentsData } = useQuery({
     queryKey: ['students'],
     queryFn: () => listStudents({ pageSize: 1000 }),
@@ -339,6 +371,7 @@ export default function BusDetail() {
   const { data: attendanceData } = useQuery({
     queryKey: ['attendance', selectedDate],
     queryFn: () => listAttendance({ date: selectedDate, pageSize: 1000 }),
+    staleTime: 0,
   })
   const attendance = useMemo(() => attendanceData?.records ?? [], [attendanceData])
 
@@ -361,36 +394,23 @@ export default function BusDetail() {
     enabled: !!id,
   })
 
-  const pickupRoute = busRoutes.find((r) => r.type === 'pickup')
-  const dropRoute = busRoutes.find((r) => r.type === 'drop')
-  const route = pickupRoute ?? busRoutes[0]
+  const route = useMemo(() => {
+    if (busRoutes.length > 0) return busRoutes[0]
+    if (trips.length > 0) return allRoutes.find((r) => r.id === trips[0].route_id)
+    return undefined
+  }, [busRoutes, trips, allRoutes])
 
-  const pickupStudents = useMemo(
-    () => (pickupRoute ? students.filter((s) => s.route_name === pickupRoute.name) : []),
-    [pickupRoute, students],
+  const allBusStudents = useMemo(
+    () => (route ? students.filter((s) => s.route_name === route.name) : []),
+    [route, students],
   )
-  const dropStudents = useMemo(() => {
-    if (!dropRoute) return []
-    const assigned = students.filter((s) => s.route_name === dropRoute.name)
-    return assigned.length > 0 ? assigned : pickupStudents
-  }, [dropRoute, students, pickupStudents])
-  const allBusStudents = useMemo(() => {
-    const ids = new Set<string>()
-    return [...pickupStudents, ...dropStudents].filter((s) => {
-      if (ids.has(s.id)) return false
-      ids.add(s.id)
-      return true
-    })
-  }, [pickupStudents, dropStudents])
 
   const busAttendance = useMemo(() => countAttendance(allBusStudents, attendance), [allBusStudents, attendance])
   const tripDuration = useMemo(() => (id ? getBusTripDurationDisplay(id, trips) : null), [id, trips])
-  const pickupAttendance = useMemo(() => countAttendance(pickupStudents, attendance), [pickupStudents, attendance])
-  const dropAttendance = useMemo(() => countAttendance(dropStudents, attendance), [dropStudents, attendance])
 
   const stopGroups = useMemo(
-    () => [...buildStopGroups(pickupRoute, 'pickup', students, attendance), ...buildStopGroups(dropRoute, 'drop', students, attendance)],
-    [pickupRoute, dropRoute, students, attendance],
+    () => [...buildStopGroups(route, 'pickup', students, attendance), ...buildStopGroups(route, 'drop', students, attendance)],
+    [route, students, attendance],
   )
 
   const busStudentIds = useMemo(() => new Set(allBusStudents.map((s) => s.id)), [allBusStudents])
@@ -520,30 +540,17 @@ export default function BusDetail() {
         )}
 
         {/* Route attendance summary */}
-        {(pickupRoute || dropRoute) && (
+        {route && (
           <motion.div variants={item} className="flex flex-wrap gap-3">
-            {pickupRoute && (
-              <button
-                type="button"
-                onClick={() => navigate(`/school-admin/routes/${pickupRoute.id}`)}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm hover:border-[var(--primary)]/40 transition-colors"
-              >
-                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-0">Pickup</Badge>
-                <span className="font-medium text-[var(--foreground)]">{pickupRoute.name}</span>
-                <span className="tabular-nums font-bold text-[var(--primary)]">{pickupAttendance.onboarded}/{pickupAttendance.total}</span>
-              </button>
-            )}
-            {dropRoute && (
-              <button
-                type="button"
-                onClick={() => navigate(`/school-admin/routes/${dropRoute.id}`)}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm hover:border-[var(--primary)]/40 transition-colors"
-              >
-                <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-0">Drop</Badge>
-                <span className="font-medium text-[var(--foreground)]">{dropRoute.name}</span>
-                <span className="tabular-nums font-bold text-[var(--primary)]">{dropAttendance.onboarded}/{dropAttendance.total}</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => navigate(`/school-admin/routes/${route.id}`)}
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm hover:border-[var(--primary)]/40 transition-colors"
+            >
+              <Badge className="bg-[var(--primary)]/10 text-[var(--primary)] border-0">Route</Badge>
+              <span className="font-medium text-[var(--foreground)]">{route.name}</span>
+              <span className="tabular-nums font-bold text-[var(--primary)]">{busAttendance.onboarded}/{busAttendance.total}</span>
+            </button>
           </motion.div>
         )}
 
@@ -640,9 +647,7 @@ export default function BusDetail() {
                     <div className="flex items-center gap-2 text-sm text-[var(--foreground)]">
                       <Users size={14} className="text-[var(--muted-foreground)]" />
                       <span>
-                        {trip.type === 'pickup'
-                          ? `${pickupAttendance.onboarded}/${pickupAttendance.total}`
-                          : `${dropAttendance.onboarded}/${dropAttendance.total}`} onboarded
+                        {busAttendance.onboarded}/{busAttendance.total} onboarded
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">

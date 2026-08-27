@@ -13,6 +13,11 @@ export async function listNotifications(params: ListNotificationsParams = {}): P
   return data
 }
 
+export async function listBroadcasts(params: ListNotificationsParams = {}): Promise<{ broadcasts: any[]; pagination: ApiPagination }> {
+  const { data } = await apiClient.get('/notifications/broadcasts', { params })
+  return data
+}
+
 export async function getUnreadNotificationCount(): Promise<number> {
   const { data } = await apiClient.get<{ count: number }>('/notifications/unread-count')
   return data.count
@@ -21,6 +26,20 @@ export async function getUnreadNotificationCount(): Promise<number> {
 export async function createNotification(payload: { user_id: string; school_id?: string; title: string; body: string; type: AppNotification['type']; action_url?: string }): Promise<AppNotification> {
   const { data } = await apiClient.post<{ notification: AppNotification }>('/notifications', payload)
   return data.notification
+}
+
+export async function broadcastNotification(payload: { title: string; body: string; type: AppNotification['type']; audience: 'all_parents' | 'specific_route' | 'drivers'; route_ids?: string[]; driver_ids?: string[] }): Promise<{ count: number; message: string }> {
+  const { data } = await apiClient.post<{ count: number; message: string }>('/notifications/broadcast', payload)
+  return data
+}
+
+export async function updateBroadcast(id: string, payload: { title: string; body: string; type: AppNotification['type'] }): Promise<{ message: string }> {
+  const { data } = await apiClient.put<{ message: string }>(`/notifications/broadcasts/${id}`, payload)
+  return data
+}
+
+export async function deleteBroadcast(id: string): Promise<void> {
+  await apiClient.delete(`/notifications/broadcasts/${id}`)
 }
 
 export async function markNotificationRead(id: string): Promise<AppNotification> {

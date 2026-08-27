@@ -77,9 +77,9 @@ function ItemCard({ entry, index, onClaim, onViewClaims }: {
     >
       {/* Image area — real photo if available, else gradient placeholder */}
       <div className={`relative flex h-36 items-center justify-center overflow-hidden bg-gradient-to-br ${GRADIENTS[index % GRADIENTS.length]}`}>
-        {entry.image_url ? (
+        {(entry.image_url || entry.photo_url) ? (
           <img
-            src={entry.image_url}
+            src={entry.image_url || entry.photo_url}
             alt={title}
             className="h-full w-full object-cover"
           />
@@ -324,6 +324,9 @@ export default function LostFound() {
           ) : (
             <motion.div
               layout
+              variants={{ hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } }}
+              initial="hidden"
+              animate="show"
               className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
             >
               <AnimatePresence>

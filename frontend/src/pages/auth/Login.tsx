@@ -44,16 +44,17 @@ export default function Login() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [schoolId, setSchoolId] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
 
-  async function authenticate(loginEmail: string, loginPassword: string) {
+  async function authenticate(loginEmail: string, loginPassword: string, loginSchoolId?: string) {
     setIsLoading(true)
     try {
-      const { user, token } = await apiLogin(loginEmail, loginPassword)
+      const { user, token } = await apiLogin(loginEmail, loginPassword, loginSchoolId)
       if (user.role !== 'super_admin' && user.role !== 'school_admin') {
         setIsLoading(false)
         setInfo(`The ${getRoleLabel(user.role)} role is served by the SmartTrack mobile app, not the web console.`)
@@ -76,11 +77,12 @@ export default function Login() {
     setInfo('')
     setEmail(acct.email)
     setPassword(acct.password)
+    setSchoolId(acct.school_id || '')
     if (acct.panel === 'mobile') {
       setInfo(`The ${getRoleLabel(acct.role)} role lives in the SmartTrack mobile app. Credentials are filled so you can see them — the web console covers Super Admin & School Admin.`)
       return
     }
-    await authenticate(acct.email, acct.password)
+    await authenticate(acct.email, acct.password, acct.school_id)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -95,7 +97,7 @@ export default function Login() {
       setError('Please enter your password')
       return
     }
-    await authenticate(email, password)
+    await authenticate(email, password, schoolId || undefined)
   }
 
   return (
@@ -208,6 +210,14 @@ export default function Login() {
           </AnimatePresence>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>School Code <span className="text-[var(--muted-foreground)] font-normal">(Optional for Super Admin)</span></label>
+              <div className="relative">
+                <School size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted-foreground)' }} />
+                <Input type="text" placeholder="GREENFIELD" value={schoolId} onChange={(e) => setSchoolId(e.target.value.toUpperCase())} className="pl-9" />
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>Email</label>
               <div className="relative">

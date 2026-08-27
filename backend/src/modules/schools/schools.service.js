@@ -73,12 +73,12 @@ async function getById(id) {
 
 async function create(data) {
   const { rows } = await query(
-    `INSERT INTO schools (name, address, city, state, post_code, country, phone, email, website,
+    `INSERT INTO schools (id, name, address, city, state, post_code, country, phone, email, website,
        plan_id, subdomain, admin_name, admin_email, logo_url, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15,'pending'))
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,COALESCE($16,'pending'))
      RETURNING id`,
     [
-      data.name, data.address, data.city, data.state, data.post_code, data.country,
+      data.school_code, data.name, data.address, data.city, data.state, data.post_code, data.country,
       data.phone, data.email, data.website, data.plan_id, data.subdomain,
       data.admin_name, data.admin_email, data.logo_url, data.status,
     ]

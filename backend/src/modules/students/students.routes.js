@@ -22,6 +22,18 @@ router.patch(
   validate({ params: schema.idParam, body: schema.updateStudent }),
   controller.update
 );
+router.patch(
+  '/:id/pickup-location',
+  requireRole('super_admin', 'school_admin', 'driver'),
+  validate({ params: schema.idParam, body: schema.updateLocation }),
+  controller.updatePickupLocation
+);
+router.patch(
+  '/:id/drop-location',
+  requireRole('super_admin', 'school_admin', 'driver'),
+  validate({ params: schema.idParam, body: schema.updateLocation }),
+  controller.updateDropLocation
+);
 router.delete(
   '/:id',
   requireRole('super_admin', 'school_admin'),

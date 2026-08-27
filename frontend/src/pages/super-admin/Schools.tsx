@@ -59,11 +59,12 @@ interface FormState {
   student_count: string
   bus_count: string
   driver_count: string
+  school_code: string
 }
 const EMPTY_FORM: FormState = {
   name: '', admin_name: '', admin_email: '', phone: '', website: '',
   plan_name: 'standard', address: '', city: '', state: '', post_code: '', country: 'UAE',
-  student_count: '', bus_count: '', driver_count: '',
+  student_count: '', bus_count: '', driver_count: '', school_code: '',
 }
 
 function MiniStat({ label, value, icon: Icon, accent }: { label: string; value: number; icon: typeof SchoolIcon; accent: string }) {
@@ -107,7 +108,7 @@ export default function Schools() {
   const [paymentSent, setPaymentSent] = useState(false)
 
   const createMutation = useMutation({
-    mutationFn: (payload: Partial<School>) => createSchool(payload),
+    mutationFn: (payload: Partial<School> & { school_code?: string }) => createSchool(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schools'] })
       setFormOpen(false)
@@ -182,6 +183,7 @@ export default function Schools() {
       student_count: String(row.student_count ?? ''),
       bus_count: String(row.bus_count ?? ''),
       driver_count: String(row.driver_count ?? ''),
+      school_code: (row as any).school_code ?? '',
     })
     setSaveError('')
     setFormOpen(true)
@@ -198,7 +200,7 @@ export default function Schools() {
   function saveSchool(e: React.FormEvent) {
     e.preventDefault()
     setSaveError('')
-    if (!form.name.trim() || !form.admin_email.trim()) return
+    if (!form.name.trim() || !form.admin_email.trim() || (!editingId && !form.school_code.trim())) return
     const planLabel = form.plan_name.charAt(0).toUpperCase() + form.plan_name.slice(1)
     const matchedPlan = plans.find((p) => p.name.toLowerCase() === form.plan_name.toLowerCase())
     const commonFields: Partial<School> = {
@@ -221,6 +223,7 @@ export default function Schools() {
     } else {
       createMutation.mutate({
         ...commonFields,
+        school_code: form.school_code,
         subdomain: slugify(form.name),
         status: 'pending',
       })
@@ -241,9 +244,9 @@ export default function Schools() {
 
   function downloadTemplate() {
     const csv = [
-      'name,admin_email,plan,city,address,student_count,bus_count',
-      'Riverside Public School,admin@riverside.ae,standard,Dubai,45 Sheikh Zayed Road,420,12',
-      'Oakwood Academy,admin@oakwood.ae,premium,Abu Dhabi,12 Knowledge Village,880,20',
+      'school_code,name,admin_email,plan,city,address,student_count,bus_count',
+      'RIV-001,Riverside Public School,admin@riverside.ae,standard,Dubai,45 Sheikh Zayed Road,420,12',
+      'OAK-001,Oakwood Academy,admin@oakwood.ae,premium,Abu Dhabi,12 Knowledge Village,880,20',
     ].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -263,11 +266,12 @@ export default function Schools() {
       const lines = text.split(/\r?\n/).filter((l) => l.trim())
       const rows = lines.slice(1)
       const parsed = rows.map((line) => {
-        const [name, email, plan, city, address] = line.split(',').map((c) => c.trim())
+        const [schoolCode, name, email, plan, city, address] = line.split(',').map((c) => c.trim())
         const planLabel = plan || 'basic'
         const matchedPlan = plans.find((p) => p.name.toLowerCase() === planLabel.toLowerCase())
         const schoolName = name || 'Imported School'
-        const payload: Partial<School> = {
+        const payload: Partial<School> & { school_code?: string } = {
+          school_code: schoolCode || `IMP-${Math.floor(Math.random() * 10000)}`,
           name: schoolName,
           admin_email: email || undefined,
           email: email || '',
@@ -415,6 +419,12 @@ export default function Schools() {
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">School Information</p>
               <div className="grid grid-cols-2 gap-3">
+                {!editingId && (
+                  <div className="col-span-2 space-y-1.5">
+                    <Label htmlFor="sc-school-code">School Code *</Label>
+                    <Input id="sc-school-code" value={form.school_code} onChange={(e) => setForm((f) => ({ ...f, school_code: e.target.value }))} placeholder="SCH-001" required />
+                  </div>
+                )}
                 <div className="col-span-2 space-y-1.5">
                   <Label htmlFor="sc-name">School name *</Label>
                   <Input id="sc-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Greenfield Academy" required />

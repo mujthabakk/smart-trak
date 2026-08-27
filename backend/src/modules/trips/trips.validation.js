@@ -37,4 +37,17 @@ const listQuery = z.object({
   date: z.string().optional(),
 });
 
-module.exports = { createTrip, updateTrip, idParam, listQuery };
+const startTrip = z.object({
+  route_id: z.string().min(1),
+  safety_qr_code: z.string().min(1),
+  trip_type: z.enum(['pickup', 'drop']),
+});
+
+const prepareTrip = startTrip;
+
+const endTrip = z.object({
+  trip_id: z.string().min(1),
+  safety_qr_code: z.string().min(1),
+});
+
+module.exports = { createTrip, updateTrip, idParam, listQuery, startTrip, prepareTrip, endTrip };

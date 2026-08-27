@@ -2,8 +2,8 @@ const { z } = require('zod');
 
 const reportItem = z.object({
   school_id: z.string().optional(),
-  bus_id: z.string().min(1),
-  driver_id: z.string().min(1),
+  bus_id: z.string().optional(),
+  driver_id: z.string().optional(),
   description: z.string().min(1),
   photo_url: z.string().optional(),
   image_url: z.string().optional(),

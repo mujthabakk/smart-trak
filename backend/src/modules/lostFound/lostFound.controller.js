@@ -3,6 +3,7 @@ const { parsePagination } = require('../../utils/pagination');
 const { resolveSchoolId } = require('../../middleware/auth');
 const ApiError = require('../../utils/ApiError');
 const service = require('./lostFound.service');
+const { query } = require('../../config/db');
 
 const list = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
@@ -22,7 +23,19 @@ const getOne = asyncHandler(async (req, res) => {
 const create = asyncHandler(async (req, res) => {
   const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.user.school_id;
   if (!schoolId) throw ApiError.badRequest('school_id is required');
-  const item = await service.create(schoolId, req.body);
+
+  const data = { ...req.body };
+
+  // Always forcefully assign driver_id and bus_id from the authenticated user's driver profile
+  // This prevents foreign key errors if the frontend sends a user_id instead of a driver_id
+  const { rows: drivers } = await query('SELECT id, assigned_bus_id FROM drivers WHERE user_id = $1', [req.user.id]);
+  if (drivers[0]) {
+    data.driver_id = drivers[0].id;
+    if (!data.bus_id) data.bus_id = drivers[0].assigned_bus_id; // Only override bus_id if not explicitly provided, or maybe force it too?
+    data.bus_id = data.bus_id || drivers[0].assigned_bus_id;
+  }
+
+  const item = await service.create(schoolId, data);
   res.status(201).json({ item });
 });
 

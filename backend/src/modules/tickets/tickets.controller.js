@@ -13,6 +13,18 @@ const list = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
+const getTypes = asyncHandler(async (req, res) => {
+  res.json({
+    types: [
+      'Vehicle Issue',
+      'App Issue',
+      'Student Issue',
+      'Route Issue',
+      'Other'
+    ]
+  });
+});
+
 const getOne = asyncHandler(async (req, res) => {
   res.json({ ticket: await service.getById(req.params.id, req.user) });
 });
@@ -29,4 +41,4 @@ const addReply = asyncHandler(async (req, res) => {
   res.status(201).json({ ticket: await service.addReply(req.params.id, req.user, req.body.content) });
 });
 
-module.exports = { list, getOne, create, update, addReply };
+module.exports = { list, getTypes, getOne, create, update, addReply };

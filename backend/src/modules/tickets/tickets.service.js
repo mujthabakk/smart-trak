@@ -137,21 +137,21 @@ async function update(id, user, data) {
   const ticket = rows[0];
   if (!ticket) throw ApiError.notFound('Ticket not found');
 
-  const isSuperAdmin = user.role === 'super_admin';
+  const isAdmin = user.role === 'super_admin' || user.role === 'school_admin';
   const isReporter = ticket.reporter_id === user.id;
 
-  if (!isSuperAdmin && !isReporter) {
+  if (!isAdmin && !isReporter) {
     throw ApiError.forbidden('You do not have permission to update this ticket');
   }
 
   if (
     (data.status !== undefined || data.priority !== undefined || data.assigned_to !== undefined) &&
-    !isSuperAdmin
+    !isAdmin
   ) {
-    throw ApiError.forbidden('Only super admins can update status, priority or assignment');
+    throw ApiError.forbidden('Only admins can update status, priority or assignment');
   }
 
-  if (data.description !== undefined && !isSuperAdmin) {
+  if (data.description !== undefined && !isAdmin) {
     if (ticket.status !== 'open') {
       throw ApiError.forbidden('Description can only be edited while the ticket is open');
     }

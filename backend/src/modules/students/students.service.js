@@ -6,11 +6,21 @@ const { generateQrCode } = require('../../utils/qrcode');
 // route_name is derived by following pickup_stop_id -> stops.route_id -> routes.name,
 // falling back to the drop stop's route when there's no pickup stop set.
 const BASE_SELECT = `
-  SELECT s.*, COALESCE(pr.name, dr.name) AS route_name
+  SELECT 
+    s.id, s.school_id, s.name, s.class, s.division, s.roll_number, s.dob, s.gender, s.photo_url, s.student_qr_code, s.is_active, s.address, s.created_at, s.updated_at,
+    COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) AS pickup_stop_id,
+    COALESCE(tso.override_drop_stop_id, s.drop_stop_id) AS drop_stop_id,
+    (tso.id IS NOT NULL) AS is_temporary_override,
+    COALESCE(pr.name, dr.name) AS route_name
   FROM students s
-  LEFT JOIN stops ps ON ps.id = s.pickup_stop_id
+  LEFT JOIN trips t ON t.status = 'in_progress' AND (
+      t.route_id = (SELECT route_id FROM stops WHERE id = s.pickup_stop_id LIMIT 1) OR
+      t.route_id = (SELECT route_id FROM stops WHERE id = s.drop_stop_id LIMIT 1)
+  )
+  LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = t.id
+  LEFT JOIN stops ps ON ps.id = COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id)
   LEFT JOIN routes pr ON pr.id = ps.route_id
-  LEFT JOIN stops ds ON ds.id = s.drop_stop_id
+  LEFT JOIN stops ds ON ds.id = COALESCE(tso.override_drop_stop_id, s.drop_stop_id)
   LEFT JOIN routes dr ON dr.id = ds.route_id
 `;
 
@@ -228,4 +238,47 @@ async function remove(id, schoolId) {
   if (!rowCount) throw ApiError.notFound('Student not found');
 }
 
-module.exports = { list, getById, create, update, remove };
+async function updateLocation(id, schoolId, field, stopId, driverUserId = null) {
+  // Validate stop belongs to this school
+  const { rows: stopRows } = await query(
+    `SELECT s.id FROM stops s
+     JOIN routes r ON r.id = s.route_id
+     WHERE s.id = $1 AND r.school_id = $2`,
+    [stopId, schoolId]
+  );
+  if (!stopRows[0]) throw ApiError.badRequest('Invalid stop ID or stop does not belong to your school');
+
+  // Verify student exists
+  const { rows: studentRows } = await query('SELECT id FROM students WHERE id = $1 AND school_id = $2', [id, schoolId]);
+  if (!studentRows[0]) throw ApiError.notFound('Student not found');
+
+  // Find active trip where this student's pickup/drop route matches the trip route
+  const { rows: trips } = await query(
+    `SELECT t.id FROM trips t 
+     WHERE t.status = 'in_progress' AND (
+       t.route_id = (SELECT route_id FROM stops WHERE id = (SELECT pickup_stop_id FROM students WHERE id = $1 LIMIT 1) LIMIT 1) OR
+       t.route_id = (SELECT route_id FROM stops WHERE id = (SELECT drop_stop_id FROM students WHERE id = $1 LIMIT 1) LIMIT 1)
+     )
+     ORDER BY t.started_at DESC LIMIT 1`,
+    [id]
+  );
+
+  if (!trips[0]) {
+    throw ApiError.badRequest('No active trip found for this student. Locations can only be overridden during an active trip.');
+  }
+
+  const tripId = trips[0].id;
+  const column = field === 'pickup' ? 'override_pickup_stop_id' : 'override_drop_stop_id';
+  
+  await query(
+    `INSERT INTO trip_student_overrides (trip_id, student_id, ${column})
+     VALUES ($1, $2, $3)
+     ON CONFLICT (trip_id, student_id) 
+     DO UPDATE SET ${column} = $3, updated_at = now()`,
+    [tripId, id, stopId]
+  );
+  
+  return getById(id, schoolId);
+}
+
+module.exports = { list, getById, create, update, remove, updateLocation };

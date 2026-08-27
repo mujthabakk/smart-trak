@@ -178,7 +178,6 @@ CREATE TABLE routes (
   bus_id TEXT REFERENCES buses(id) ON DELETE SET NULL,
   driver_id TEXT REFERENCES drivers(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('pickup','drop')),
   start_point TEXT NOT NULL,
   end_point TEXT NOT NULL,
   route_qr_code TEXT UNIQUE,
@@ -272,6 +271,8 @@ CREATE TABLE attendance_records (
   status TEXT NOT NULL CHECK (status IN ('present','absent','leave')),
   pickup_time TIMESTAMPTZ,
   drop_time TIMESTAMPTZ,
+  offboard_status TEXT,
+  offboard_reason TEXT,
   date DATE NOT NULL DEFAULT CURRENT_DATE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (trip_id, student_id)

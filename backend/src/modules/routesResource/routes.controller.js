@@ -39,4 +39,17 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getOne, create, update, remove };
+const getSafetyManifest = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const { route_id, bus_id } = req.body;
+  const manifest = await service.getSafetyManifest(route_id, bus_id, schoolId);
+  res.json(manifest);
+});
+
+const getLocations = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const locations = await service.getRouteLocations(req.params.id, schoolId);
+  res.json({ locations });
+});
+
+module.exports = { list, getOne, create, update, remove, getSafetyManifest, getLocations };

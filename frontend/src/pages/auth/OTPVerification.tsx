@@ -12,7 +12,8 @@ const OTP_LENGTH = 6
 export default function OTPVerification() {
   const navigate = useNavigate()
   const location = useLocation()
-  const email = (location.state as { email?: string } | null)?.email
+  const email = (location.state as { email?: string, schoolId?: string } | null)?.email
+  const schoolId = (location.state as { email?: string, schoolId?: string } | null)?.schoolId
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''))
   const [seconds, setSeconds] = useState(45)
   const [error, setError] = useState('')
@@ -73,8 +74,8 @@ export default function OTPVerification() {
     if (!email) return
     setVerifying(true)
     try {
-      await verifyOtp(email, code)
-      navigate('/reset-password', { state: { email, otp: code } })
+      await verifyOtp(email, code, schoolId)
+      navigate('/reset-password', { state: { email, otp: code, schoolId } })
     } catch (err) {
       if (isAxiosError(err) && err.response?.status === 400) {
         setError('Invalid or expired code. Please try again.')
@@ -92,7 +93,7 @@ export default function OTPVerification() {
     setDigits(Array(OTP_LENGTH).fill(''))
     inputsRef.current[0]?.focus()
     try {
-      await forgotPassword(email)
+      await forgotPassword(email, schoolId)
     } catch {
       // ignore — user can request again once the countdown ends
     }

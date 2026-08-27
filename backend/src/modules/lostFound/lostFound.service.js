@@ -5,8 +5,8 @@ const { paginationMeta } = require('../../utils/pagination');
 const BASE_SELECT = `
   SELECT lf.*, b.bus_number, d.name AS driver_name
   FROM lost_found_items lf
-  JOIN buses b ON b.id = lf.bus_id
-  JOIN drivers d ON d.id = lf.driver_id
+  LEFT JOIN buses b ON b.id = lf.bus_id
+  LEFT JOIN drivers d ON d.id = lf.driver_id
 `;
 
 const CLAIM_SELECT = `

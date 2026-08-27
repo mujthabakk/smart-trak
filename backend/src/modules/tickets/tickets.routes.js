@@ -9,6 +9,7 @@ const router = express.Router();
 router.use(requireAuth);
 
 router.get('/', validate({ query: schema.listQuery }), controller.list);
+router.get('/types', controller.getTypes);
 router.get('/:id', validate({ params: schema.idParam }), controller.getOne);
 router.post('/', validate({ body: schema.createTicket }), controller.create);
 router.patch('/:id', validate({ params: schema.idParam, body: schema.updateTicket }), controller.update);

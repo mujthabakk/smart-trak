@@ -146,7 +146,7 @@ export default function SchoolAdminDashboard() {
     return allBuses
       .filter((b) => b.status === 'running')
       .map((bus) => {
-        const route = allRoutes.find((r) => r.bus_id === bus.id && r.type === 'pickup')
+        const route = allRoutes.find((r) => r.bus_id === bus.id)
         const studentCount = route?.student_count ?? bus.seat_capacity
         return { bus, route, studentCount }
       })
@@ -157,7 +157,7 @@ export default function SchoolAdminDashboard() {
     return allBuses
       .filter((b) => b.status === 'idle')
       .map((bus) => {
-        const route = allRoutes.find((r) => r.bus_id === bus.id && r.type === 'drop')
+        const route = allRoutes.find((r) => r.bus_id === bus.id)
         const studentCount = route?.student_count ?? 0
         return { bus, route, studentCount }
       })

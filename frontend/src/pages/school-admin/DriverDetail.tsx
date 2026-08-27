@@ -413,9 +413,6 @@ export default function DriverDetail() {
                         {route.start_point} → {route.end_point} · {route.student_count ?? 0} students
                       </p>
                     </div>
-                    <Badge variant={route.type === 'pickup' ? 'info' : 'secondary'} className="flex-shrink-0 text-xs">
-                      {route.type === 'pickup' ? 'Pickup' : 'Drop'}
-                    </Badge>
                   </button>
                 ))
               )}

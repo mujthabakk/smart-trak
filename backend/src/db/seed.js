@@ -10,11 +10,11 @@ const { generateQrCode } = require('../utils/qrcode');
 
 const DEMO_ACCOUNTS = [
   { role: 'super_admin', email: 'superadmin@smarttrack.ae', password: 'Super@123', name: 'Khalid Al Maktoum', phone: '+971 50 100 1000' },
-  { role: 'school_admin', email: 'admin@greenfield.ae', password: 'School@123', name: 'Hassan Ahmed', school_id: 'SCH-001', phone: '+971 50 200 2000' },
-  { role: 'school_admin', email: 'admin@alnoor.ae', password: 'School@123', name: 'Fatima Al Ali', school_id: 'SCH-002', phone: '+971 50 300 3000' },
-  { role: 'driver', email: 'driver@smarttrack.ae', password: 'Driver@123', name: 'Salim Ahmed Rashid', school_id: 'SCH-001', phone: '+971 50 400 4000' },
-  { role: 'guest_driver', email: 'guest@smarttrack.ae', password: 'Guest@123', name: 'Omar Yusuf', school_id: 'SCH-001', phone: '+971 50 500 5000' },
-  { role: 'parent', email: 'parent@smarttrack.ae', password: 'Parent@123', name: 'Aisha Mohammed', school_id: 'SCH-001', phone: '+971 50 600 6000' },
+  { role: 'school_admin', email: 'admin@greenfield.ae', password: 'School@123', name: 'Hassan Ahmed', school_id: 'GREENFIELD', phone: '+971 50 200 2000' },
+  { role: 'school_admin', email: 'admin@alnoor.ae', password: 'School@123', name: 'Fatima Al Ali', school_id: 'ALNOOR', phone: '+971 50 300 3000' },
+  { role: 'driver', email: 'driver@smarttrack.ae', password: 'Driver@123', name: 'Salim Ahmed Rashid', school_id: 'GREENFIELD', phone: '+971 50 400 4000' },
+  { role: 'guest_driver', email: 'guest@smarttrack.ae', password: 'Guest@123', name: 'Omar Yusuf', school_id: 'GREENFIELD', phone: '+971 50 500 5000' },
+  { role: 'parent', email: 'parent@smarttrack.ae', password: 'Parent@123', name: 'Aisha Mohammed', school_id: 'GREENFIELD', phone: '+971 50 600 6000' },
 ];
 
 async function dropAllDatabases() {
@@ -112,8 +112,8 @@ async function seedPlans() {
 
 async function seedSchools() {
   const schools = [
-    ['SCH-001', 'Greenfield Academy', '45 Sheikh Zayed Road', 'Dubai', 'Dubai', '00000', 'UAE', '+971-4-555-0100', 'admin@greenfield.ae', 'www.greenfield.ae', 'plan_premium', 'active', 'greenfield', 'Hassan Ahmed', 'admin@greenfield.ae'],
-    ['SCH-002', 'Al-Noor International School', '12 Knowledge Village', 'Abu Dhabi', 'Abu Dhabi', '00000', 'UAE', '+971-2-555-0200', 'admin@alnoor.ae', 'www.alnoor.ae', 'plan_standard', 'active', 'alnoor', 'Fatima Al Ali', 'admin@alnoor.ae']
+    ['GREENFIELD', 'Greenfield Academy', '45 Sheikh Zayed Road', 'Dubai', 'Dubai', '00000', 'UAE', '+971-4-555-0100', 'admin@greenfield.ae', 'www.greenfield.ae', 'plan_premium', 'active', 'greenfield', 'Hassan Ahmed', 'admin@greenfield.ae'],
+    ['ALNOOR', 'Al-Noor International School', '12 Knowledge Village', 'Abu Dhabi', 'Abu Dhabi', '00000', 'UAE', '+971-2-555-0200', 'admin@alnoor.ae', 'www.alnoor.ae', 'plan_standard', 'active', 'alnoor', 'Fatima Al Ali', 'admin@alnoor.ae']
   ];
 
   for (const s of schools) {
@@ -172,36 +172,36 @@ async function seedUsers() {
 async function seedSubscriptions() {
   await masterPool.query(`
     INSERT INTO subscriptions (school_id, plan_id, start_date, end_date, amount_paid, payment_method, status) VALUES
-    ('SCH-001', 'plan_premium', '2025-09-01', '2026-08-31', 1910, 'Bank Transfer', 'active'),
-    ('SCH-002', 'plan_standard', '2025-10-15', '2026-10-14', 950, 'Online', 'active')
+    ('GREENFIELD', 'plan_premium', '2025-09-01', '2026-08-31', 1910, 'Bank Transfer', 'active'),
+    ('ALNOOR', 'plan_standard', '2025-10-15', '2026-10-14', 950, 'Online', 'active')
   `);
 }
 
 async function seedFleetAndRoutes(driverUserId) {
-  const tenantPool = getTenantPool('smarttrack_sch_001');
+  const tenantPool = getTenantPool('smarttrack_greenfield');
   const client = await tenantPool.connect();
   try {
     await client.query('BEGIN');
     const driver1 = await client.query(
       `INSERT INTO drivers (school_id, user_id, name, employee_id, email, phone, whatsapp, license_number, license_expiry)
-       VALUES ('SCH-001',$1,'Salim Ahmed Rashid','EMP001','driver@smarttrack.ae','+971551234501','+971551234501','DXB-LIC-78901','2027-08-15') RETURNING id`,
+       VALUES ('GREENFIELD',$1,'Salim Ahmed Rashid','EMP001','driver@smarttrack.ae','+971551234501','+971551234501','DXB-LIC-78901','2027-08-15') RETURNING id`,
       [driverUserId]
     );
     const driver2 = await client.query(
       `INSERT INTO drivers (school_id, name, employee_id, email, phone, whatsapp, license_number, license_expiry)
-       VALUES ('SCH-001','Ali Mohammed Al-Faris','EMP002','ali.driver@greenfield.ae','+971551234502','+971551234502','DXB-LIC-78902','2026-03-20') RETURNING id`
+       VALUES ('GREENFIELD','Ali Mohammed Al-Faris','EMP002','ali.driver@greenfield.ae','+971551234502','+971551234502','DXB-LIC-78902','2026-03-20') RETURNING id`
     );
     const driverId1 = driver1.rows[0].id;
     const driverId2 = driver2.rows[0].id;
 
     const bus1 = await client.query(
       `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year, insurance_expiry, fitness_cert_expiry, safety_qr_code, driver_id, status)
-       VALUES ('SCH-001','B-001',45,'Toyota Coaster 2022',2022,'2026-12-31','2026-06-30',$1,$2,'idle') RETURNING id`,
+       VALUES ('GREENFIELD','B-001',45,'Toyota Coaster 2022',2022,'2026-12-31','2026-06-30',$1,$2,'idle') RETURNING id`,
       [generateQrCode('BUS'), driverId1]
     );
     const bus2 = await client.query(
       `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year, insurance_expiry, fitness_cert_expiry, safety_qr_code, driver_id, status)
-       VALUES ('SCH-001','B-002',35,'Mitsubishi Rosa 2021',2021,'2026-08-15','2026-08-15',$1,$2,'idle') RETURNING id`,
+       VALUES ('GREENFIELD','B-002',35,'Mitsubishi Rosa 2021',2021,'2026-08-15','2026-08-15',$1,$2,'idle') RETURNING id`,
       [generateQrCode('BUS'), driverId2]
     );
     const busId1 = bus1.rows[0].id;
@@ -211,8 +211,8 @@ async function seedFleetAndRoutes(driverUserId) {
     await client.query(`UPDATE drivers SET assigned_bus_id = $1 WHERE id = $2`, [busId2, driverId2]);
 
     const route1 = await client.query(
-      `INSERT INTO routes (school_id, bus_id, driver_id, name, type, start_point, end_point, route_qr_code)
-       VALUES ('SCH-001',$1,$2,'Route A - Pickup','pickup','Al Barsha South','Greenfield Academy',$3) RETURNING id`,
+      `INSERT INTO routes (school_id, bus_id, driver_id, name, start_point, end_point, route_qr_code)
+       VALUES ('GREENFIELD',$1,$2,'Route A','Al Barsha South','Greenfield Academy',$3) RETURNING id`,
       [busId1, driverId1, generateQrCode('RT')]
     );
     const routeId1 = route1.rows[0].id;
@@ -235,8 +235,8 @@ async function seedFleetAndRoutes(driverUserId) {
     ];
     for (const [name, klass, division, roll, dob, pickupStopId] of students) {
       const { rows } = await client.query(
-        `INSERT INTO students (school_id, name, class, division, roll_number, dob, student_qr_code, pickup_stop_id)
-         VALUES ('SCH-001',$1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+        `INSERT INTO students (school_id, name, class, division, roll_number, dob, student_qr_code, pickup_stop_id, drop_stop_id)
+         VALUES ('GREENFIELD',$1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`,
         [name, klass, division, roll, dob, generateQrCode('STD'), pickupStopId]
       );
       await client.query(

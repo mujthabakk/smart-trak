@@ -9,6 +9,8 @@ const router = express.Router();
 router.use(requireAuth);
 
 router.get('/', validate({ query: schema.listQuery }), controller.list);
+router.post('/safety-manifest', validate({ body: schema.safetyManifestBody }), controller.getSafetyManifest);
+router.get('/:id/locations', validate({ params: schema.idParam }), controller.getLocations);
 router.get('/:id', validate({ params: schema.idParam }), controller.getOne);
 router.post(
   '/',

@@ -8,17 +8,20 @@ const login = z.object({
 
 const forgotPassword = z.object({
   email: z.string().email(),
+  school_id: z.string().optional(),
 });
 
 const verifyOtp = z.object({
   email: z.string().email(),
   otp: z.string().length(6),
+  school_id: z.string().optional(),
 });
 
 const resetPassword = z.object({
   email: z.string().email(),
   otp: z.string().length(6),
   password: z.string().min(6),
+  school_id: z.string().optional(),
 });
 
 const changePassword = z.object({

@@ -13,6 +13,25 @@ async function assertDriverOwnsTrip(tripId, userId) {
   if (!ownsTrip) throw ApiError.forbidden('You do not have permission to manage attendance for this trip');
 }
 
+/** Helper to broadcast live socket events and notify parents */
+async function broadcastAndNotify(req, schoolId, tripId, records, type) {
+  // Broadcast socket event
+  const io = req.app.get('io');
+  if (io) {
+    const event = { trip_id: tripId, timestamp: new Date().toISOString() };
+    if (schoolId) io.to(`school:${schoolId}`).emit('attendance:updated', event);
+    io.to(`trip:${tripId}`).emit('attendance:updated', event);
+  }
+  
+  // Notify parents
+  if (records && records.length > 0) {
+    // Fire and forget (don't block the response)
+    service.notifyParentsForAttendance(records, type).catch(err => {
+      console.error('Failed to notify parents for attendance', err);
+    });
+  }
+}
+
 const list = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const pagination = parsePagination(req.query);
@@ -48,8 +67,15 @@ const mark = asyncHandler(async (req, res) => {
   }
   if (req.user.role === 'driver') await assertDriverOwnsTrip(req.body.trip_id, req.user.id);
 
-  const record = await service.markAttendance(schoolId || null, req.body);
-  res.status(201).json({ record });
+  if (req.body.type === 'pickup') {
+    req.body.pickup_time = new Date().toISOString();
+  } else if (req.body.type === 'drop') {
+    req.body.drop_time = new Date().toISOString();
+  }
+
+  const records = await service.markAttendance(schoolId || null, req.body);
+  await broadcastAndNotify(req, schoolId, req.body.trip_id, records, req.body.type);
+  res.status(201).json({ status: 'success', records });
 });
 
 const scan = asyncHandler(async (req, res) => {
@@ -60,6 +86,7 @@ const scan = asyncHandler(async (req, res) => {
   if (req.user.role === 'driver') await assertDriverOwnsTrip(req.body.trip_id, req.user.id);
 
   const record = await service.markByQrCode(schoolId || null, req.body.trip_id, req.body.qr_code, req.body.stop_id);
+  await broadcastAndNotify(req, schoolId, req.body.trip_id, [record], 'pickup'); // Assuming pickup for QR scan for simplicity if type not available in payload
   res.status(201).json({ record });
 });
 
@@ -71,7 +98,20 @@ const bulk = asyncHandler(async (req, res) => {
   if (req.user.role === 'driver') await assertDriverOwnsTrip(req.body.trip_id, req.user.id);
 
   const records = await service.bulkMark(schoolId || null, req.body.trip_id, req.body.records);
+  await broadcastAndNotify(req, schoolId, req.body.trip_id, records, 'pickup');
   res.status(201).json({ records });
+});
+
+const bulkOffboard = asyncHandler(async (req, res) => {
+  const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.user.school_id;
+  if (!schoolId && req.user.role !== 'super_admin') {
+    throw ApiError.badRequest('Account is not associated with a school');
+  }
+  if (req.user.role === 'driver') await assertDriverOwnsTrip(req.body.trip_id, req.user.id);
+
+  const records = await service.bulkOffboard(schoolId || null, req.body.trip_id, req.body.records);
+  await broadcastAndNotify(req, schoolId, req.body.trip_id, records, 'drop');
+  res.status(200).json({ records });
 });
 
 const update = asyncHandler(async (req, res) => {
@@ -80,7 +120,10 @@ const update = asyncHandler(async (req, res) => {
     const tripId = await service.getTripIdForRecord(req.params.id);
     await assertDriverOwnsTrip(tripId, req.user.id);
   }
-  res.json({ record: await service.update(req.params.id, schoolId, req.body) });
+  const record = await service.update(req.params.id, schoolId, req.body);
+  const tripId = await service.getTripIdForRecord(req.params.id);
+  await broadcastAndNotify(req, schoolId, tripId, [record], 'pickup');
+  res.json({ record });
 });
 
 const remove = asyncHandler(async (req, res) => {
@@ -89,8 +132,10 @@ const remove = asyncHandler(async (req, res) => {
     const tripId = await service.getTripIdForRecord(req.params.id);
     await assertDriverOwnsTrip(tripId, req.user.id);
   }
+  const tripId = await service.getTripIdForRecord(req.params.id);
   await service.remove(req.params.id, schoolId);
+  await broadcastAndNotify(req, schoolId, tripId, [], null);
   res.status(204).send();
 });
 
-module.exports = { list, getOne, mark, scan, bulk, update, remove };
+module.exports = { list, getOne, mark, scan, bulk, bulkOffboard, update, remove };

@@ -189,7 +189,7 @@ export interface Route {
   bus_id?: string
   bus_number?: string
   name: string
-  type: TripType
+  type?: 'pickup' | 'drop'
   start_point: string
   end_point: string
   route_qr_code?: string

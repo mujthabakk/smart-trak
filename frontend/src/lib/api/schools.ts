@@ -18,7 +18,7 @@ export async function getSchool(id: string): Promise<School> {
   return data.school
 }
 
-export async function createSchool(payload: Partial<School>): Promise<School> {
+export async function createSchool(payload: Partial<School> & { school_code?: string }): Promise<School> {
   const { data } = await apiClient.post<{ school: School }>('/schools', payload)
   return data.school
 }

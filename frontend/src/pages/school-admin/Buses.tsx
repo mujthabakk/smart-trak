@@ -4,11 +4,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { motion } from 'framer-motion'
 import {
-  Plus, Bus as BusIcon, Navigation, MapPin, MoreVertical,
-  Pencil, Ban, LayoutGrid, List, User, Clock, Users, Download, Upload, QrCode, Phone,
-  AlertCircle, Eye,
+  Plus, Bus as BusIcon, MapPin, Navigation, QrCode, Trash2, Pencil, Search, RefreshCw, X, Download, Filter, DownloadCloud, AlertTriangle,
+  MoreVertical, List, User, Clock, Users, Upload, Phone,
+  AlertCircle, Eye, Ban, LayoutGrid,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
+import QRCode from 'qrcode'
 import PageHeader from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
@@ -62,35 +63,24 @@ function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function downloadBusQR(bus: Bus) {
-  const canvas = document.createElement('canvas')
-  canvas.width = 200
-  canvas.height = 200
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  // White background
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, 200, 200)
-  // Simple grid pattern to simulate QR
-  ctx.fillStyle = '#000000'
-  const size = 10
-  const data = bus.bus_number + bus.id
-  for (let i = 0; i < 20; i++) {
-    for (let j = 0; j < 20; j++) {
-      if ((data.charCodeAt((i * 20 + j) % data.length) + i + j) % 2 === 0) {
-        ctx.fillRect(i * size, j * size, size, size)
+async function downloadSafetyQR(bus: Bus) {
+  try {
+    const payload = JSON.stringify({ type: 'safety', id: bus.safety_qr_code || bus.id })
+    const dataUrl = await QRCode.toDataURL(payload, {
+      width: 400,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#ffffff'
       }
-    }
+    })
+    const link = document.createElement('a')
+    link.download = `safety-qr-${bus.bus_number}.png`
+    link.href = dataUrl
+    link.click()
+  } catch (err) {
+    console.error('Failed to generate QR', err)
   }
-  // Add border squares (QR finder patterns)
-  ctx.fillStyle = '#000000'
-  ctx.fillRect(0, 0, 70, 10); ctx.fillRect(0, 0, 10, 70)
-  ctx.fillRect(60, 0, 10, 70); ctx.fillRect(0, 60, 70, 10)
-  // Save
-  const link = document.createElement('a')
-  link.download = `bus-qr-${bus.bus_number}.png`
-  link.href = canvas.toDataURL('image/png')
-  link.click()
 }
 
 // --- Bus form types ---
@@ -422,23 +412,25 @@ export default function Buses() {
   const { data: attendanceQueryData } = useQuery({
     queryKey: ['attendance', selectedDate],
     queryFn: () => listAttendance({ date: selectedDate, pageSize: 1000 }),
+    staleTime: 0,
   })
   const attendanceRecords = attendanceQueryData?.records ?? []
 
-  // Local helpers — closures over the queried routes/trips/students/attendance above.
+  function activeTripForBus(busId: string) {
+    return trips.find((t) => t.bus_id === busId && t.status === 'in_progress')
+  }
+
   function routeForBus(busId: string): string | undefined {
-    return routes.find((r) => r.bus_id === busId)?.name
+    return activeTripForBus(busId)?.route_name
   }
 
   function primaryRouteIdForBus(busId: string): string | undefined {
-    const pickup = routes.find((r) => r.bus_id === busId && r.type === 'pickup')
-    if (pickup) return pickup.id
-    return routes.find((r) => r.bus_id === busId)?.id
+    return activeTripForBus(busId)?.route_id
   }
 
   function routeTypeForBus(busId: string): 'pickup' | 'drop' | null {
-    const route = routes.find((r) => r.bus_id === busId)
-    return route?.type ?? null
+    // Routes no longer have types (they handle both pickup/drop simultaneously)
+    return null
   }
 
   function tripDurationForBus(busId: string) {
@@ -446,10 +438,9 @@ export default function Buses() {
   }
 
   function studentsForBus(busId: string) {
-    const pickup = routes.find((r) => r.bus_id === busId && r.type === 'pickup')
-    const route = pickup ?? routes.find((r) => r.bus_id === busId)
-    if (!route) return []
-    return students.filter((s) => s.route_name === route.name)
+    const trip = activeTripForBus(busId)
+    if (!trip) return []
+    return students.filter((s) => s.route_name === trip.route_name)
   }
 
   function busStudentAttendance(busId: string) {
@@ -570,8 +561,8 @@ export default function Buses() {
           <DropdownMenuItem onClick={() => setEditBus(bus)}>
             <Pencil size={14} /> Edit
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => downloadBusQR(bus)}>
-            <QrCode size={14} /> Download QR
+          <DropdownMenuItem onClick={() => downloadSafetyQR(bus)}>
+            <QrCode size={14} /> Safety QR Code
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem destructive onClick={() => toggleActiveMutation.mutate(bus)}>
@@ -904,7 +895,7 @@ export default function Buses() {
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditBus(bus) }}>
                             <Pencil size={14} /> Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); downloadBusQR(bus) }}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); downloadSafetyQR(bus) }}>
                             <QrCode size={14} /> Download QR
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />

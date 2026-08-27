@@ -39,9 +39,13 @@ const remove = asyncHandler(async (req, res) => {
 
 const expiringDocuments = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
-  const days = Math.max(1, parseInt(req.query.days, 10) || 30);
-  const drivers = await service.expiringDocuments(schoolId, days);
-  res.json({ drivers });
+  const days = parseInt(req.query.days, 10) || 30;
+  res.json({ drivers: await service.expiringDocuments(schoolId, days) });
 });
 
-module.exports = { list, getOne, create, update, remove, expiringDocuments };
+const getRouteStudents = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  res.json(await service.getRouteStudents(req.user.id, schoolId));
+});
+
+module.exports = { list, getOne, create, update, remove, expiringDocuments, getRouteStudents };

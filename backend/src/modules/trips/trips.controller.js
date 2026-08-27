@@ -32,6 +32,11 @@ const getOne = asyncHandler(async (req, res) => {
   res.json({ trip: await service.getById(req.params.id, schoolId) });
 });
 
+const getBoardingStudents = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  res.json({ students: await service.getBoardingStudents(req.params.id, schoolId) });
+});
+
 const create = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const trip = await service.create(schoolId, req.body);
@@ -59,4 +64,28 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getOne, create, update, remove };
+const startTrip = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const result = await service.startTrip(schoolId, req.body, req.user.id);
+  res.status(201).json(result);
+});
+
+const prepareTrip = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const result = await service.prepareTrip(schoolId, req.body, req.user.id);
+  res.status(201).json(result);
+});
+
+const startPreparedTrip = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const result = await service.startPreparedTrip(req.params.id, schoolId, req.user.id);
+  res.json(result);
+});
+
+const endTrip = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const result = await service.endTrip(schoolId, req.body, req.user.id);
+  res.json(result);
+});
+
+module.exports = { list, getOne, getBoardingStudents, create, update, remove, startTrip, prepareTrip, startPreparedTrip, endTrip };

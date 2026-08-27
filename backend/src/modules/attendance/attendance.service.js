@@ -1,6 +1,20 @@
 const { query, withTransaction } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
+const { createNotification } = require('../notifications/notifications.service');
+
+function formatDateString(d) {
+  if (!d) return d;
+  if (typeof d === 'string' && !d.includes('T')) return d.slice(0, 10);
+  const dateObj = typeof d === 'string' ? new Date(d) : d;
+  if (dateObj instanceof Date && !isNaN(dateObj.getTime())) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  return d;
+}
 
 // attendance_records has no school_id column of its own — tenant scoping is
 // enforced by joining students (the FK that does carry school_id).
@@ -27,8 +41,10 @@ function toResponse(row) {
     status: row.status,
     pickup_time: row.pickup_time || undefined,
     drop_time: row.drop_time || undefined,
+    offboard_status: row.offboard_status || undefined,
+    offboard_reason: row.offboard_reason || undefined,
     route_name: row.route_name || undefined,
-    date: row.date,
+    date: formatDateString(row.date),
   };
 }
 
@@ -125,34 +141,39 @@ async function getById(id, schoolId) {
   return toResponse(rows[0]);
 }
 
-/**
- * Marks attendance for one student on one trip. QR-scan flows call this
- * repeatedly (pickup scan, then drop scan, or a re-scan correction) so a
- * second call for the same (trip_id, student_id) upserts rather than erroring
- * — the UNIQUE(trip_id, student_id) constraint backs the ON CONFLICT clause.
- */
 async function markAttendance(schoolId, data) {
-  await assertStudentInScope(data.student_id, schoolId);
-  const { rows } = await query(
-    `INSERT INTO attendance_records (trip_id, student_id, stop_id, status, pickup_time, drop_time, date)
-     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, CURRENT_DATE))
-     ON CONFLICT (trip_id, student_id) DO UPDATE SET
-       status = EXCLUDED.status,
-       stop_id = COALESCE(EXCLUDED.stop_id, attendance_records.stop_id),
-       pickup_time = COALESCE(EXCLUDED.pickup_time, attendance_records.pickup_time),
-       drop_time = COALESCE(EXCLUDED.drop_time, attendance_records.drop_time)
-     RETURNING id`,
-    [
-      data.trip_id,
-      data.student_id,
-      data.stop_id || null,
-      data.status,
-      data.pickup_time || null,
-      data.drop_time || null,
-      data.date || null,
-    ]
-  );
-  return getById(rows[0].id, schoolId);
+  const ids = await withTransaction(async (client) => {
+    const created = [];
+    for (const rec of data.records) {
+      const studentParams = schoolId ? [rec.student_id, schoolId] : [rec.student_id];
+      const studentWhere = schoolId ? 'id = $1 AND school_id = $2' : 'id = $1';
+      const { rows: studentRows } = await client.query(`SELECT id FROM students WHERE ${studentWhere}`, studentParams);
+      if (!studentRows[0]) throw ApiError.notFound(`Student ${rec.student_id} not found`);
+
+      const { rows } = await client.query(
+        `INSERT INTO attendance_records (trip_id, student_id, stop_id, status, pickup_time, drop_time, date)
+         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, CURRENT_DATE))
+         ON CONFLICT (trip_id, student_id) DO UPDATE SET
+           status = EXCLUDED.status,
+           stop_id = COALESCE(EXCLUDED.stop_id, attendance_records.stop_id),
+           pickup_time = COALESCE(EXCLUDED.pickup_time, attendance_records.pickup_time),
+           drop_time = COALESCE(EXCLUDED.drop_time, attendance_records.drop_time)
+         RETURNING id`,
+        [
+          data.trip_id,
+          rec.student_id,
+          rec.stop_id || null,
+          rec.status,
+          data.pickup_time || null,
+          data.drop_time || null,
+          data.date || null,
+        ]
+      );
+      created.push(rows[0].id);
+    }
+    return created;
+  });
+  return Promise.all(ids.map((id) => getById(id, schoolId)));
 }
 
 /** Scan-to-attendance: resolves the student by QR code, then marks them present
@@ -163,14 +184,18 @@ async function markByQrCode(schoolId, tripId, qrCode, stopId) {
   if (!tripRows[0]) throw ApiError.notFound('Trip not found');
 
   const now = new Date().toISOString();
-  return markAttendance(schoolId, {
+  return (await markAttendance(schoolId, {
     trip_id: tripId,
-    student_id: student.id,
-    stop_id: stopId || null,
-    status: 'present',
     pickup_time: tripRows[0].trip_type === 'pickup' ? now : undefined,
     drop_time: tripRows[0].trip_type === 'drop' ? now : undefined,
-  });
+    records: [
+      {
+        student_id: student.id,
+        stop_id: stopId || null,
+        status: 'present',
+      }
+    ]
+  }))[0];
 }
 
 /** Marks a whole trip's roster at once (school admin "mark all" flow), upserting each row in a transaction. */
@@ -199,9 +224,41 @@ async function bulkMark(schoolId, tripId, records) {
   return Promise.all(ids.map((id) => getById(id, schoolId)));
 }
 
+async function bulkOffboard(schoolId, tripId, records) {
+  const ids = await withTransaction(async (client) => {
+    const updated = [];
+    for (const rec of records) {
+      const recordParams = schoolId ? [rec.attendance_id, tripId, schoolId] : [rec.attendance_id, tripId];
+      const recordWhere = schoolId ? 'ar.id = $1 AND ar.trip_id = $2 AND s.school_id = $3' : 'ar.id = $1 AND ar.trip_id = $2';
+      
+      const { rows: recordRows } = await client.query(
+        `SELECT ar.id FROM attendance_records ar
+         JOIN students s ON s.id = ar.student_id
+         WHERE ${recordWhere}`,
+        recordParams
+      );
+      if (!recordRows[0]) throw ApiError.notFound(`Attendance record ${rec.attendance_id} not found for this trip`);
+
+      const dropTime = rec.drop_time || (rec.offboard_status === 'offboarded' ? new Date().toISOString() : null);
+
+      await client.query(
+        `UPDATE attendance_records SET
+           offboard_status = $1,
+           offboard_reason = $2,
+           drop_time = COALESCE($3, drop_time)
+         WHERE id = $4`,
+        [rec.offboard_status, rec.offboard_reason || null, dropTime, rec.attendance_id]
+      );
+      updated.push(rec.attendance_id);
+    }
+    return updated;
+  });
+  return Promise.all(ids.map((id) => getById(id, schoolId)));
+}
+
 async function update(id, schoolId, data) {
   await getById(id, schoolId);
-  const fields = ['status', 'stop_id', 'pickup_time', 'drop_time'];
+  const fields = ['status', 'stop_id', 'pickup_time', 'drop_time', 'offboard_status', 'offboard_reason'];
   const sets = [];
   const params = [];
   for (const field of fields) {
@@ -224,6 +281,31 @@ async function remove(id, schoolId) {
   if (!rowCount) throw ApiError.notFound('Attendance record not found');
 }
 
+async function notifyParentsForAttendance(records, tripType) {
+  for (const rec of records) {
+    if (rec.status !== 'present') continue;
+    
+    // Find parent(s)
+    const { rows: parentRows } = await query(`
+      SELECT u.id, s.name as student_name, s.school_id 
+      FROM parent_details pd
+      JOIN users u ON lower(u.email) = lower(pd.email)
+      JOIN students s ON s.id = pd.student_id
+      WHERE pd.student_id = $1
+    `, [rec.student_id]);
+    
+    for (const parent of parentRows) {
+      await createNotification({
+        school_id: parent.school_id,
+        user_id: parent.id,
+        title: 'Attendance Update',
+        body: `${parent.student_name} is inside the bus for the ${tripType === 'pickup' ? 'pickup' : 'drop'} trip.`,
+        type: 'attendance',
+      });
+    }
+  }
+}
+
 module.exports = {
   list,
   getById,
@@ -231,6 +313,8 @@ module.exports = {
   markAttendance,
   markByQrCode,
   bulkMark,
+  bulkOffboard,
   update,
   remove,
+  notifyParentsForAttendance,
 };

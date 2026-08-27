@@ -25,7 +25,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { listTickets, createTicket } from '@/lib/api/tickets'
+import { listTickets, createTicket, updateTicket } from '@/lib/api/tickets'
 import { SUPPORT_CATEGORIES, SUPPORT_PRIORITIES } from '@/lib/constants'
 import { formatDate } from '@/lib/utils'
 import type { TicketPriority } from '@/types'
@@ -81,6 +81,13 @@ export default function Support() {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       resetForm()
       setDialogOpen(false)
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: any }) => updateTicket(id, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
     },
   })
 
@@ -211,6 +218,25 @@ export default function Support() {
                           <Badge variant={PRIORITY_VARIANT[t.priority]} className="capitalize text-xs">
                             {t.priority}
                           </Badge>
+                          
+                          <div className="ml-auto">
+                            <Select 
+                              value={t.status} 
+                              onValueChange={(newStatus) => {
+                                // Add optimistic update or API call here
+                                updateMutation.mutate({ id: t.id, status: newStatus as any })
+                              }}
+                            >
+                              <SelectTrigger className="h-6 w-[120px] text-xs">
+                                <SelectValue placeholder="Update Status" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {STATUS_FILTERS.filter(f => f.value !== 'all').map(f => (
+                                  <SelectItem key={f.value} value={f.value} className="text-xs">{f.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
                         <p className="text-sm font-semibold text-[var(--foreground)] mb-1">{subjectLine}</p>
                         <p className="text-xs text-[var(--muted-foreground)] line-clamp-2">{t.description}</p>

@@ -31,7 +31,9 @@ function attachSockets(httpServer) {
   });
 
   io.on('connection', (socket) => {
-    const { role, school_id: schoolId } = socket.user;
+    const { id: userId, role, school_id: schoolId } = socket.user;
+
+    socket.join(`user:${userId}`);
 
     if (schoolId) {
       socket.join(`school:${schoolId}`);

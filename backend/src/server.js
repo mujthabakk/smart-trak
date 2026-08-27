@@ -4,8 +4,8 @@ const env = require('./config/env');
 const { attachSockets } = require('./sockets');
 
 const server = http.createServer(app);
-attachSockets(server);
-
+const io = attachSockets(server);
+app.set('io', io);
 server.listen(env.port, () => {
   console.log(`SmartTrack API listening on http://localhost:${env.port}`);
 });

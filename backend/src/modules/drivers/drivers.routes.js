@@ -10,6 +10,7 @@ router.use(requireAuth);
 
 // Registered before '/:id' so 'expiring-documents' isn't swallowed as an :id value.
 router.get('/expiring-documents', validate({ query: schema.expiringQuery }), controller.expiringDocuments);
+router.get('/me/students', requireRole('driver'), controller.getRouteStudents);
 router.get('/', validate({ query: schema.listQuery }), controller.list);
 router.get('/:id', validate({ params: schema.idParam }), controller.getOne);
 router.post(

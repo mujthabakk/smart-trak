@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CalendarCheck, Download, UserCheck, UserX, CalendarOff,
   Percent, QrCode, TrendingUp, AlertCircle,
@@ -28,6 +28,7 @@ import { listAttendance } from '@/lib/api/attendance'
 import { listBuses } from '@/lib/api/buses'
 import { listRoutes } from '@/lib/api/routes'
 import { getAttendanceTrend } from '@/lib/api/reports'
+import { getSocket } from '@/lib/socket'
 import type { AttendanceRecord } from '@/types'
 
 interface TrendTooltipProps {
@@ -127,20 +128,31 @@ type DateFilter = 'today' | 'week' | 'all'
 
 export default function Attendance() {
   const navigate = useNavigate()
-  const [date, setDate] = useState('2026-06-23')
+  const today = toLocalDateStr(new Date())
+  const [date, setDate] = useState(today)
   const [filterBus, setFilterBus] = useState('all')
   const [filterClass, setFilterClass] = useState('all')
   const [filterRoute, setFilterRoute] = useState('all')
   const [dateFilter, setDateFilter] = useState<DateFilter>('today')
   const [showExportMenu, setShowExportMenu] = useState(false)
-  const [exportFrom, setExportFrom] = useState('2026-06-23')
-  const [exportTo, setExportTo] = useState('2026-06-23')
+  const [exportFrom, setExportFrom] = useState(today)
+  const [exportTo, setExportTo] = useState(today)
   const exportMenuRef = useRef<HTMLDivElement>(null)
-
-  const today = toLocalDateStr(new Date())
 
   const [exportError, setExportError] = useState('')
   const [isExporting, setIsExporting] = useState(false)
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    const socket = getSocket()
+    function handleAttendanceUpdate() {
+      queryClient.invalidateQueries({ queryKey: ['attendance'] })
+    }
+    socket.on('attendance:updated', handleAttendanceUpdate)
+    return () => {
+      socket.off('attendance:updated', handleAttendanceUpdate)
+    }
+  }, [queryClient])
 
   // The API only supports a single `date` filter at a time, so pull whichever
   // window of dates the current tab needs and merge the per-day results.
@@ -157,6 +169,7 @@ export default function Attendance() {
   } = useQuery({
     queryKey: ['attendance', queryDates],
     queryFn: () => fetchAttendanceForDates(queryDates),
+    staleTime: 0,
   })
 
   const { data: busesData } = useQuery({

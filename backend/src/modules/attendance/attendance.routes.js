@@ -29,6 +29,13 @@ router.post(
   controller.bulk
 );
 router.patch(
+  '/bulk-offboard',
+  requireRole('super_admin', 'school_admin', 'driver'),
+  validate({ body: schema.bulkOffboard }),
+  controller.bulkOffboard
+);
+router.patch(
+
   '/:id',
   requireRole('super_admin', 'school_admin', 'driver'),
   validate({ params: schema.idParam, body: schema.updateAttendance }),

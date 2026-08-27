@@ -12,9 +12,13 @@ router.use(requireAuth);
 
 router.get('/', validate({ query: schema.listQuery }), controller.list);
 router.get('/unread-count', controller.getUnreadCount);
+router.get('/broadcasts', requireRole('super_admin', 'school_admin'), validate({ query: schema.listQuery }), controller.listBroadcasts);
+router.put('/broadcasts/:id', requireRole('super_admin', 'school_admin'), controller.updateBroadcast);
+router.delete('/broadcasts/:id', requireRole('super_admin', 'school_admin'), controller.deleteBroadcast);
 // Only admin actions push notifications to arbitrary users through the
 // public API; other modules should import createNotification directly.
 router.post('/', requireRole('super_admin', 'school_admin'), validate({ body: schema.createNotification }), controller.create);
+router.post('/broadcast', requireRole('super_admin', 'school_admin'), validate({ body: schema.broadcastNotification }), controller.broadcast);
 router.patch('/read-all', controller.markAllRead);
 router.patch('/:id/read', validate({ params: schema.idParam }), controller.markRead);
 router.delete('/:id', validate({ params: schema.idParam }), controller.remove);

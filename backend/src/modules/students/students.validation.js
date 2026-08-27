@@ -56,4 +56,8 @@ const listQuery = z.object({
   is_active: z.string().optional(),
 });
 
-module.exports = { createStudent, updateStudent, idParam, listQuery };
+const updateLocation = z.object({
+  stop_id: z.string().min(1)
+});
+
+module.exports = { createStudent, updateStudent, idParam, listQuery, updateLocation };

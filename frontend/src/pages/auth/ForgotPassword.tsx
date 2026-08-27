@@ -10,6 +10,7 @@ import { isAxiosError } from 'axios'
 export default function ForgotPassword() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
+  const [schoolId, setSchoolId] = useState('')
   const [emailError, setEmailError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -46,7 +47,7 @@ export default function ForgotPassword() {
     if (!validate()) return
     setIsLoading(true)
     try {
-      const res = await forgotPassword(email)
+      const res = await forgotPassword(email, schoolId || undefined)
       setDevOtp(res.devOtp || '')
       setSubmitted(true)
     } catch (err) {
@@ -65,7 +66,7 @@ export default function ForgotPassword() {
     setCanResend(false)
     setResendCountdown(60)
     try {
-      const res = await forgotPassword(email)
+      const res = await forgotPassword(email, schoolId || undefined)
       setDevOtp(res.devOtp || '')
     } catch {
       // ignore — user can retry once the countdown ends
@@ -120,6 +121,18 @@ export default function ForgotPassword() {
                 </p>
 
                 <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>
+                      School Code <span className="text-[var(--muted-foreground)] font-normal">(Optional for Super Admin)</span>
+                    </label>
+                    <Input
+                      type="text"
+                      placeholder="GREENFIELD"
+                      value={schoolId}
+                      onChange={(e) => setSchoolId(e.target.value.toUpperCase())}
+                    />
+                  </div>
+                  
                   <div>
                     <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>
                       Email Address
@@ -184,7 +197,7 @@ export default function ForgotPassword() {
                   </p>
                 )}
 
-                <Button size="lg" className="w-full mb-3" onClick={() => navigate('/otp', { state: { email } })}>
+                <Button size="lg" className="w-full mb-3" onClick={() => navigate('/otp', { state: { email, schoolId } })}>
                   Enter verification code
                 </Button>
 
