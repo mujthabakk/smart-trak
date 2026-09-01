@@ -1301,7 +1301,6 @@ export default function Routes() {
       const tempId = `route-bulk-${Date.now()}-${i}`
       const payload: RouteInput = {
         name: p.name ?? 'Unnamed Route',
-        type: 'pickup',
         start_point: p.start_point ?? '',
         end_point: p.end_point ?? '',
         is_active: true,
