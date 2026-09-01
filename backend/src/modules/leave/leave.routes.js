@@ -13,6 +13,8 @@ router.use(requireAuth);
 // admins and parents (parents restricted to their own children — enforced
 // in the controller/service, not here, since it depends on the record).
 router.get('/', validate({ query: schema.listQuery }), controller.list);
+// Must come before /:id so "reasons" isn't captured as an :id param.
+router.get('/reasons', controller.getReasons);
 router.get('/:id', validate({ params: schema.idParam }), controller.getOne);
 router.post(
   '/',

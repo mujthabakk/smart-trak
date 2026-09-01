@@ -18,6 +18,7 @@ function toResponse(row, replies = []) {
     reporter_name: row.reporter_name,
     reporter_role: row.reporter_role,
     type: row.type,
+    subject: row.subject || undefined,
     priority: row.priority,
     status: row.status,
     description: row.description,
@@ -124,10 +125,10 @@ async function getById(id, user) {
 async function create(user, data) {
   const schoolId = user.school_id || null;
   const { rows } = await query(
-    `INSERT INTO support_tickets (school_id, reporter_id, type, priority, description)
-     VALUES ($1,$2,$3,$4,$5)
+    `INSERT INTO support_tickets (school_id, reporter_id, type, subject, priority, description)
+     VALUES ($1,$2,$3,$4,$5,$6)
      RETURNING id`,
-    [schoolId, user.id, data.type, data.priority || 'medium', data.description]
+    [schoolId, user.id, data.type, data.subject, data.priority || 'medium', data.description]
   );
   return getById(rows[0].id, user);
 }
@@ -151,13 +152,13 @@ async function update(id, user, data) {
     throw ApiError.forbidden('Only admins can update status, priority or assignment');
   }
 
-  if (data.description !== undefined && !isAdmin) {
+  if ((data.description !== undefined || data.subject !== undefined) && !isAdmin) {
     if (ticket.status !== 'open') {
-      throw ApiError.forbidden('Description can only be edited while the ticket is open');
+      throw ApiError.forbidden('Subject/description can only be edited while the ticket is open');
     }
   }
 
-  const fields = ['status', 'priority', 'assigned_to', 'description'];
+  const fields = ['status', 'priority', 'assigned_to', 'description', 'subject'];
   const sets = [];
   const params = [];
   for (const field of fields) {

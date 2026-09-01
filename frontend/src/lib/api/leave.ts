@@ -18,7 +18,7 @@ export async function getLeave(id: string): Promise<Leave> {
   return data.leave
 }
 
-export async function createLeave(payload: { student_id: string; from_date: string; to_date: string; reason?: string }): Promise<Leave> {
+export async function createLeave(payload: { student_id: string; from_date: string; to_date: string; shift?: Leave['shift']; reason?: string }): Promise<Leave> {
   const { data } = await apiClient.post<{ leave: Leave }>('/leave', payload)
   return data.leave
 }

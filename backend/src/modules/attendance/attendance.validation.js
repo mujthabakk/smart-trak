@@ -55,6 +55,12 @@ const updateAttendance = z.object({
   offboard_reason: z.enum(['parent_not_available', 'student_asleep', 'wrong_stop', 'returned_to_school', 'other']).optional(),
 });
 
+const daySummaryQuery = z.object({
+  student_id: z.string().min(1),
+  date: z.string().min(1),
+  school_id: z.string().optional(),
+});
+
 const idParam = z.object({ id: z.string().min(1) });
 
 const listQuery = z.object({
@@ -67,4 +73,4 @@ const listQuery = z.object({
   pageSize: z.string().optional(),
 });
 
-module.exports = { markAttendance, bulkMark, bulkOffboard, scanAttendance, updateAttendance, idParam, listQuery };
+module.exports = { markAttendance, bulkMark, bulkOffboard, scanAttendance, updateAttendance, idParam, listQuery, daySummaryQuery };

@@ -34,6 +34,18 @@ router.patch(
   validate({ params: schema.idParam, body: schema.updateLocation }),
   controller.updateDropLocation
 );
+router.patch(
+  '/:id/alert-pickup-stop',
+  requireRole('super_admin', 'school_admin', 'parent'),
+  validate({ params: schema.idParam, body: schema.updateLocation }),
+  controller.updateAlertPickupStop
+);
+router.patch(
+  '/:id/alert-drop-stop',
+  requireRole('super_admin', 'school_admin', 'parent'),
+  validate({ params: schema.idParam, body: schema.updateLocation }),
+  controller.updateAlertDropStop
+);
 router.delete(
   '/:id',
   requireRole('super_admin', 'school_admin'),

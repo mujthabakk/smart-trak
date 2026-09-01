@@ -60,6 +60,15 @@ const getOne = asyncHandler(async (req, res) => {
   res.json({ record: await service.getById(req.params.id, schoolId) });
 });
 
+/** Parent app's Attendance screen: morning/afternoon trip cards for one
+ * student on one selected day. */
+const getDaySummary = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const parentUserId = req.user.role === 'parent' ? req.user.id : undefined;
+  const result = await service.getDaySummary(schoolId, req.query.student_id, req.query.date, parentUserId);
+  res.json(result);
+});
+
 const mark = asyncHandler(async (req, res) => {
   const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.user.school_id;
   if (!schoolId && req.user.role !== 'super_admin') {
@@ -138,4 +147,4 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getOne, mark, scan, bulk, bulkOffboard, update, remove };
+module.exports = { list, getOne, getDaySummary, mark, scan, bulk, bulkOffboard, update, remove };

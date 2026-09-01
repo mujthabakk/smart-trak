@@ -63,6 +63,29 @@ async function getOwnedById(id, userId) {
   return rows[0];
 }
 
+/** Resolves push tokens for a batch of users — prefers each user's registered
+ * fcm_tokens (multi-device); falls back to the legacy users.fcm_token column
+ * only for a user with zero rows in fcm_tokens, so accounts that haven't
+ * moved to the per-device registration flow yet still receive pushes. */
+async function resolvePushTokens(userIds) {
+  if (!userIds.length) return [];
+  const { rows: deviceRows } = await query(
+    'SELECT user_id, token FROM fcm_tokens WHERE user_id = ANY($1)',
+    [userIds]
+  );
+  const usersWithDeviceTokens = new Set(deviceRows.map((r) => r.user_id));
+  const legacyUserIds = userIds.filter((id) => !usersWithDeviceTokens.has(id));
+  let legacyTokens = [];
+  if (legacyUserIds.length) {
+    const { rows } = await query(
+      'SELECT fcm_token FROM users WHERE id = ANY($1) AND fcm_token IS NOT NULL',
+      [legacyUserIds]
+    );
+    legacyTokens = rows.map((r) => r.fcm_token);
+  }
+  return [...deviceRows.map((r) => r.token), ...legacyTokens];
+}
+
 /**
  * Plain function other backend modules can call directly (no HTTP round
  * trip) to push a notification to a user, e.g.:
@@ -91,8 +114,8 @@ async function createNotification({ school_id, user_id, title, body, type, actio
   // a push failure (or missing/stubbed token) must never fail notification creation.
   if (user_id) {
     try {
-      const { rows: userRows } = await query('SELECT fcm_token FROM users WHERE id = $1', [user_id]);
-      await sendPush({ token: userRows[0]?.fcm_token, title, body, data: { type, action_url } });
+      const tokens = await resolvePushTokens([user_id]);
+      await Promise.all(tokens.map((token) => sendPush({ token, title, body, data: { type, action_url } })));
     } catch (err) {
       console.error('Failed to send push notification', err);
     }
@@ -181,11 +204,9 @@ async function broadcastNotification(schoolId, senderId, payload) {
 
   // Send push notifications
   try {
-    const { rows: tokens } = await query(`
-      SELECT fcm_token FROM users WHERE id = ANY($1) AND fcm_token IS NOT NULL
-    `, [userIds]);
-    for (const t of tokens) {
-      await sendPush({ token: t.fcm_token, title, body, data: { type } }).catch(() => {});
+    const tokens = await resolvePushTokens(userIds);
+    for (const token of tokens) {
+      await sendPush({ token, title, body, data: { type } }).catch(() => {});
     }
   } catch (err) {
     console.error('Failed to send broadcast push notifications', err);

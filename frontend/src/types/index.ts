@@ -239,6 +239,7 @@ export interface Leave {
   school_id: string
   from_date: string
   to_date: string
+  shift?: 'morning' | 'evening' | 'full_day'
   reason?: string
   status: LeaveStatus
   approved_by?: string

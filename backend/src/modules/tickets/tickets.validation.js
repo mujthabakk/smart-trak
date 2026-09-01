@@ -2,6 +2,7 @@ const { z } = require('zod');
 
 const createTicket = z.object({
   type: z.string().min(1),
+  subject: z.string().min(1),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   description: z.string().min(1),
 });
@@ -10,6 +11,7 @@ const updateTicket = z.object({
   status: z.enum(['open', 'in_progress', 'resolved', 'escalated']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   assigned_to: z.string().optional(),
+  subject: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
 });
 

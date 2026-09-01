@@ -228,21 +228,28 @@ async function seedFleetAndRoutes(driverUserId) {
       [routeId1]
     );
 
+    // Ahmed and Layla are siblings (different classes) sharing the demo parent
+    // account (parent@smarttrack.ae) so the mobile login-with-multiple-children
+    // flow has real data to exercise. The others keep distinct per-student
+    // parent emails, unrelated to the demo account.
     const students = [
-      ['Ahmed Hassan Al-Rashid', '5', 'A', '501', '2015-03-12', stop1.rows[0].id],
-      ['Fatima Noor Al-Zahra', '3', 'B', '302', '2017-07-22', stop2.rows[0].id],
-      ['Mohammed Khalid Ibrahim', '7', 'A', '701', '2013-11-05', stop1.rows[0].id],
+      ['Ahmed Hassan Al-Rashid', '5', 'A', '501', '2015-03-12', stop1.rows[0].id, 'parent@smarttrack.ae'],
+      ['Fatima Noor Al-Zahra', '3', 'B', '302', '2017-07-22', stop2.rows[0].id, null],
+      ['Mohammed Khalid Ibrahim', '7', 'A', '701', '2013-11-05', stop1.rows[0].id, null],
+      ['Layla Hassan Al-Rashid', '2', 'C', '201', '2019-05-18', stop1.rows[0].id, 'parent@smarttrack.ae'],
     ];
-    for (const [name, klass, division, roll, dob, pickupStopId] of students) {
+    for (const [name, klass, division, roll, dob, pickupStopId, parentEmail] of students) {
       const { rows } = await client.query(
         `INSERT INTO students (school_id, name, class, division, roll_number, dob, student_qr_code, pickup_stop_id, drop_stop_id)
          VALUES ('GREENFIELD',$1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`,
         [name, klass, division, roll, dob, generateQrCode('STD'), pickupStopId]
       );
+      const email = parentEmail || `parent.${rows[0].id}@example.com`;
+      const parentName = parentEmail ? 'Aisha Mohammed' : `Parent of ${name}`;
       await client.query(
         `INSERT INTO parent_details (student_id, parent_name, relationship, email, phone, whatsapp)
          VALUES ($1,$2,'Father',$3,$4,$4)`,
-        [rows[0].id, `Parent of ${name}`, `parent.${rows[0].id}@example.com`, '+971501234567']
+        [rows[0].id, parentName, email, '+971501234567']
       );
     }
     await client.query('COMMIT');

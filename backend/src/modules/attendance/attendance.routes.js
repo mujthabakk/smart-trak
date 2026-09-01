@@ -9,6 +9,8 @@ const router = express.Router();
 router.use(requireAuth);
 
 router.get('/', validate({ query: schema.listQuery }), controller.list);
+// Must come before /:id so "day-summary" isn't captured as an :id param.
+router.get('/day-summary', validate({ query: schema.daySummaryQuery }), controller.getDaySummary);
 router.get('/:id', validate({ params: schema.idParam }), controller.getOne);
 router.post(
   '/',

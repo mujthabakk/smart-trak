@@ -103,13 +103,48 @@ async function changeOwnPassword(userId, currentPassword, newPassword) {
 }
 
 /**
- * Self-service push-token registration — lets a mobile client (driver,
+ * Legacy self-service push-token registration — lets a mobile client (driver,
  * guest_driver, parent) register its own device token without needing the
- * admin-only PATCH /users/:id.
+ * admin-only PATCH /users/:id. Kept for backward compatibility; only remembers
+ * one token per user, so a second device silently overwrites the first. New
+ * integrations should use registerDeviceToken/updateDeviceToken below instead.
  */
 async function updateFcmToken(userId, token) {
   await query('UPDATE users SET fcm_token = $1, updated_at = now() WHERE id = $2', [token, userId]);
   return findUserById(userId);
+}
+
+function toDeviceTokenResponse(row) {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    device_id: row.device_id,
+    token: row.token,
+    platform: row.platform || undefined,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+/**
+ * Registers a new device's push token for the current user, or refreshes it
+ * if that device_id is already known (multi-device: a user can be logged in
+ * on several devices at once, each remembered separately by its
+ * client-generated device_id). One upsert covers both first-time
+ * registration and later token rotation (e.g. FCM's onTokenRefresh) — a
+ * client can't always tell which case it's in (e.g. after a reinstall that
+ * kept its stored device_id), so there's no separate "update" call to get
+ * that distinction wrong.
+ */
+async function registerDeviceToken(userId, { device_id, token, platform }) {
+  const { rows } = await query(
+    `INSERT INTO fcm_tokens (user_id, device_id, token, platform)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (user_id, device_id) DO UPDATE SET token = $3, platform = $4, updated_at = now()
+     RETURNING *, (xmax = 0) AS inserted`,
+    [userId, device_id, token, platform || null]
+  );
+  return { deviceToken: toDeviceTokenResponse(rows[0]), created: rows[0].inserted };
 }
 
 module.exports = {
@@ -122,4 +157,5 @@ module.exports = {
   resetPassword,
   changeOwnPassword,
   updateFcmToken,
+  registerDeviceToken,
 };

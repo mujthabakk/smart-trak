@@ -17,6 +17,7 @@ function toResponse(row) {
     school_id: row.school_id,
     from_date: row.from_date,
     to_date: row.to_date,
+    shift: row.shift || undefined,
     reason: row.reason || undefined,
     status: row.status,
     approved_by: row.approved_by || undefined,
@@ -119,10 +120,10 @@ async function create(schoolId, data, parentUserId) {
   await assertStudentInScope(data.student_id, schoolId);
   if (parentUserId) await assertStudentBelongsToParent(data.student_id, parentUserId);
   const { rows } = await query(
-    `INSERT INTO leaves (student_id, school_id, from_date, to_date, reason, status)
-     VALUES ($1, $2, $3, $4, $5, 'pending')
+    `INSERT INTO leaves (student_id, school_id, from_date, to_date, shift, reason, status)
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending')
      RETURNING id`,
-    [data.student_id, schoolId, data.from_date, data.to_date, data.reason || null]
+    [data.student_id, schoolId, data.from_date, data.to_date, data.shift || null, data.reason || null]
   );
   return getById(rows[0].id, schoolId);
 }
@@ -137,7 +138,7 @@ async function update(id, schoolId, data, actingUserId) {
   const existing = await getById(id, schoolId);
   const sets = [];
   const params = [];
-  for (const field of ['from_date', 'to_date', 'reason']) {
+  for (const field of ['from_date', 'to_date', 'shift', 'reason']) {
     if (data[field] !== undefined) {
       params.push(data[field]);
       sets.push(`${field} = $${params.length}`);

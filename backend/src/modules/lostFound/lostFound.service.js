@@ -10,9 +10,14 @@ const BASE_SELECT = `
 `;
 
 const CLAIM_SELECT = `
-  SELECT c.*, s.name AS student_name
+  SELECT c.*, s.name AS student_name,
+    lf.description AS item_description, lf.reported_at, lf.bus_id, lf.driver_id,
+    b.bus_number, d.name AS driver_name
   FROM lf_claims c
   JOIN students s ON s.id = c.student_id
+  JOIN lost_found_items lf ON lf.id = c.lost_found_id
+  LEFT JOIN buses b ON b.id = lf.bus_id
+  LEFT JOIN drivers d ON d.id = lf.driver_id
 `;
 
 function toResponse(row) {
@@ -26,6 +31,9 @@ function toResponse(row) {
     description: row.description,
     photo_url: row.photo_url || undefined,
     image_url: row.image_url || undefined,
+    // Normalized single field so clients don't need the image_url-then-
+    // photo_url fallback the web admin currently does by hand.
+    image: row.image_url || row.photo_url || undefined,
     reported_at: row.reported_at,
     status: row.status,
   };
@@ -40,6 +48,14 @@ function toClaimResponse(row) {
     claim_note: row.claim_note || undefined,
     status: row.status,
     claimed_at: row.claimed_at || undefined,
+    // Item's origin details — enough on their own to render a "here's where
+    // to collect it from" confirmation without a second GET /lost-found/:id.
+    item_description: row.item_description,
+    reported_at: row.reported_at,
+    bus_id: row.bus_id || undefined,
+    bus_number: row.bus_number || undefined,
+    driver_id: row.driver_id || undefined,
+    driver_name: row.driver_name || undefined,
   };
 }
 

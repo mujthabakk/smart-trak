@@ -30,6 +30,19 @@ function toLocalDateStr(d: Date): string {
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
+function shiftLabel(shift?: LeaveType['shift']): string {
+  switch (shift) {
+    case 'morning':
+      return 'Morning'
+    case 'evening':
+      return 'Evening'
+    case 'full_day':
+      return 'Full Day'
+    default:
+      return '—'
+  }
+}
+
 function daysBetween(from: string, to: string): number {
   const a = new Date(from).getTime()
   const b = new Date(to).getTime()
@@ -128,7 +141,7 @@ function LeaveDetailDialog({ leave, students, onClose, onDecide }: DetailDialogP
           )}
 
           {/* Leave period */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">From</p>
               <p className="mt-1 text-sm font-medium text-[var(--foreground)]">{formatDate(leave.from_date)}</p>
@@ -140,6 +153,10 @@ function LeaveDetailDialog({ leave, students, onClose, onDecide }: DetailDialogP
             <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Days</p>
               <p className="mt-1 text-sm font-bold text-[var(--foreground)]">{daysBetween(leave.from_date, leave.to_date)}</p>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Shift</p>
+              <p className="mt-1 text-sm font-medium text-[var(--foreground)]">{shiftLabel(leave.shift)}</p>
             </div>
           </div>
 
@@ -310,6 +327,11 @@ export default function Leave() {
       key: 'reason',
       header: 'Reason',
       render: (row) => <Badge variant="muted">{row.reason ?? 'Other'}</Badge>,
+    },
+    {
+      key: 'shift',
+      header: 'Shift',
+      render: (row) => <span className="text-sm text-[var(--foreground)]">{shiftLabel(row.shift)}</span>,
     },
     {
       key: 'dates',

@@ -6,6 +6,19 @@ const service = require('./leave.service');
 
 const ADMIN_ROLES = ['super_admin', 'school_admin'];
 
+const getReasons = asyncHandler(async (req, res) => {
+  res.json({
+    reasons: [
+      'Sick',
+      'Family Function',
+      'Travel',
+      'Medical Appointment',
+      'Personal',
+      'Other',
+    ],
+  });
+});
+
 const list = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const pagination = parsePagination(req.query);
@@ -54,4 +67,4 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getOne, create, update, remove };
+module.exports = { list, getOne, create, update, remove, getReasons };

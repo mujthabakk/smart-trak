@@ -3,6 +3,7 @@ const { parsePagination } = require('../../utils/pagination');
 const { resolveSchoolId } = require('../../middleware/auth');
 const ApiError = require('../../utils/ApiError');
 const service = require('./lostFound.service');
+const studentsService = require('../students/students.service');
 const { query } = require('../../config/db');
 
 const list = asyncHandler(async (req, res) => {
@@ -52,6 +53,11 @@ const remove = asyncHandler(async (req, res) => {
 
 const addClaim = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
+  if (req.user.role === 'parent') {
+    // Confirms req.body.student_id is this parent's own child; 404s otherwise
+    // — a parent may only claim a lost item on behalf of their own child.
+    await studentsService.getById(req.body.student_id, schoolId, req.user.id);
+  }
   const claim = await service.addClaim(req.params.id, schoolId, req.body);
   res.status(201).json({ claim });
 });

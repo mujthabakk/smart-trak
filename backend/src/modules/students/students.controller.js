@@ -66,4 +66,28 @@ const updateDropLocation = asyncHandler(async (req, res) => {
   res.json({ student });
 });
 
-module.exports = { list, getOne, create, update, remove, updatePickupLocation, updateDropLocation };
+const updateAlertPickupStop = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const parentUserId = req.user.role === 'parent' ? req.user.id : undefined;
+  const student = await service.updateAlertStop(req.params.id, schoolId, 'pickup', req.body.stop_id, parentUserId);
+  res.json({ student });
+});
+
+const updateAlertDropStop = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const parentUserId = req.user.role === 'parent' ? req.user.id : undefined;
+  const student = await service.updateAlertStop(req.params.id, schoolId, 'drop', req.body.stop_id, parentUserId);
+  res.json({ student });
+});
+
+module.exports = {
+  list,
+  getOne,
+  create,
+  update,
+  remove,
+  updatePickupLocation,
+  updateDropLocation,
+  updateAlertPickupStop,
+  updateAlertDropStop,
+};

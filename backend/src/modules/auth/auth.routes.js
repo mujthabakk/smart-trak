@@ -15,4 +15,10 @@ router.post('/logout', requireAuth, controller.logout);
 router.patch('/change-password', requireAuth, validate({ body: schema.changePassword }), controller.changePassword);
 router.patch('/fcm-token', requireAuth, validate({ body: schema.updateFcmToken }), controller.updateFcmToken);
 
+// Multi-device push token registry — supersedes the single-token endpoint
+// above for clients that want more than one device remembered per user.
+// One upsert endpoint handles both first-time registration and later token
+// rotation (e.g. FCM's onTokenRefresh) for the same device_id.
+router.post('/fcm-tokens', requireAuth, validate({ body: schema.registerDeviceToken }), controller.registerDeviceToken);
+
 module.exports = router;

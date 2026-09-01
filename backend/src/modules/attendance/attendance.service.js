@@ -306,6 +306,93 @@ async function notifyParentsForAttendance(records, tripType) {
   }
 }
 
+// Screen labels only — derived from data we actually store (trips.trip_type,
+// trips.status), never invented fields. pickup -> "Morning Trip"/drop ->
+// "Afternoon Trip" matches how the mobile Attendance screen groups the day;
+// not_started/in_progress/completed map to the same wording the Bus Status
+// page already uses for a trip's progress.
+const TRIP_LABELS = { pickup: 'Morning Trip', drop: 'Afternoon Trip' };
+const BUS_STATUS_LABELS = { not_started: 'not_started', in_progress: 'on_route', completed: 'reached' };
+
+/**
+ * Assembles the parent app's per-day Attendance screen: one card per trip
+ * type (pickup/drop) run on the student's own route for the given date,
+ * combining that trip's status with the student's attendance record for it
+ * (if attendance has been marked yet — a trip that hasn't reached this
+ * student's stop returns trip_status/bus_status_label with no
+ * attendance_status/time).
+ */
+async function getDaySummary(schoolId, studentId, date, parentUserId) {
+  const params = [studentId];
+  const conditions = ['s.id = $1'];
+  if (schoolId) {
+    params.push(schoolId);
+    conditions.push(`s.school_id = $${params.length}`);
+  }
+  if (parentUserId) {
+    // Same ownership check used by list()'s filters.parentUserId — a parent
+    // can only pull the day summary for their own child.
+    params.push(parentUserId);
+    conditions.push(`EXISTS (
+      SELECT 1 FROM parent_details pd
+      JOIN users u ON lower(u.email) = lower(pd.email)
+      WHERE pd.student_id = s.id AND u.id = $${params.length}
+    )`);
+  }
+
+  const { rows: studentRows } = await query(
+    `SELECT s.id, s.name, ps.route_id AS pickup_route_id, ds.route_id AS drop_route_id
+     FROM students s
+     LEFT JOIN stops ps ON ps.id = s.pickup_stop_id
+     LEFT JOIN stops ds ON ds.id = s.drop_stop_id
+     WHERE ${conditions.join(' AND ')}`,
+    params
+  );
+  if (!studentRows[0]) throw ApiError.notFound('Student not found');
+  const student = studentRows[0];
+
+  const routeIds = [...new Set([student.pickup_route_id, student.drop_route_id].filter(Boolean))];
+  const dateStr = formatDateString(date);
+  if (!routeIds.length) {
+    return { student_id: student.id, student_name: student.name, date: dateStr, trips: [] };
+  }
+
+  const { rows: tripRows } = await query(
+    `SELECT id, trip_type, status AS trip_status
+     FROM trips WHERE route_id = ANY($1) AND trip_date = $2
+     ORDER BY trip_type`,
+    [routeIds, dateStr]
+  );
+
+  let attendanceByTrip = {};
+  if (tripRows.length) {
+    const { rows: attRows } = await query(
+      `SELECT ar.trip_id, ar.status, ar.pickup_time, ar.drop_time, st.name AS stop_name
+       FROM attendance_records ar
+       LEFT JOIN stops st ON st.id = ar.stop_id
+       WHERE ar.student_id = $1 AND ar.trip_id = ANY($2)`,
+      [studentId, tripRows.map((t) => t.id)]
+    );
+    attendanceByTrip = Object.fromEntries(attRows.map((r) => [r.trip_id, r]));
+  }
+
+  const trips = tripRows.map((t) => {
+    const att = attendanceByTrip[t.id];
+    return {
+      trip_id: t.id,
+      trip_type: t.trip_type,
+      label: TRIP_LABELS[t.trip_type] || t.trip_type,
+      stop_name: att?.stop_name || undefined,
+      attendance_status: att?.status || undefined,
+      time: (t.trip_type === 'pickup' ? att?.pickup_time : att?.drop_time) || undefined,
+      trip_status: t.trip_status,
+      bus_status_label: BUS_STATUS_LABELS[t.trip_status] || t.trip_status,
+    };
+  });
+
+  return { student_id: student.id, student_name: student.name, date: dateStr, trips };
+}
+
 module.exports = {
   list,
   getById,
@@ -317,4 +404,5 @@ module.exports = {
   update,
   remove,
   notifyParentsForAttendance,
+  getDaySummary,
 };

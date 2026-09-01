@@ -11,7 +11,9 @@ const BASE_SELECT = `
     COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) AS pickup_stop_id,
     COALESCE(tso.override_drop_stop_id, s.drop_stop_id) AS drop_stop_id,
     (tso.id IS NOT NULL) AS is_temporary_override,
-    COALESCE(pr.name, dr.name) AS route_name
+    COALESCE(pr.name, dr.name) AS route_name,
+    COALESCE(pr.id, dr.id) AS route_id,
+    s.alert_pickup_stop_id, s.alert_drop_stop_id
   FROM students s
   LEFT JOIN trips t ON t.status = 'in_progress' AND (
       t.route_id = (SELECT route_id FROM stops WHERE id = s.pickup_stop_id LIMIT 1) OR
@@ -50,7 +52,10 @@ function toResponse(row, parents = []) {
     is_active: row.is_active,
     pickup_stop_id: row.pickup_stop_id || undefined,
     drop_stop_id: row.drop_stop_id || undefined,
+    route_id: row.route_id || undefined,
     route_name: row.route_name || undefined,
+    alert_pickup_stop_id: row.alert_pickup_stop_id || undefined,
+    alert_drop_stop_id: row.alert_drop_stop_id || undefined,
     parents: parents.map(toParentResponse),
     created_at: row.created_at,
   };
@@ -281,4 +286,29 @@ async function updateLocation(id, schoolId, field, stopId, driverUserId = null) 
   return getById(id, schoolId);
 }
 
-module.exports = { list, getById, create, update, remove, updateLocation };
+/**
+ * Sets where a parent wants to be notified as the bus approaches (a pure
+ * preference), independent of updateLocation's same-day pickup/drop stop
+ * override — this never touches pickup_stop_id/drop_stop_id and has no
+ * active-trip requirement, so it can be set any time, on any stop on the
+ * student's route.
+ */
+async function updateAlertStop(id, schoolId, field, stopId, parentUserId) {
+  const { rows: stopRows } = await query(
+    `SELECT s.id FROM stops s
+     JOIN routes r ON r.id = s.route_id
+     WHERE s.id = $1 AND r.school_id = $2`,
+    [stopId, schoolId]
+  );
+  if (!stopRows[0]) throw ApiError.badRequest('Invalid stop ID or stop does not belong to your school');
+
+  // Confirms the student exists (and, for a parent caller, belongs to them) — 404s otherwise.
+  await getById(id, schoolId, parentUserId);
+
+  const column = field === 'pickup' ? 'alert_pickup_stop_id' : 'alert_drop_stop_id';
+  await query(`UPDATE students SET ${column} = $1, updated_at = now() WHERE id = $2`, [stopId, id]);
+
+  return getById(id, schoolId, parentUserId);
+}
+
+module.exports = { list, getById, create, update, remove, updateLocation, updateAlertStop };
