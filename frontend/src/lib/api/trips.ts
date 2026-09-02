@@ -21,6 +21,27 @@ export async function getTrip(id: string): Promise<Trip> {
   return data.trip
 }
 
+export interface BoardingStudent {
+  id: string
+  name: string
+  class: string
+  division: string
+  student_qr_code?: string
+  pickup_stop_id?: string
+  drop_stop_id?: string
+  status: 'present' | 'absent' | 'leave' | 'pending'
+  pickup_time?: string
+  drop_time?: string
+  offboarded_at?: string
+  stop_name?: string
+  is_leave_applied: boolean
+}
+
+export async function getBoardingStudents(id: string): Promise<BoardingStudent[]> {
+  const { data } = await apiClient.get<{ students: BoardingStudent[] }>(`/trips/${id}/boarding-students`)
+  return data.students
+}
+
 export interface TripPathPoint {
   latitude: number
   longitude: number

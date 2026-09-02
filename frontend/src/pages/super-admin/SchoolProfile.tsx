@@ -25,6 +25,7 @@ import { getInitials, formatDate, formatCurrency, formatNumber } from '@/lib/uti
 import { getSchool, updateSchool } from '@/lib/api/schools'
 import { listPlans } from '@/lib/api/plans'
 import { listSubscriptions } from '@/lib/api/subscriptions'
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezones'
 import type { School, Subscription } from '@/types'
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -100,6 +101,9 @@ interface EditForm {
   student_count: string
   bus_count: string
   driver_count: string
+  timezone: string
+  supervisor_name: string
+  supervisor_phone: string
 }
 
 const EMPTY_EDIT_FORM: EditForm = {
@@ -107,6 +111,7 @@ const EMPTY_EDIT_FORM: EditForm = {
   plan_name: 'standard', address: '', city: '', state: '', post_code: '', country: 'UAE',
   latitude: '', longitude: '',
   student_count: '', bus_count: '', driver_count: '',
+  timezone: DEFAULT_TIMEZONE, supervisor_name: '', supervisor_phone: '',
 }
 
 function schoolToForm(s: School): EditForm {
@@ -127,6 +132,9 @@ function schoolToForm(s: School): EditForm {
     student_count: String(s.student_count ?? ''),
     bus_count: String(s.bus_count ?? ''),
     driver_count: String(s.driver_count ?? ''),
+    timezone: s.timezone || DEFAULT_TIMEZONE,
+    supervisor_name: s.supervisor_name ?? '',
+    supervisor_phone: s.supervisor_phone ?? '',
   }
 }
 
@@ -223,6 +231,9 @@ export default function SchoolProfile() {
       country: form.country,
       latitude: form.latitude.trim() === '' ? undefined : Number(form.latitude),
       longitude: form.longitude.trim() === '' ? undefined : Number(form.longitude),
+      timezone: form.timezone,
+      supervisor_name: form.supervisor_name || undefined,
+      supervisor_phone: form.supervisor_phone || undefined,
     })
   }
 
@@ -389,6 +400,7 @@ export default function SchoolProfile() {
                   <InfoRow icon={Phone} label="Phone" value={school.phone} />
                   <InfoRow icon={Calendar} label="Onboarded" value={formatDate(school.created_at)} />
                   <InfoRow icon={CreditCard} label="Plan" value={school.plan_name} />
+                  <InfoRow icon={Globe} label="Timezone" value={school.timezone} />
                 </CardContent>
               </Card>
 
@@ -399,6 +411,8 @@ export default function SchoolProfile() {
                   <InfoRow icon={Mail} label="Admin Email" value={school.admin_email ?? school.email} />
                   <InfoRow icon={Mail} label="School Email" value={school.email} />
                   <InfoRow icon={Phone} label="Phone" value={school.phone} />
+                  <InfoRow icon={User} label="Bus Supervisor" value={school.supervisor_name ?? '—'} />
+                  <InfoRow icon={Phone} label="Supervisor Phone" value={school.supervisor_phone ?? '—'} />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -580,6 +594,35 @@ export default function SchoolProfile() {
                             set('longitude', String(lng))
                           }}
                         />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Bus Operations */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Bus Operations</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="sm:col-span-2 space-y-1.5">
+                        <Label>Timezone</Label>
+                        <Select value={form.timezone} onValueChange={(v) => set('timezone', v)}>
+                          <SelectTrigger><SelectValue placeholder="Select a timezone" /></SelectTrigger>
+                          <SelectContent>
+                            {TIMEZONE_OPTIONS.map((tz) => (
+                              <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-[var(--muted-foreground)]">Used for trip dates, bus status resets, and "today" throughout this school's account.</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-supervisor-name">Supervisor name</Label>
+                        <Input id="e-supervisor-name" value={form.supervisor_name} onChange={(e) => set('supervisor_name', e.target.value)} placeholder="Mariam Al-Suwaidi" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="e-supervisor-phone">Supervisor phone</Label>
+                        <Input id="e-supervisor-phone" value={form.supervisor_phone} onChange={(e) => set('supervisor_phone', e.target.value)} placeholder="+971-50-555-0100" />
                       </div>
                     </div>
                   </CardContent>

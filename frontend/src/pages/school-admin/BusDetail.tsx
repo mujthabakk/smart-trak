@@ -711,6 +711,15 @@ export default function BusDetail() {
                         <span className="text-sm font-medium text-[var(--foreground)]">{driver?.phone ?? 'Not available'}</span>
                       </div>
                     </DetailRow>
+                    <DetailRow label="Assistant" value={bus.assistant_name ?? 'Not assigned'} />
+                    {bus.assistant_phone && (
+                      <DetailRow label="Assistant Phone">
+                        <div className="flex items-center gap-1.5">
+                          <Phone size={13} className="text-[var(--muted-foreground)]" />
+                          <span className="text-sm font-medium text-[var(--foreground)]">{bus.assistant_phone}</span>
+                        </div>
+                      </DetailRow>
+                    )}
                     <DetailRow label="Route">
                       {route ? (
                         <button

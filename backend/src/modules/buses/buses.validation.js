@@ -9,6 +9,8 @@ const busInput = z.object({
   fitness_cert_expiry: z.string().optional(),
   driver_id: z.string().optional(),
   is_active: z.boolean().optional(),
+  assistant_name: z.string().optional(),
+  assistant_phone: z.string().optional(),
 });
 
 const createBuses = z.object({

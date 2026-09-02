@@ -17,6 +17,7 @@ router.use('/trips', require('./modules/trips/trips.routes'));
 router.use('/attendance', require('./modules/attendance/attendance.routes'));
 router.use('/qr', require('./modules/qr/qr.routes'));
 router.use('/leave', require('./modules/leave/leave.routes'));
+router.use('/alerts', require('./modules/alerts/alerts.routes'));
 router.use('/lost-found', require('./modules/lostFound/lostFound.routes'));
 router.use('/bus-transfers', require('./modules/busTransfers/busTransfers.routes'));
 router.use('/guest-trips', require('./modules/guestTrips/guestTrips.routes'));

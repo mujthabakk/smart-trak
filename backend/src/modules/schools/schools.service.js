@@ -48,6 +48,9 @@ function toResponse(row) {
     logo_url: row.logo_url || undefined,
     latitude: row.latitude != null ? Number(row.latitude) : undefined,
     longitude: row.longitude != null ? Number(row.longitude) : undefined,
+    supervisor_name: row.supervisor_name || undefined,
+    supervisor_phone: row.supervisor_phone || undefined,
+    timezone: row.timezone,
   };
 }
 
@@ -98,14 +101,16 @@ async function syncTenantMirror(id, sets, params) {
 async function create(data) {
   const { rows } = await masterPool.query(
     `INSERT INTO schools (id, name, address, city, state, post_code, country, phone, email, website,
-       plan_id, subdomain, admin_name, admin_email, logo_url, status, latitude, longitude)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,COALESCE($16,'pending'),$17,$18)
+       plan_id, subdomain, admin_name, admin_email, logo_url, status, latitude, longitude,
+       supervisor_name, supervisor_phone, timezone)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,COALESCE($16,'pending'),$17,$18,$19,$20,COALESCE($21,'Asia/Kolkata'))
      RETURNING *`,
     [
       data.school_code, data.name, data.address, data.city, data.state, data.post_code, data.country,
       data.phone, data.email, data.website, data.plan_id, data.subdomain,
       data.admin_name, data.admin_email, data.logo_url, data.status,
       data.latitude, data.longitude,
+      data.supervisor_name, data.supervisor_phone, data.timezone,
     ]
   );
   const school = rows[0];
@@ -143,13 +148,15 @@ async function create(data) {
     }
     await tenantPool.query(
       `INSERT INTO schools (id, name, address, city, state, post_code, country, phone, email, website,
-         plan_id, subdomain, admin_name, admin_email, logo_url, status, latitude, longitude)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+         plan_id, subdomain, admin_name, admin_email, logo_url, status, latitude, longitude,
+         supervisor_name, supervisor_phone, timezone)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
       [
         school.id, school.name, school.address, school.city, school.state, school.post_code, school.country,
         school.phone, school.email, school.website, school.plan_id, school.subdomain,
         school.admin_name, school.admin_email, school.logo_url, school.status,
         school.latitude, school.longitude,
+        school.supervisor_name, school.supervisor_phone, school.timezone,
       ]
     );
   } catch (err) {
@@ -164,6 +171,7 @@ async function update(id, data) {
   const fields = [
     'name', 'address', 'city', 'state', 'post_code', 'country', 'phone', 'email', 'website',
     'plan_id', 'subdomain', 'admin_name', 'admin_email', 'logo_url', 'status', 'latitude', 'longitude',
+    'supervisor_name', 'supervisor_phone', 'timezone',
   ];
   const sets = [];
   const params = [];

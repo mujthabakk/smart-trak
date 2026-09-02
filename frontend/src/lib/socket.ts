@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client'
 import { store } from '@/store'
+import type { BusStatusSummary } from '@/types'
 
 let socket: Socket | null = null
 
@@ -39,3 +40,8 @@ export interface TripStatusEvent {
   bus_id: string
   status: 'not_started' | 'in_progress' | 'completed'
 }
+
+/** One student's recomputed Bus Status cards, pushed whenever their
+ * attendance or trip status changes — consumed by the student/parent mobile
+ * app, not this web app, but typed here to document the socket contract. */
+export type BusStatusEvent = BusStatusSummary

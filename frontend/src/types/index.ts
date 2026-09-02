@@ -81,6 +81,9 @@ export interface School {
   logo_url?: string
   latitude?: number
   longitude?: number
+  supervisor_name?: string
+  supervisor_phone?: string
+  timezone: string
 }
 
 export interface EmailLog {
@@ -134,6 +137,9 @@ export interface Student {
   pickup_stop_id?: string
   drop_stop_id?: string
   route_name?: string
+  route_id?: string
+  alert_pickup_stop_id?: string
+  alert_drop_stop_id?: string
   parents: ParentDetail[]
   created_at: string
 }
@@ -173,6 +179,8 @@ export interface Bus {
   driver_name?: string
   status?: 'running' | 'idle' | 'offline'
   current_stop?: string
+  assistant_name?: string
+  assistant_phone?: string
   created_at: string
 }
 
@@ -217,6 +225,9 @@ export interface Trip {
   status: TripStatus
   started_at?: string
   ended_at?: string
+  /** Bus's overall progress on this trip — most recent stop marked for any
+   * student, attendance-derived (not GPS). */
+  current_stop?: string
   student_count: number
 }
 
@@ -231,8 +242,54 @@ export interface AttendanceRecord {
   status: AttendanceStatus
   pickup_time?: string
   drop_time?: string
+  offboarded_at?: string
+  offboard_status?: string
+  offboard_reason?: string
   route_name?: string
   date: string
+}
+
+/** One trip-type card in the student Bus Status view — GET /attendance/day-summary
+ * and the bus:status socket event share this shape. */
+export interface BusStatusTrip {
+  trip_id: string
+  trip_type: TripType
+  label: string
+  trip_status: TripStatus
+  bus_status_label: string
+  no_data: boolean
+  reason: 'not_started' | 'on_leave' | null
+  stop_name?: string
+  attendance_status?: AttendanceStatus
+  boarded_at?: string
+  reached_at?: string
+  /** Bus's overall progress on this trip — most recent stop marked for any
+   * student, not just this one. Same key as Bus.current_stop. */
+  current_stop?: string
+  supervisor_name?: string
+  supervisor_phone?: string
+  assistant_name?: string
+  assistant_phone?: string
+}
+
+export interface BusStatusSummary {
+  student_id: string
+  student_name: string
+  date: string
+  trips: BusStatusTrip[]
+}
+
+export interface AlertEvent {
+  id: string
+  student_id: string
+  student_name: string
+  stop_id: string
+  stop_name: string
+  trip_id: string
+  alert_type: TripType
+  distance_m?: number
+  message: string
+  fired_at: string
 }
 
 export interface Leave {

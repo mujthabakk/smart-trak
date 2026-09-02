@@ -29,11 +29,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { downloadCSV, cn } from '@/lib/utils'
-import { getRouteTripDurationDisplay } from '@/lib/tripDuration'
 import { listRoutes, createRoute, updateRoute, type RouteInput } from '@/lib/api/routes'
-import { listTrips } from '@/lib/api/trips'
 import { listStudents, updateStudent } from '@/lib/api/students'
-import type { Route as RouteType, Student, Stop, Trip } from '@/types'
+import type { Route as RouteType, Student, Stop } from '@/types'
 
 const container = {
   hidden: { opacity: 0 },
@@ -42,15 +40,6 @@ const container = {
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Returns the in_progress trip for a route, if any */
-function getActiveTrip(routeId: string, trips: Trip[]) {
-  return trips.find((t) => t.route_id === routeId && t.status === 'in_progress') ?? null
-}
-
-function routeTripDuration(routeId: string, trips: Trip[]) {
-  return getRouteTripDurationDisplay(routeId, trips)
-}
 
 /** Auto-generate 2–3 intermediate stops from start/end words */
 function generateStops(routeId: string, start: string, end: string): Stop[] {
@@ -110,9 +99,10 @@ async function downloadRouteQR(route: RouteType) {
 interface StopTimelineProps {
   route: RouteType
   studentsOnRoute: Student[]
+  direction: 'pickup' | 'drop'
 }
 
-function StopTimeline({ route, studentsOnRoute }: StopTimelineProps) {
+function StopTimeline({ route, studentsOnRoute, direction }: StopTimelineProps) {
   const stops = route.stops ?? []
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null)
 
@@ -125,15 +115,21 @@ function StopTimeline({ route, studentsOnRoute }: StopTimelineProps) {
     )
   }
 
-  const ordered = [...stops].sort((a, b) => a.order_index - b.order_index)
+  // Drop runs the same stops in reverse (last one picked up in the morning is
+  // the first one dropped off in the afternoon) — same reversal RouteDetail.tsx
+  // uses for its Stops & Students tab.
+  const sorted = [...stops].sort((a, b) => a.order_index - b.order_index)
+  const ordered = direction === 'drop' ? [...sorted].reverse() : sorted
+  const displayStart = direction === 'pickup' ? route.start_point : route.end_point
+  const displayEnd = direction === 'pickup' ? route.end_point : route.start_point
 
-  // Group students by their actual assigned pickup/drop stop
+  // Group students by this direction's own stop — not a pickup-first
+  // fallback, so a student only shows under their actual drop stop while
+  // the Drop tab is open (and vice versa).
   const studentsByStop: Record<string, Student[]> = {}
   studentsOnRoute.forEach((s) => {
-    let stopId = null
-    if (route.stops?.some(stop => stop.id === s.pickup_stop_id)) stopId = s.pickup_stop_id
-    else if (route.stops?.some(stop => stop.id === s.drop_stop_id)) stopId = s.drop_stop_id
-    if (!stopId) return
+    const stopId = direction === 'pickup' ? s.pickup_stop_id : s.drop_stop_id
+    if (!stopId || !stops.some((stop) => stop.id === stopId)) return
     if (!studentsByStop[stopId]) studentsByStop[stopId] = []
     studentsByStop[stopId].push(s)
   })
@@ -149,7 +145,7 @@ function StopTimeline({ route, studentsOnRoute }: StopTimelineProps) {
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">Start</p>
-            <p className="truncate text-sm font-medium text-[var(--foreground)]">{route.start_point}</p>
+            <p className="truncate text-sm font-medium text-[var(--foreground)]">{displayStart}</p>
           </div>
         </li>
 
@@ -221,7 +217,7 @@ function StopTimeline({ route, studentsOnRoute }: StopTimelineProps) {
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-green-600 dark:text-green-400">Destination</p>
-            <p className="truncate text-sm font-medium text-[var(--foreground)]">{route.end_point}</p>
+            <p className="truncate text-sm font-medium text-[var(--foreground)]">{displayEnd}</p>
           </div>
         </li>
       </ul>
@@ -632,7 +628,6 @@ function AddStopDialog({ route, onAdd }: AddStopDialogProps) {
 // ─── Route Card (List View) ───────────────────────────────────────────────────
 interface RouteCardProps {
   route: RouteType
-  trips: Trip[]
   studentsOnRoute: Student[]
   unassignedStudents: Student[]
   onEdit: (route: RouteType) => void
@@ -644,13 +639,10 @@ interface RouteCardProps {
 }
 
 function RouteCard({
-  route, trips, studentsOnRoute, unassignedStudents,
+  route, studentsOnRoute, unassignedStudents,
   onEdit, onViewMap, onDownloadQR, onAddStudent, onAddStop, onViewDetails,
 }: RouteCardProps) {
-  const activeTrip = getActiveTrip(route.id, trips)
-  const isRunning = !!activeTrip
-  const tripDuration = routeTripDuration(route.id, trips)
-
+  const [direction, setDirection] = useState<'pickup' | 'drop'>('pickup')
   const tabPickup = studentsOnRoute.filter((s) => route.stops?.some(stop => stop.id === s.pickup_stop_id))
   const tabDrop = studentsOnRoute.filter((s) => route.stops?.some(stop => stop.id === s.drop_stop_id))
 
@@ -671,43 +663,25 @@ function RouteCard({
           </div>
           <div className="flex flex-col items-end gap-1.5">
             <StatusBadge status={route.is_active ? 'active' : 'inactive'} size="sm" />
-            {tripDuration && (
-              <span className={cn(
-                'text-[10px] font-bold tabular-nums whitespace-nowrap',
-                tripDuration.isLong
-                  ? 'text-red-600 dark:text-red-400'
-                  : 'text-[var(--muted-foreground)]',
-              )}>
-                {tripDuration.isLive ? 'Live · ' : '✓ '}{tripDuration.label}
-              </span>
-            )}
-            {isRunning && (
-              <Badge className="bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30 text-[10px] font-semibold">
-                In Progress
-              </Badge>
-            )}
           </div>
         </div>
 
-        {/* Driver + Bus: only shown when route has an in-progress trip */}
-        {isRunning && (
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="flex items-center gap-2 rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2">
-              <Bus size={15} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-              <div className="min-w-0">
-                <p className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Bus</p>
-                <p className="truncate text-xs font-semibold text-[var(--foreground)]">{activeTrip.bus_number}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2">
-              <Users size={15} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-              <div className="min-w-0">
-                <p className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Driver</p>
-                <p className="truncate text-xs font-semibold text-[var(--foreground)]">{activeTrip.driver_name}</p>
-              </div>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-2 rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2">
+            <Bus size={15} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Bus</p>
+              <p className="truncate text-xs font-semibold text-[var(--foreground)]">{route.bus_number ?? 'Unassigned'}</p>
             </div>
           </div>
-        )}
+          <div className="flex items-center gap-2 rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2">
+            <Users size={15} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Driver</p>
+              <p className="truncate text-xs font-semibold text-[var(--foreground)]">{route.driver_name ?? 'Unassigned'}</p>
+            </div>
+          </div>
+        </div>
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col pt-4">
@@ -731,8 +705,11 @@ function RouteCard({
           )}
         </div>
 
-        {/* Tabs: Pickup / Drop students */}
-        <Tabs defaultValue="pickup" className="mb-4">
+        {/* Tabs: Pickup / Drop students — also drives the stop timeline below,
+            so its order (and which stop each student groups under) matches
+            the direction actually selected instead of always showing pickup
+            order. */}
+        <Tabs value={direction} onValueChange={(v) => setDirection(v as 'pickup' | 'drop')} className="mb-4">
           <TabsList className="h-8 w-full">
             <TabsTrigger value="pickup" className="flex-1 text-xs">
               Pickup
@@ -777,7 +754,7 @@ function RouteCard({
 
         {/* Stop timeline */}
         <div className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-          <StopTimeline route={route} studentsOnRoute={studentsOnRoute} />
+          <StopTimeline route={route} studentsOnRoute={studentsOnRoute} direction={direction} />
         </div>
 
         {/* Actions */}
@@ -864,13 +841,12 @@ function BoardingPointCard({ stop, students: stopStudents }: BoardingPointCardPr
 // ─── Kanban Board View ────────────────────────────────────────────────────────
 interface KanbanBoardProps {
   routes: RouteType[]
-  trips: Trip[]
   students: Student[]
   onMoveStudent: (studentId: string, toRouteName: string) => void
   onBack: () => void
 }
 
-function KanbanBoard({ routes, trips, students, onMoveStudent, onBack }: KanbanBoardProps) {
+function KanbanBoard({ routes, students, onMoveStudent, onBack }: KanbanBoardProps) {
   const [dragStudentId, setDragStudentId] = useState<string | null>(null)
   const [dragOverRouteId, setDragOverRouteId] = useState<string | null>(null)
 
@@ -1032,13 +1008,11 @@ function KanbanBoard({ routes, trips, students, onMoveStudent, onBack }: KanbanB
         })()}
 
         {filteredRoutes.map((route) => {
-          const activeTrip = getActiveTrip(route.id, trips)
-          const isRunning = !!activeTrip
-          const tripDuration = routeTripDuration(route.id, trips)
           const isDragOver = dragOverRouteId === route.id
-          const routeStudents = students.filter((s) => s.route_name === route.name)
-          const pickupStudents = routeStudents
-          const dropStudents: Student[] = []
+          const stopIds = new Set((route.stops ?? []).map((stop) => stop.id))
+          const pickupStudents = students.filter((s) => s.pickup_stop_id && stopIds.has(s.pickup_stop_id))
+          const dropStudents = students.filter((s) => s.drop_stop_id && stopIds.has(s.drop_stop_id))
+          const routeStudents = [...new Map([...pickupStudents, ...dropStudents].map((s) => [s.id, s])).values()]
           const orderedStops = [...(route.stops ?? [])].sort((a, b) => a.order_index - b.order_index)
 
           return (
@@ -1057,40 +1031,17 @@ function KanbanBoard({ routes, trips, students, onMoveStudent, onBack }: KanbanB
               <div className="rounded-t-2xl border-b border-[var(--border)] bg-[var(--card)] px-4 py-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${
-                      isRunning ? 'bg-green-500/15' : 'bg-[var(--primary)]/10'
-                    }`}>
-                      <RouteIcon size={16} className={isRunning ? 'text-green-600 dark:text-green-400' : 'text-[var(--primary)]'} />
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10">
+                      <RouteIcon size={16} className="text-[var(--primary)]" />
                     </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold text-[var(--foreground)]">{route.name}</p>
-                      {isRunning ? (
-                        <p className="text-[10px] text-green-600 dark:text-green-400 font-medium">
-                          {activeTrip.driver_name} · {activeTrip.bus_number}
-                        </p>
-                      ) : (
-                        <p className="text-[10px] text-[var(--muted-foreground)]">
-                          {route.start_point} → {route.end_point}
-                        </p>
-                      )}
+                      <p className="text-[10px] text-[var(--muted-foreground)]">
+                        {route.start_point} → {route.end_point}
+                      </p>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <Badge variant="secondary" className="text-xs">{routeStudents.length}</Badge>
-                    {tripDuration && (
-                      <span className={cn(
-                        'text-[9px] font-bold tabular-nums whitespace-nowrap',
-                        tripDuration.isLong
-                          ? 'text-red-600 dark:text-red-400'
-                          : 'text-[var(--muted-foreground)]',
-                      )}>
-                        {tripDuration.isLive ? 'Live ' : '✓ '}{tripDuration.label}
-                      </span>
-                    )}
-                    {isRunning && (
-                      <span className="text-[9px] font-bold uppercase tracking-wide text-green-600 dark:text-green-400">Live</span>
-                    )}
-                  </div>
+                  <Badge variant="secondary" className="flex-shrink-0 text-xs">{routeStudents.length}</Badge>
                 </div>
               </div>
 
@@ -1213,12 +1164,6 @@ export default function Routes() {
   })
   const routes = useMemo(() => routesQuery.data?.routes ?? [], [routesQuery.data])
 
-  const tripsQuery = useQuery({
-    queryKey: ['trips'],
-    queryFn: () => listTrips(),
-  })
-  const trips = useMemo(() => tripsQuery.data?.trips ?? [], [tripsQuery.data])
-
   const studentsQuery = useQuery({
     queryKey: ['students'],
     queryFn: () => listStudents({ pageSize: 1000 }),
@@ -1267,13 +1212,13 @@ export default function Routes() {
 
   const stats = useMemo(() => {
     const total = routes.length
-    const active = routes.filter((r) => !!getActiveTrip(r.id, trips)).length
+    const active = routes.filter((r) => r.is_active).length
     const totalStops = routes.reduce((sum, r) => sum + (r.stops?.length ?? 0), 0)
     const totalStudents = routes.reduce((sum, r) => {
       return sum + students.filter((s) => s.route_name === r.name).length
     }, 0)
     return { total, active, totalStops, totalStudents }
-  }, [routes, trips, students])
+  }, [routes, students])
 
   const unassignedStudents = useMemo(
     () => students.filter((s) => !s.route_name),
@@ -1385,7 +1330,7 @@ export default function Routes() {
       {/* Stat cards */}
       <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
         <StatsCard title="Total Routes" value={stats.total} icon={RouteIcon} color="primary" />
-        <StatsCard title="Active Now" value={stats.active} icon={Navigation} color="success" subtitle={`${stats.total - stats.active} inactive`} />
+        <StatsCard title="Active Routes" value={stats.active} icon={Navigation} color="success" subtitle={`${stats.total - stats.active} inactive`} />
         <StatsCard title="Total Stops" value={stats.totalStops} icon={MapPin} color="info" />
         <StatsCard title="Assigned Students" value={stats.totalStudents} icon={Users} color="warning" subtitle={`${unassignedStudents.length} unassigned`} />
       </div>
@@ -1394,7 +1339,6 @@ export default function Routes() {
       {view === 'kanban' ? (
         <KanbanBoard
           routes={routes}
-          trips={trips}
           students={students}
           onMoveStudent={handleMoveStudent}
           onBack={() => setView('list')}
@@ -1421,12 +1365,19 @@ export default function Routes() {
           className="grid grid-cols-1 gap-6 lg:grid-cols-2"
         >
           {routes.map((route) => {
-            const studentsOnRoute = students.filter((s) => s.route_name === route.name)
+            // Direct stop-id membership (either direction), not route_name —
+            // route_name only ever reflects one direction's route (pickup,
+            // falling back to drop — see students.service.js), so a student
+            // whose *drop* stop is on this route but whose pickup is on a
+            // different route was invisible in the Drop tab before this fix.
+            const routeStopIds = new Set((route.stops ?? []).map((stop) => stop.id))
+            const studentsOnRoute = students.filter(
+              (s) => (s.pickup_stop_id && routeStopIds.has(s.pickup_stop_id)) || (s.drop_stop_id && routeStopIds.has(s.drop_stop_id)),
+            )
             return (
               <motion.div key={route.id} variants={item}>
                 <RouteCard
                   route={route}
-                  trips={trips}
                   studentsOnRoute={studentsOnRoute}
                   unassignedStudents={unassignedStudents}
                   onEdit={openEdit}

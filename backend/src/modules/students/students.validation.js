@@ -31,8 +31,8 @@ const studentBase = z.object({
   gender: z.string().optional(),
   photo_url: z.string().optional(),
   is_active: z.boolean().optional(),
-  pickup_stop_id: z.string().optional(),
-  drop_stop_id: z.string().optional(),
+  pickup_stop_id: z.string().nullable().optional(),
+  drop_stop_id: z.string().nullable().optional(),
   address: z.string().optional(),
   parents: z.array(parentInput).optional(),
 });

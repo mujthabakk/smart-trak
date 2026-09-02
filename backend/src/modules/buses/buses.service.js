@@ -27,6 +27,8 @@ function toResponse(row) {
     driver_name: row.driver_name || undefined,
     status: row.status,
     current_stop: row.current_stop || undefined,
+    assistant_name: row.assistant_name || undefined,
+    assistant_phone: row.assistant_phone || undefined,
     created_at: row.created_at,
   };
 }
@@ -75,13 +77,14 @@ async function createMany(schoolId, busInputs) {
     for (const bus of busInputs) {
       const { rows } = await client.query(
         `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year,
-           insurance_expiry, fitness_cert_expiry, safety_qr_code, driver_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           insurance_expiry, fitness_cert_expiry, safety_qr_code, driver_id, assistant_name, assistant_phone)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          RETURNING id`,
         [
           schoolId, bus.bus_number, bus.seat_capacity, bus.make_model || null, bus.year || null,
           bus.insurance_expiry || null, bus.fitness_cert_expiry || null,
           generateQrCode('BUS'), bus.driver_id || null,
+          bus.assistant_name || null, bus.assistant_phone || null,
         ]
       );
       created.push(rows[0].id);
@@ -94,7 +97,7 @@ async function update(id, schoolId, data) {
   await getById(id, schoolId);
   const fields = [
     'bus_number', 'seat_capacity', 'make_model', 'year', 'insurance_expiry', 'fitness_cert_expiry',
-    'driver_id', 'is_active', 'status', 'current_stop',
+    'driver_id', 'is_active', 'status', 'current_stop', 'assistant_name', 'assistant_phone',
   ];
   const sets = [];
   const params = [];

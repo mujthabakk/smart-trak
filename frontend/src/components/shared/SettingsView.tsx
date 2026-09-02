@@ -18,6 +18,8 @@ import { updateUser as updateUserAction } from '@/store/slices/authSlice'
 import { changePassword } from '@/lib/api/auth'
 import { getSchool, updateSchool } from '@/lib/api/schools'
 import { LocationPicker } from '@/components/shared/LocationPicker'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezones'
 import type { School } from '@/types'
 import { getInitials, cn } from '@/lib/utils'
 
@@ -43,6 +45,9 @@ interface SchoolForm {
   website: string
   latitude: string
   longitude: string
+  timezone: string
+  supervisor_name: string
+  supervisor_phone: string
 }
 
 function schoolToForm(s: School): SchoolForm {
@@ -56,6 +61,9 @@ function schoolToForm(s: School): SchoolForm {
     website: s.website ?? '',
     latitude: s.latitude != null ? String(s.latitude) : '',
     longitude: s.longitude != null ? String(s.longitude) : '',
+    timezone: s.timezone || DEFAULT_TIMEZONE,
+    supervisor_name: s.supervisor_name ?? '',
+    supervisor_phone: s.supervisor_phone ?? '',
   }
 }
 
@@ -105,6 +113,9 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
         website: schoolForm.website || undefined,
         latitude: schoolForm.latitude.trim() === '' ? undefined : Number(schoolForm.latitude),
         longitude: schoolForm.longitude.trim() === '' ? undefined : Number(schoolForm.longitude),
+        timezone: schoolForm.timezone,
+        supervisor_name: schoolForm.supervisor_name || undefined,
+        supervisor_phone: schoolForm.supervisor_phone || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school', schoolId] })
@@ -269,6 +280,25 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
                   <div className="space-y-1.5">
                     <Label htmlFor="sc-website">Website</Label>
                     <Input id="sc-website" value={schoolForm.website} onChange={(e) => setSchoolField('website', e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Timezone</Label>
+                    <Select value={schoolForm.timezone} onValueChange={(v) => setSchoolField('timezone', v)}>
+                      <SelectTrigger><SelectValue placeholder="Select a timezone" /></SelectTrigger>
+                      <SelectContent>
+                        {TIMEZONE_OPTIONS.map((tz) => (
+                          <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sc-supervisor-name">Supervisor name</Label>
+                    <Input id="sc-supervisor-name" value={schoolForm.supervisor_name} onChange={(e) => setSchoolField('supervisor_name', e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sc-supervisor-phone">Supervisor phone</Label>
+                    <Input id="sc-supervisor-phone" value={schoolForm.supervisor_phone} onChange={(e) => setSchoolField('supervisor_phone', e.target.value)} />
                   </div>
                   <div className="md:col-span-2 space-y-1.5">
                     <Label>School location</Label>

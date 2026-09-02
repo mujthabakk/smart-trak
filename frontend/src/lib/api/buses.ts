@@ -17,6 +17,8 @@ export interface BusInput {
   insurance_expiry?: string
   fitness_cert_expiry?: string
   driver_id?: string
+  assistant_name?: string
+  assistant_phone?: string
 }
 
 export async function listBuses(params: ListBusesParams = {}): Promise<{ buses: Bus[]; pagination: ApiPagination }> {

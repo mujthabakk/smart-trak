@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
@@ -21,18 +22,23 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { getInitials, cn } from '@/lib/utils'
-import { getRouteTripDurationDisplay } from '@/lib/tripDuration'
-import { getRoute, listRoutes } from '@/lib/api/routes'
-import { listTrips } from '@/lib/api/trips'
-import { listStudents } from '@/lib/api/students'
-import { listAttendance } from '@/lib/api/attendance'
-import type { Route, Stop, Student, AttendanceRecord } from '@/types'
+import { getRoute, listRoutes, updateRoute, type RouteInput } from '@/lib/api/routes'
+import { listStudents, updateStudent, type StudentInput } from '@/lib/api/students'
+import type { Route, Stop, Student } from '@/types'
 import {
   ArrowLeft, QrCode, MapPin, CircleDot, Clock, Users,
   Bus as BusIcon, User, ChevronDown, ChevronUp,
   Navigation, ArrowRight, Plus, Pencil, Trash2, UserPlus, GripVertical,
-  ArrowRightLeft, Search, UserMinus, CalendarCheck, AlertCircle,
+  ArrowRightLeft, Search, UserMinus, AlertCircle,
 } from 'lucide-react'
+
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || fallback
+  }
+  return fallback
+}
 
 const fadeUp = {
   hidden: { opacity: 0, y: 14 },
@@ -99,46 +105,10 @@ function interpolateTimes(stops: Stop[], startTime: string, endTime: string): st
   })
 }
 
-function buildInitialStopMap(stops: Stop[], students: Student[]): Record<string, string> {
-  const ordered = [...stops].sort((a, b) => a.order_index - b.order_index)
-  const map: Record<string, string> = {}
-  students.forEach((s, i) => {
-    if (s.pickup_stop_id && ordered.some((st) => st.id === s.pickup_stop_id)) {
-      map[s.id] = s.pickup_stop_id
-    } else if (ordered.length > 0) {
-      map[s.id] = ordered[i % ordered.length].id
-    }
-  })
-  return map
-}
-
-function attendanceForStudents(
-  students: Student[],
-  attendanceMap: Record<string, AttendanceRecord>,
-): { present: number; total: number } {
-  const total = students.length
-  const present = students.filter(
-    (s) => attendanceMap[s.id]?.status === 'present',
-  ).length
-  return { present, total }
-}
-
-function studentAttendanceStatus(
-  studentId: string,
-  attendanceMap: Record<string, AttendanceRecord>,
-): 'present' | 'absent' | 'pending' {
-  const record = attendanceMap[studentId]
-  if (!record) return 'pending'
-  if (record.status === 'present') return 'present'
-  if (record.status === 'absent' || record.status === 'leave') return 'absent'
-  return 'pending'
-}
-
 // ─── Draggable student row ────────────────────────────────────────────────────
 interface DraggableStudentRowProps {
   student: Student
   isDragging: boolean
-  attendanceMap: Record<string, AttendanceRecord>
   onDragStart: (e: React.DragEvent, id: string) => void
   onDragEnd: () => void
   onEdit: () => void
@@ -147,10 +117,8 @@ interface DraggableStudentRowProps {
 }
 
 function DraggableStudentRow({
-  student, isDragging, attendanceMap, onDragStart, onDragEnd, onEdit, onRemove, onView,
+  student, isDragging, onDragStart, onDragEnd, onEdit, onRemove, onView,
 }: DraggableStudentRowProps) {
-  const att = studentAttendanceStatus(student.id, attendanceMap)
-
   return (
     <li
       draggable
@@ -180,14 +148,6 @@ function DraggableStudentRow({
           <p className="truncate text-sm font-medium text-[var(--foreground)] hover:text-[var(--primary)]">{student.name}</p>
           <p className="text-[11px] text-[var(--muted-foreground)]">Class {student.class}{student.division} · #{student.roll_number}</p>
         </div>
-        <span className={cn(
-          'rounded-full px-2 py-0.5 text-[10px] font-semibold flex-shrink-0',
-          att === 'present' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-          : att === 'absent' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-          : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-        )}>
-          {att === 'present' ? 'Present' : att === 'absent' ? 'Absent' : 'Pending'}
-        </span>
       </button>
       <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
         <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
@@ -206,7 +166,6 @@ interface StopCardProps {
   stop: Stop
   orderNumber: number
   students: Student[]
-  attendanceMap: Record<string, AttendanceRecord>
   dragStudentId: string | null
   isDragOver: boolean
   onDragStart: (e: React.DragEvent, id: string) => void
@@ -223,12 +182,11 @@ interface StopCardProps {
 }
 
 function StopCard({
-  stop, orderNumber, students, attendanceMap, dragStudentId, isDragOver,
+  stop, orderNumber, students, dragStudentId, isDragOver,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   onEditStop, onDeleteStop, onAddStudent, onEditStudent, onRemoveStudent, onViewStudent,
 }: StopCardProps) {
   const [open, setOpen] = useState(true)
-  const stopAttendance = attendanceForStudents(students, attendanceMap)
 
   return (
     <div
@@ -260,9 +218,6 @@ function StopCard({
               {stop.estimated_time ? ` · ${stop.estimated_time}` : ''}
             </p>
           </div>
-          <Badge variant="secondary" className="text-[10px] tabular-nums flex-shrink-0">
-            {stopAttendance.present}/{stopAttendance.total}
-          </Badge>
           {open ? <ChevronUp size={16} className="text-[var(--muted-foreground)]" /> : <ChevronDown size={16} className="text-[var(--muted-foreground)]" />}
         </button>
         <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={onEditStop}>
@@ -286,7 +241,6 @@ function StopCard({
                   key={s.id}
                   student={s}
                   isDragging={dragStudentId === s.id}
-                  attendanceMap={attendanceMap}
                   onDragStart={onDragStart}
                   onDragEnd={onDragEnd}
                   onEdit={() => onEditStudent(s)}
@@ -669,13 +623,6 @@ export default function RouteDetail() {
   })
   const baseRoute = routeQuery.data
 
-  const tripsQuery = useQuery({
-    queryKey: ['trips', { route_id: id }],
-    queryFn: () => listTrips({ route_id: id }),
-    enabled: !!id,
-  })
-  const routeTrips = useMemo(() => tripsQuery.data?.trips ?? [], [tripsQuery.data])
-
   const routesQuery = useQuery({
     queryKey: ['routes'],
     queryFn: () => listRoutes(),
@@ -687,36 +634,67 @@ export default function RouteDetail() {
     queryFn: () => listStudents({ pageSize: 1000 }),
   })
 
-  const todayStr = useMemo(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }, [])
-
-  const attendanceQuery = useQuery({
-    queryKey: ['attendance', { date: todayStr }],
-    queryFn: () => listAttendance({ date: todayStr, pageSize: 1000 }),
-  })
-  const attendanceByStudent = useMemo(() => {
-    const map: Record<string, AttendanceRecord> = {}
-    ;(attendanceQuery.data?.records ?? []).forEach((r) => { map[r.student_id] = r })
-    return map
-  }, [attendanceQuery.data])
-
   const [isActive, setIsActive] = useState(false)
   const [stops, setStops] = useState<Stop[]>([])
   const [schoolStudents, setSchoolStudents] = useState<Student[]>([])
+  const [direction, setDirection] = useState<'pickup' | 'drop'>('pickup')
 
-  const routeStudents = useMemo(
-    () => schoolStudents.filter((s) => s.route_name === baseRoute?.name),
-    [schoolStudents, baseRoute?.name],
+  // Pickup and drop are tracked independently — a student's pickup_stop_id
+  // and drop_stop_id can belong to different stops (even different routes)
+  // entirely, so membership is direct stop-id containment per direction,
+  // not a single shared "the stop" value and never a route_name string
+  // match (which only ever reflects one direction's route, per
+  // students.service.js's COALESCE(pickup route, drop route) fallback, and
+  // silently mis-groups or hides a student whose two directions differ).
+  const routeStopIds = useMemo(() => new Set(stops.map((s) => s.id)), [stops])
+  const pickupStudents = useMemo(
+    () => schoolStudents.filter((s) => s.pickup_stop_id && routeStopIds.has(s.pickup_stop_id)),
+    [schoolStudents, routeStopIds],
   )
+  const dropStudents = useMemo(
+    () => schoolStudents.filter((s) => s.drop_stop_id && routeStopIds.has(s.drop_stop_id)),
+    [schoolStudents, routeStopIds],
+  )
+  const routeStudents = useMemo(() => {
+    const byId = new Map<string, Student>()
+    ;[...pickupStudents, ...dropStudents].forEach((s) => byId.set(s.id, s))
+    return [...byId.values()]
+  }, [pickupStudents, dropStudents])
+  const activeStudents = direction === 'pickup' ? pickupStudents : dropStudents
 
-  const [studentStopMap, setStudentStopMap] = useState<Record<string, string>>({})
+  const queryClient = useQueryClient()
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  function invalidateRouteQueries() {
+    queryClient.invalidateQueries({ queryKey: ['route', id] })
+    queryClient.invalidateQueries({ queryKey: ['routes'] })
+    queryClient.invalidateQueries({ queryKey: ['students'] })
+  }
+
+  // Every mutating action in this page (stop assignment, stop CRUD, student
+  // edits, active toggle) persists immediately through one of these two
+  // mutations rather than staying in local-only state — see the note on
+  // assignStudentToStop below for why that used to be a problem.
+  const updateStudentMutation = useMutation({
+    mutationFn: ({ studentId, payload }: { studentId: string; payload: Partial<StudentInput> }) =>
+      updateStudent(studentId, payload),
+    onSuccess: () => { setActionError(null); invalidateRouteQueries() },
+    onError: (err) => setActionError(extractErrorMessage(err, 'Failed to save that student change.')),
+  })
+
+  const updateRouteMutation = useMutation({
+    mutationFn: (payload: Partial<RouteInput>) => updateRoute(id as string, payload),
+    onSuccess: (updated) => {
+      setActionError(null)
+      setStops(updated.stops ?? [])
+      invalidateRouteQueries()
+    },
+    onError: (err) => setActionError(extractErrorMessage(err, 'Failed to save that route change.')),
+  })
 
   // Hydrate local editable copies (stops / active flag / stop assignments / school
   // students) once both the route and the students list have loaded from the API —
-  // mirrors the old synchronous mock lookup, but waits on both async queries so the
-  // stop assignment map isn't built against an empty students list.
+  // mirrors the old synchronous mock lookup, but waits on both async queries.
   const hydratedRouteIdRef = React.useRef<string | null>(null)
   useEffect(() => {
     if (baseRoute && studentsQuery.data && hydratedRouteIdRef.current !== baseRoute.id) {
@@ -724,8 +702,6 @@ export default function RouteDetail() {
       setSchoolStudents(studentsQuery.data.students)
       setIsActive(baseRoute.is_active)
       setStops([...(baseRoute.stops ?? [])])
-      const hydratedRouteStudents = studentsQuery.data.students.filter((s) => s.route_name === baseRoute.name)
-      setStudentStopMap(buildInitialStopMap(baseRoute.stops ?? [], hydratedRouteStudents))
     }
   }, [baseRoute, studentsQuery.data])
 
@@ -755,24 +731,31 @@ export default function RouteDetail() {
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([])
   const [transferMode, setTransferMode] = useState<'quick' | 'drag'>('quick')
 
+  // Stop-order matches direction of travel — drop runs the same stop list in
+  // reverse, same as BusDetail.tsx's buildStopGroups (last one picked up in
+  // the morning is the first one dropped off in the afternoon).
   const orderedStops = useMemo(() => [...stops].sort((a, b) => a.order_index - b.order_index), [stops])
+  const directionStops = useMemo(
+    () => (direction === 'drop' ? [...orderedStops].reverse() : orderedStops),
+    [orderedStops, direction],
+  )
 
   // Must run on every render (before the loading/error early-returns below) —
   // calling a hook conditionally after those returns violates the Rules of
-  // Hooks and crashes the page once routeQuery finishes loading.
+  // Hooks and crashes the page once routeQuery finishes loading. No fallback
+  // placement needed: a student either has this direction's stop id set to
+  // one of this route's stops, or they don't show — matches BusDetail.tsx,
+  // and no longer silently misplaces a student round-robin onto an arbitrary
+  // stop the way the old shared studentStopMap did.
   const studentsByStop = useMemo(() => {
     const map: Record<string, Student[]> = {}
-    orderedStops.forEach((s) => { map[s.id] = [] })
-    routeStudents.forEach((s) => {
-      const stopId = studentStopMap[s.id]
+    directionStops.forEach((s) => { map[s.id] = [] })
+    activeStudents.forEach((s) => {
+      const stopId = direction === 'pickup' ? s.pickup_stop_id : s.drop_stop_id
       if (stopId && map[stopId]) map[stopId].push(s)
-      else if (orderedStops[0]) {
-        if (!map[orderedStops[0].id]) map[orderedStops[0].id] = []
-        map[orderedStops[0].id].push(s)
-      }
     })
     return map
-  }, [routeStudents, studentStopMap, orderedStops])
+  }, [activeStudents, directionStops, direction])
 
   if (routeQuery.isLoading) {
     return (
@@ -808,9 +791,14 @@ export default function RouteDetail() {
 
   const route = { ...baseRoute, stops, is_active: isActive }
 
-  const unassignedForRoute = schoolStudents.filter(
-    (s) => !s.route_name || s.route_name !== route.name,
-  )
+  // Direction-specific: a student already picked up on this route but with
+  // no drop stop set here yet should still show up when adding to the Drop
+  // tab (and vice versa) — "unassigned" means missing *this* direction's
+  // stop, not "not on this route in either direction".
+  const unassignedForRoute = schoolStudents.filter((s) => {
+    const stopId = direction === 'pickup' ? s.pickup_stop_id : s.drop_stop_id
+    return !stopId || !routeStopIds.has(stopId)
+  })
 
   const filteredUnassigned = unassignedForRoute.filter(
     (s) =>
@@ -819,8 +807,6 @@ export default function RouteDetail() {
   )
 
   const totalStudents = routeStudents.length || route.student_count || 0
-  const routeAttendance = attendanceForStudents(routeStudents, attendanceByStudent)
-  const tripDuration = getRouteTripDurationDisplay(route.id, routeTrips)
   const morningTimes = interpolateTimes(orderedStops, MORNING_START, MORNING_END)
   const eveningTimes = interpolateTimes(orderedStops, EVENING_START, EVENING_END)
 
@@ -835,13 +821,20 @@ export default function RouteDetail() {
     setDragOverRouteId(null)
   }
 
-  function assignStudentToStop(studentId: string, stopId: string) {
-    setStudentStopMap((prev) => ({ ...prev, [studentId]: stopId }))
+  // Pickup and drop are independent fields now (see routeStopIds/pickupStudents/
+  // dropStudents above) — a move in the Stops & Students tab only ever touches
+  // the one field for whichever direction tab is currently open. Persists
+  // immediately: local state updates for a responsive drag, the mutation is
+  // what actually survives a refresh.
+  function assignStudentToStop(studentId: string, stopId: string, dir: 'pickup' | 'drop') {
+    const field = dir === 'pickup' ? 'pickup_stop_id' : 'drop_stop_id'
+    setSchoolStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, [field]: stopId } : s)))
+    updateStudentMutation.mutate({ studentId, payload: { [field]: stopId } })
   }
 
   function handleStopDrop(e: React.DragEvent, stopId: string) {
     e.preventDefault()
-    if (dragStudentId) assignStudentToStop(dragStudentId, stopId)
+    if (dragStudentId) assignStudentToStop(dragStudentId, stopId, direction)
     handleDragEnd()
   }
 
@@ -852,41 +845,70 @@ export default function RouteDetail() {
     handleDragEnd()
   }
 
+  // Transfer-tab moves are a coarser "this student now belongs to a
+  // different route entirely" operation (unlike the Stops & Students tab
+  // above), so it still sets both pickup_stop_id and drop_stop_id together.
   function moveStudentsToRoute(studentIds: string[], routeName: string, routeId: string, stopId?: string) {
-    setSchoolStudents((prev) =>
-      prev.map((s) =>
-        studentIds.includes(s.id) ? { ...s, route_name: routeName } : s,
-      ),
-    )
     const destRoute = otherRoutes.find((r) => r.id === routeId)
     const destStops = [...(destRoute?.stops ?? [])].sort((a, b) => a.order_index - b.order_index)
     const resolvedStopId = stopId ?? destStops[0]?.id
     if (resolvedStopId) {
-      setStudentStopMap((prev) => {
-        const next = { ...prev }
-        studentIds.forEach((sid) => { next[sid] = resolvedStopId })
-        return next
-      })
+      setSchoolStudents((prev) =>
+        prev.map((s) =>
+          studentIds.includes(s.id)
+            ? { ...s, route_name: routeName, pickup_stop_id: resolvedStopId, drop_stop_id: resolvedStopId }
+            : s,
+        ),
+      )
+      studentIds.forEach((studentId) =>
+        updateStudentMutation.mutate({ studentId, payload: { pickup_stop_id: resolvedStopId, drop_stop_id: resolvedStopId } }),
+      )
     } else if (routeId !== route.id) {
-      setStudentStopMap((prev) => {
-        const next = { ...prev }
-        studentIds.forEach((sid) => { delete next[sid] })
-        return next
-      })
+      setSchoolStudents((prev) =>
+        prev.map((s) =>
+          studentIds.includes(s.id)
+            ? { ...s, route_name: undefined, pickup_stop_id: undefined, drop_stop_id: undefined }
+            : s,
+        ),
+      )
+      studentIds.forEach((studentId) =>
+        updateStudentMutation.mutate({ studentId, payload: { pickup_stop_id: null, drop_stop_id: null } }),
+      )
     }
   }
 
   function unassignStudents(studentIds: string[]) {
     setSchoolStudents((prev) =>
       prev.map((s) =>
-        studentIds.includes(s.id) ? { ...s, route_name: undefined } : s,
+        studentIds.includes(s.id)
+          ? { ...s, route_name: undefined, pickup_stop_id: undefined, drop_stop_id: undefined }
+          : s,
       ),
     )
-    setStudentStopMap((prev) => {
-      const next = { ...prev }
-      studentIds.forEach((sid) => { delete next[sid] })
-      return next
-    })
+    studentIds.forEach((studentId) =>
+      updateStudentMutation.mutate({ studentId, payload: { pickup_stop_id: null, drop_stop_id: null } }),
+    )
+  }
+
+  // A stop created in this dialog hasn't hit the server yet, so it only has a
+  // client-side placeholder id — strip that before sending so the backend's
+  // upsert (routes.service.js's upsertStops) treats it as a genuine insert
+  // rather than trying to match a non-existent row.
+  function toStopInput(s: Stop): Partial<Stop> {
+    const isUnsaved = s.id.startsWith('stop_')
+    return {
+      ...(isUnsaved ? {} : { id: s.id }),
+      name: s.name,
+      latitude: s.latitude,
+      longitude: s.longitude,
+      order_index: s.order_index,
+      estimated_time: s.estimated_time,
+    }
+  }
+
+  function persistStops(nextStops: Stop[]) {
+    setStops(nextStops)
+    updateRouteMutation.mutate({ stops: nextStops.map(toStopInput) })
   }
 
   function handleAddStop() {
@@ -895,13 +917,16 @@ export default function RouteDetail() {
       id: `stop_${route.id}_${Date.now()}`,
       route_id: route.id,
       name: newStopName.trim(),
+      // No location picker in this quick-add dialog yet — placeholder
+      // coordinates that an admin can refine later via Edit Stop once one
+      // exists; the backend requires a real lat/lng on every stop row.
       latitude: 25.1,
       longitude: 55.2,
       order_index: stops.length + 1,
       estimated_time: newStopTime.trim() || undefined,
       student_count: 0,
     }
-    setStops((prev) => [...prev, newStop])
+    persistStops([...stops, newStop])
     setNewStopName('')
     setNewStopTime('')
     setAddStopOpen(false)
@@ -909,8 +934,8 @@ export default function RouteDetail() {
 
   function handleSaveEditStop() {
     if (!editStopTarget || !editStopName.trim()) return
-    setStops((prev) =>
-      prev.map((s) =>
+    persistStops(
+      stops.map((s) =>
         s.id === editStopTarget.id
           ? { ...s, name: editStopName.trim(), estimated_time: editStopTime.trim() || undefined }
           : s,
@@ -920,43 +945,33 @@ export default function RouteDetail() {
   }
 
   function handleDeleteStop(stopId: string) {
-    setStops((prev) => prev.filter((s) => s.id !== stopId).map((s, i) => ({ ...s, order_index: i + 1 })))
-    setStudentStopMap((prev) => {
-      const next = { ...prev }
-      Object.entries(next).forEach(([studentId, sid]) => {
-        if (sid === stopId) delete next[studentId]
-      })
-      return next
-    })
+    // Deleting the stop server-side already clears pickup_stop_id/drop_stop_id
+    // for any student who was on it (ON DELETE SET NULL); routeStopIds drops
+    // the id the moment `stops` state updates below, so pickupStudents/
+    // dropStudents stop counting them here immediately — no separate cleanup
+    // needed the way the old shared studentStopMap required.
+    persistStops(stops.filter((s) => s.id !== stopId).map((s, i) => ({ ...s, order_index: i + 1 })))
   }
 
   function handleAddStudentToStop(student: Student) {
     if (!addStudentStopId) return
-    setSchoolStudents((prev) =>
-      prev.map((s) =>
-        s.id === student.id ? { ...s, route_name: route.name } : s,
-      ),
-    )
-    assignStudentToStop(student.id, addStudentStopId)
+    assignStudentToStop(student.id, addStudentStopId, direction)
     setAddStudentStopId(null)
     setAddStudentSearch('')
   }
 
-  function handleRemoveStudent(studentId: string) {
-    setSchoolStudents((prev) =>
-      prev.map((s) =>
-        s.id === studentId ? { ...s, route_name: undefined } : s,
-      ),
-    )
-    setStudentStopMap((prev) => {
-      const next = { ...prev }
-      delete next[studentId]
-      return next
-    })
+  function handleRemoveStudent(studentId: string, dir: 'pickup' | 'drop') {
+    const field = dir === 'pickup' ? 'pickup_stop_id' : 'drop_stop_id'
+    setSchoolStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, [field]: undefined } : s)))
+    updateStudentMutation.mutate({ studentId, payload: { [field]: null } })
   }
 
   function handleSaveEditStudent() {
     if (!editStudentTarget) return
+    updateStudentMutation.mutate({
+      studentId: editStudentTarget.id,
+      payload: { class: editStudentClass, division: editStudentDivision },
+    })
     setSchoolStudents((prev) =>
       prev.map((s) =>
         s.id === editStudentTarget.id
@@ -990,22 +1005,37 @@ export default function RouteDetail() {
             <Button variant="outline" onClick={() => downloadRouteQR(route.name, route.id)}>
               <QrCode size={15} /> Download QR
             </Button>
-            <button type="button" onClick={() => setIsActive((v) => !v)} className="focus:outline-none">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !isActive
+                setIsActive(next)
+                updateRouteMutation.mutate({ is_active: next })
+              }}
+              className="focus:outline-none"
+            >
               <StatusBadge status={isActive ? 'active' : 'inactive'} />
             </button>
           </div>
         }
       />
 
+      {actionError && (
+        <div
+          className="mb-4 flex items-start gap-2 rounded-xl p-3 text-sm"
+          style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+        >
+          <AlertCircle size={16} className="mt-0.5 flex-shrink-0" /> {actionError}
+        </div>
+      )}
+
       <motion.div variants={container} initial="hidden" animate="show" className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         {[
-          { label: 'Attendance Today', value: `${routeAttendance.present}/${routeAttendance.total}`, icon: CalendarCheck },
-          { label: 'Trip Time', value: tripDuration ? `${tripDuration.isLive ? '' : '✓ '}${tripDuration.label}` : '—', icon: Clock, isLong: tripDuration?.isLong },
           { label: 'Total Students', value: totalStudents, icon: Users },
           { label: 'Bus Number', value: route.bus_number ?? '—', icon: BusIcon },
           { label: 'Driver', value: route.driver_name ? route.driver_name.split(' ')[0] : '—', icon: User },
           { label: 'Total Stops', value: orderedStops.length, icon: MapPin },
-        ].map(({ label, value, icon: Icon, isLong }) => (
+        ].map(({ label, value, icon: Icon }) => (
           <motion.div key={label} variants={fadeUp}>
             <Card>
               <CardContent className="flex items-center gap-3 pt-5 pb-5">
@@ -1014,10 +1044,7 @@ export default function RouteDetail() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">{label}</p>
-                  <p className={cn(
-                    'truncate text-lg font-bold tabular-nums',
-                    isLong ? 'text-red-600 dark:text-red-400' : 'text-[var(--foreground)]',
-                  )}>{value}</p>
+                  <p className="truncate text-lg font-bold tabular-nums text-[var(--foreground)]">{value}</p>
                 </div>
               </CardContent>
             </Card>
@@ -1045,17 +1072,24 @@ export default function RouteDetail() {
               </Button>
             </div>
 
+            <Tabs value={direction} onValueChange={(v) => setDirection(v as 'pickup' | 'drop')}>
+              <TabsList>
+                <TabsTrigger value="pickup">Pickup ({pickupStudents.length})</TabsTrigger>
+                <TabsTrigger value="drop">Drop ({dropStudents.length})</TabsTrigger>
+              </TabsList>
+            </Tabs>
+
             <div className="flex items-center gap-3 px-1">
               <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm">
                 <Navigation size={14} />
               </div>
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">Start</p>
-                <p className="text-sm font-semibold text-[var(--foreground)]">{route.start_point}</p>
+                <p className="text-sm font-semibold text-[var(--foreground)]">{direction === 'pickup' ? route.start_point : route.end_point}</p>
               </div>
             </div>
 
-            {orderedStops.length === 0 ? (
+            {directionStops.length === 0 ? (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
                   <MapPin size={32} className="text-[var(--muted-foreground)]" strokeWidth={1.5} />
@@ -1066,13 +1100,12 @@ export default function RouteDetail() {
                 </CardContent>
               </Card>
             ) : (
-              orderedStops.map((stop, idx) => (
+              directionStops.map((stop, idx) => (
                 <motion.div key={stop.id} variants={fadeUp}>
                   <StopCard
                     stop={stop}
                     orderNumber={idx + 1}
                     students={studentsByStop[stop.id] ?? []}
-                    attendanceMap={attendanceByStudent}
                     dragStudentId={dragStudentId}
                     isDragOver={dragOverStopId === stop.id}
                     onDragStart={handleDragStart}
@@ -1092,7 +1125,7 @@ export default function RouteDetail() {
                       setEditStudentClass(s.class)
                       setEditStudentDivision(s.division)
                     }}
-                    onRemoveStudent={handleRemoveStudent}
+                    onRemoveStudent={(studentId) => handleRemoveStudent(studentId, direction)}
                     onViewStudent={(sid) => navigate(`/school-admin/students/${sid}`)}
                   />
                 </motion.div>
@@ -1105,7 +1138,7 @@ export default function RouteDetail() {
               </div>
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-green-600 dark:text-green-400">Destination</p>
-                <p className="text-sm font-semibold text-[var(--foreground)]">{route.end_point}</p>
+                <p className="text-sm font-semibold text-[var(--foreground)]">{direction === 'pickup' ? route.end_point : route.start_point}</p>
               </div>
             </div>
           </motion.div>
@@ -1311,7 +1344,7 @@ export default function RouteDetail() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Student to Stop</DialogTitle>
-            <DialogDescription>Select a student to assign to this stop on {route.name}.</DialogDescription>
+            <DialogDescription>Select a student to assign to this {direction} stop on {route.name}.</DialogDescription>
           </DialogHeader>
           <Input placeholder="Search by name or roll number..." value={addStudentSearch} onChange={(e) => setAddStudentSearch(e.target.value)} />
           <div className="max-h-56 overflow-y-auto space-y-1 rounded-xl border border-[var(--border)] p-1">

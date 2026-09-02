@@ -19,6 +19,9 @@ const createSchool = z.object({
   status: z.enum(['active', 'suspended', 'pending']).optional(),
   latitude: z.coerce.number().min(-90).max(90).optional(),
   longitude: z.coerce.number().min(-180).max(180).optional(),
+  supervisor_name: z.string().optional(),
+  supervisor_phone: z.string().optional(),
+  timezone: z.string().refine((tz) => Intl.supportedValuesOf('timeZone').includes(tz), 'Unknown timezone').optional(),
 });
 
 const updateSchool = createSchool.partial();

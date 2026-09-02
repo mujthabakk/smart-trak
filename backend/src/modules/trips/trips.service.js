@@ -1,7 +1,32 @@
 const { query, withTransaction } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
-const { sendPushNotification } = require('../../services/notifications');
+const { createNotification } = require('../notifications/notifications.service');
+const { todayInTimezone } = require('../../utils/timezone');
+
+/** Notifies every parent linked to a student on this route — same real
+ * notifications-table + push path attendance.service.js's
+ * notifyParentsForAttendance already uses, replacing the old
+ * services/notifications.js mock (console.log only, never persisted, never
+ * resolved a real push token). */
+async function notifyRouteParents(schoolId, routeId, title, body) {
+  const { rows: parentRows } = await query(`
+    SELECT DISTINCT u.id AS user_id
+    FROM students s
+    JOIN parent_details p ON p.student_id = s.id
+    JOIN users u ON u.email = p.email
+    WHERE s.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
+       OR s.drop_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
+  `, [routeId]);
+
+  // 'trip' isn't one of notifications.type's allowed values (see
+  // 001_init.sql's CHECK constraint: info/warning/success/error/emergency/
+  // leave/attendance/message/system) — 'info' is the closest generic fit.
+  await Promise.all(parentRows.map((p) =>
+    createNotification({ school_id: schoolId, user_id: p.user_id, title, body, type: 'info' })
+      .catch((err) => console.error('Failed to notify parent for trip event', err))
+  ));
+}
 
 // Trips have no direct school_id column — tenant scoping is derived through
 // the route they belong to (routes.school_id), hence the join to routes here.
@@ -12,7 +37,15 @@ const BASE_SELECT = `
     (SELECT COUNT(*)::int FROM students st
        WHERE st.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
           OR st.drop_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
-    ) AS student_count
+    ) AS student_count,
+    -- Bus's overall progress on this trip — the most recently marked stop,
+    -- for any student, not GPS. Same "reached" signal attendance.service.js's
+    -- getDaySummary uses for its per-trip current_stop.
+    (SELECT st.name FROM attendance_records ar
+       JOIN stops st ON st.id = ar.stop_id
+       WHERE ar.trip_id = t.id
+       ORDER BY ar.created_at DESC LIMIT 1
+    ) AS current_stop
   FROM trips t
   JOIN routes r ON r.id = t.route_id
   JOIN drivers d ON d.id = t.driver_id
@@ -33,11 +66,20 @@ function toResponse(row) {
     started_at: row.started_at || undefined,
     ended_at: row.ended_at || undefined,
     student_count: row.student_count,
+    current_stop: row.current_stop || undefined,
   };
 }
 
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** "Today" as seen in a school's own local timezone, falling back to the
+ * UTC-based todayDate() when no school context is available. */
+async function schoolToday(schoolId) {
+  if (!schoolId) return todayDate();
+  const { rows } = await query('SELECT timezone FROM schools WHERE id = $1', [schoolId]);
+  return todayInTimezone(rows[0]?.timezone || 'Asia/Kolkata');
 }
 
 async function list(schoolId, { page, pageSize, offset }, filters) {
@@ -65,7 +107,7 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   }
   // "Current trips" is the default view most pages need, so default to today
   // when no explicit date filter is supplied.
-  params.push(filters.date || todayDate());
+  params.push(filters.date || await schoolToday(schoolId));
   conditions.push(`t.trip_date = $${params.length}`);
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -111,18 +153,25 @@ async function getBoardingStudents(id, schoolId) {
            COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) AS pickup_stop_id,
            COALESCE(tso.override_drop_stop_id, s.drop_stop_id) AS drop_stop_id,
            COALESCE(att.status, 'pending') as status,
+           att.pickup_time, att.drop_time, att.offboarded_at,
+           -- This student's own stop for the trip's direction — same field
+           -- attendance.service.js's getDaySummary calls stop_name.
+           CASE WHEN $3 = 'pickup' THEN ps.name ELSE ds.name END AS stop_name,
            EXISTS(
-             SELECT 1 FROM leaves l 
-             WHERE l.student_id = s.id 
-               AND l.status = 'approved' 
+             SELECT 1 FROM leaves l
+             WHERE l.student_id = s.id
+               AND l.status = 'approved'
                AND CURRENT_DATE BETWEEN l.from_date AND l.to_date
+               AND (l.shift = 'full_day' OR l.shift = CASE WHEN $3 = 'pickup' THEN 'morning' ELSE 'evening' END)
            ) AS is_leave_applied
     FROM students s
     LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = $1
     LEFT JOIN attendance_records att ON att.student_id = s.id AND att.trip_id = $1
+    LEFT JOIN stops ps ON ps.id = COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id)
+    LEFT JOIN stops ds ON ds.id = COALESCE(tso.override_drop_stop_id, s.drop_stop_id)
     WHERE COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) IN (SELECT id FROM stops WHERE route_id = $2)
        OR COALESCE(tso.override_drop_stop_id, s.drop_stop_id) IN (SELECT id FROM stops WHERE route_id = $2)
-  `, [id, trip.route_id]);
+  `, [id, trip.route_id, trip.trip_type]);
 
   return rows;
 }
@@ -146,7 +195,7 @@ async function getPath(id, schoolId) {
   }));
 }
 
-async function getLocationsForTrip(routeId, tripType) {
+async function getLocationsForTrip(routeId, tripType, tripId) {
   const order = tripType === 'drop' ? 'DESC' : 'ASC';
   const { rows: stops } = await query(`
     SELECT id AS stop_id, name AS stop_name, latitude, longitude, order_index
@@ -155,22 +204,26 @@ async function getLocationsForTrip(routeId, tripType) {
     ORDER BY order_index ${order}
   `, [routeId]);
 
+  // trip_student_overrides is joined on this specific tripId, not "whichever
+  // trip on this route happens to be in_progress" — a route can have more
+  // than one in-progress trip at once (e.g. pickup and drop overlapping), and
+  // joining on status alone duplicated every student once per such trip.
   const { rows: students } = await query(`
-    SELECT s.id, s.name, s.class, s.division, s.student_qr_code, 
-           COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) AS pickup_stop_id, 
+    SELECT s.id, s.name, s.class, s.division, s.student_qr_code,
+           COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) AS pickup_stop_id,
            COALESCE(tso.override_drop_stop_id, s.drop_stop_id) AS drop_stop_id,
            EXISTS(
-             SELECT 1 FROM leaves l 
-             WHERE l.student_id = s.id 
-               AND l.status = 'approved' 
+             SELECT 1 FROM leaves l
+             WHERE l.student_id = s.id
+               AND l.status = 'approved'
                AND CURRENT_DATE BETWEEN l.from_date AND l.to_date
+               AND (l.shift = 'full_day' OR l.shift = CASE WHEN $2 = 'pickup' THEN 'morning' ELSE 'evening' END)
            ) AS is_leave_applied
     FROM students s
-    LEFT JOIN trips t ON t.status = 'in_progress' AND t.route_id = $1
-    LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = t.id
+    LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = $3
     WHERE COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) IN (SELECT id FROM stops WHERE route_id = $1)
        OR COALESCE(tso.override_drop_stop_id, s.drop_stop_id) IN (SELECT id FROM stops WHERE route_id = $1)
-  `, [routeId]);
+  `, [routeId, tripType, tripId || null]);
 
   const locations = stops.map(stop => {
     const stopStudents = students.filter(s => 
@@ -183,6 +236,19 @@ async function getLocationsForTrip(routeId, tripType) {
   });
 
   return locations;
+}
+
+/** Student ids reachable via this route's stops (pickup or drop) — used to
+ * fan out a bus:status broadcast to everyone affected when a trip's status
+ * changes, not just the one student whose attendance record just moved. */
+async function getStudentIdsForRoute(routeId) {
+  const { rows } = await query(
+    `SELECT id FROM students
+     WHERE pickup_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
+        OR drop_stop_id IN (SELECT id FROM stops WHERE route_id = $1)`,
+    [routeId]
+  );
+  return rows.map((r) => r.id);
 }
 
 async function isDriverOwnTrip(tripId, userId) {
@@ -306,25 +372,14 @@ async function startTrip(schoolId, data, driverUserId) {
     bus_id: bus.id,
     trip_type: data.trip_type,
     status: 'in_progress',
+    trip_date: await schoolToday(schoolId),
     started_at: new Date().toISOString()
   });
 
   // 4. Notify parents
-  const { rows: parentRows } = await query(`
-    SELECT DISTINCT u.id AS user_id, u.fcm_token
-    FROM students s
-    JOIN parent_details p ON p.student_id = s.id
-    JOIN users u ON u.email = p.email
-    WHERE s.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
-       OR s.drop_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
-  `, [route.id]);
+  await notifyRouteParents(schoolId, route.id, 'Trip Started', `The ${data.trip_type} trip for route ${route.name} has started.`);
 
-  const userIds = parentRows.map(p => p.user_id);
-  if (userIds.length > 0) {
-    await sendPushNotification(userIds, 'Trip Started', `The ${data.trip_type} trip for route ${route.name} has started.`, { tripId: trip.id });
-  }
-
-  const locations = await getLocationsForTrip(route.id, data.trip_type);
+  const locations = await getLocationsForTrip(route.id, data.trip_type, trip.id);
 
   return { trip, locations };
 }
@@ -352,7 +407,7 @@ async function prepareTrip(schoolId, data, driverUserId) {
     bus_id: bus.id,
     trip_type: data.trip_type,
     status: 'not_started',
-    trip_date: new Date().toISOString() // Just track the date it was prepared
+    trip_date: await schoolToday(schoolId),
   });
 
   // 5. Get students for driver boarding response
@@ -382,21 +437,9 @@ async function startPreparedTrip(tripId, schoolId, driverUserId) {
   });
 
   // Notify parents
-  const { rows: parentRows } = await query(`
-    SELECT DISTINCT u.id AS user_id, u.fcm_token
-    FROM students s
-    JOIN parent_details p ON p.student_id = s.id
-    JOIN users u ON u.email = p.email
-    WHERE s.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
-       OR s.drop_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
-  `, [trip.route_id]);
+  await notifyRouteParents(schoolId, trip.route_id, 'Trip Started', `The ${updatedTrip.trip_type} trip for route ${trip.route_name} has started.`);
 
-  const userIds = parentRows.map(p => p.user_id);
-  if (userIds.length > 0) {
-    await sendPushNotification(userIds, 'Trip Started', `The ${updatedTrip.trip_type} trip for route ${trip.route_name} has started.`, { tripId: trip.id });
-  }
-
-  const locations = await getLocationsForTrip(trip.route_id, trip.trip_type);
+  const locations = await getLocationsForTrip(trip.route_id, trip.trip_type, trip.id);
 
   return { trip: updatedTrip, locations };
 }
@@ -422,21 +465,9 @@ async function endTrip(schoolId, data, driverUserId) {
   });
 
   // 4. Notify parents
-  const { rows: parentRows } = await query(`
-    SELECT DISTINCT u.id AS user_id, u.fcm_token
-    FROM students s
-    JOIN parent_details p ON p.student_id = s.id
-    JOIN users u ON u.email = p.email
-    WHERE s.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
-       OR s.drop_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
-  `, [trip.route_id]);
-
-  const userIds = parentRows.map(p => p.user_id);
-  if (userIds.length > 0) {
-    await sendPushNotification(userIds, 'Trip Ended', `The trip has successfully completed.`, { tripId: trip.id });
-  }
+  await notifyRouteParents(schoolId, trip.route_id, 'Trip Ended', 'The trip has successfully completed.');
 
   return { trip: updatedTrip };
 }
 
-module.exports = { list, getById, getBoardingStudents, getPath, create, update, remove, isDriverOwnTrip, startTrip, prepareTrip, startPreparedTrip, endTrip };
+module.exports = { list, getById, getBoardingStudents, getStudentIdsForRoute, getPath, create, update, remove, isDriverOwnTrip, startTrip, prepareTrip, startPreparedTrip, endTrip };

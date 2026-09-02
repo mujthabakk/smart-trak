@@ -4,18 +4,31 @@ const { resolveSchoolId } = require('../../middleware/auth');
 const ApiError = require('../../utils/ApiError');
 const service = require('./trips.service');
 const driversService = require('../drivers/drivers.service');
+const attendanceService = require('../attendance/attendance.service');
 
 /** Pushes an immediate bus-status change to the Live Map instead of leaving
  * clients to wait on the next bus:location GPS ping (which may never come —
  * e.g. the driver app stops its tracker right as the trip ends) to notice a
- * trip started/ended. */
-function emitTripStatus(req, { schoolId, tripId, busId, status }) {
+ * trip started/ended. Also fans out a bus:status card update to every
+ * student on the route (not just whoever's attendance last changed) so a
+ * trip starting/ending flips every affected student out of "not started". */
+function emitTripStatus(req, { schoolId, tripId, busId, status, routeId }) {
   const io = req.app.get('io');
   if (!io || !busId) return;
   const event = { trip_id: tripId, bus_id: busId, status };
   if (schoolId) io.to(`school:${schoolId}`).emit('trip:status', event);
   io.to(`trip:${tripId}`).emit('trip:status', event);
   io.to(`bus:${busId}`).emit('trip:status', event);
+
+  if (schoolId && routeId) {
+    service.getStudentIdsForRoute(routeId).then((studentIds) => {
+      for (const studentId of studentIds) {
+        attendanceService.getDaySummary(schoolId, studentId).then((summary) => {
+          io.to(`school:${schoolId}`).emit('bus:status', summary);
+        }).catch((err) => console.error('Failed to broadcast bus:status', err));
+      }
+    }).catch((err) => console.error('Failed to resolve route students for bus:status', err));
+  }
 }
 
 const list = asyncHandler(async (req, res) => {
@@ -75,7 +88,7 @@ const update = asyncHandler(async (req, res) => {
 
   const trip = await service.update(req.params.id, schoolId, req.body);
   if (req.body.status === 'completed' || req.body.status === 'in_progress') {
-    emitTripStatus(req, { schoolId, tripId: trip.id, busId: trip.bus_id, status: req.body.status });
+    emitTripStatus(req, { schoolId, tripId: trip.id, busId: trip.bus_id, status: req.body.status, routeId: trip.route_id });
   }
   res.json({ trip });
 });
@@ -89,7 +102,7 @@ const remove = asyncHandler(async (req, res) => {
 const startTrip = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const result = await service.startTrip(schoolId, req.body, req.user.id);
-  emitTripStatus(req, { schoolId, tripId: result.trip.id, busId: result.trip.bus_id, status: 'in_progress' });
+  emitTripStatus(req, { schoolId, tripId: result.trip.id, busId: result.trip.bus_id, status: 'in_progress', routeId: result.trip.route_id });
   res.status(201).json(result);
 });
 
@@ -102,14 +115,14 @@ const prepareTrip = asyncHandler(async (req, res) => {
 const startPreparedTrip = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const result = await service.startPreparedTrip(req.params.id, schoolId, req.user.id);
-  emitTripStatus(req, { schoolId, tripId: result.trip.id, busId: result.trip.bus_id, status: 'in_progress' });
+  emitTripStatus(req, { schoolId, tripId: result.trip.id, busId: result.trip.bus_id, status: 'in_progress', routeId: result.trip.route_id });
   res.json(result);
 });
 
 const endTrip = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const result = await service.endTrip(schoolId, req.body, req.user.id);
-  emitTripStatus(req, { schoolId, tripId: result.trip.id, busId: result.trip.bus_id, status: 'completed' });
+  emitTripStatus(req, { schoolId, tripId: result.trip.id, busId: result.trip.bus_id, status: 'completed', routeId: result.trip.route_id });
   res.json(result);
 });
 

@@ -44,6 +44,7 @@ import AddBus from '@/pages/school-admin/AddBus'
 import Routes from '@/pages/school-admin/Routes'
 import RouteDetail from '@/pages/school-admin/RouteDetail'
 import LiveMap from '@/pages/school-admin/LiveMap'
+import LiveTrips from '@/pages/school-admin/LiveTrips'
 import Attendance from '@/pages/school-admin/Attendance'
 import Leave from '@/pages/school-admin/Leave'
 import Notifications from '@/pages/school-admin/Notifications'
@@ -112,6 +113,7 @@ export const router = createHashRouter([
   { path: '/school-admin/routes', element: <Routes /> },
   { path: '/school-admin/routes/:id', element: <RouteDetail /> },
   { path: '/school-admin/live-map', element: <LiveMap /> },
+  { path: '/school-admin/live-trips', element: <LiveTrips /> },
   { path: '/school-admin/attendance', element: <Attendance /> },
   { path: '/school-admin/leave', element: <Leave /> },
   { path: '/school-admin/notifications', element: <Notifications /> },

@@ -57,7 +57,7 @@ const updateAttendance = z.object({
 
 const daySummaryQuery = z.object({
   student_id: z.string().min(1),
-  date: z.string().min(1),
+  date: z.string().min(1).optional(),
   school_id: z.string().optional(),
 });
 

@@ -12,6 +12,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { LocationPicker } from '@/components/shared/LocationPicker'
 import { listPlans } from '@/lib/api/plans'
 import { createSchool } from '@/lib/api/schools'
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezones'
 import type { School } from '@/types'
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } }
@@ -43,6 +44,9 @@ interface FormState {
   longitude: string
   plan_id: string
   school_code: string
+  timezone: string
+  supervisor_name: string
+  supervisor_phone: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -50,6 +54,7 @@ const EMPTY_FORM: FormState = {
   admin_name: '', admin_email: '', address: '', city: '', state: '', post_code: '', country: 'UAE',
   latitude: '', longitude: '',
   plan_id: '', school_code: '',
+  timezone: DEFAULT_TIMEZONE, supervisor_name: '', supervisor_phone: '',
 }
 
 export default function AddSchool() {
@@ -114,6 +119,9 @@ export default function AddSchool() {
       admin_name: form.admin_name || undefined,
       admin_email: form.admin_email || undefined,
       status: 'pending',
+      timezone: form.timezone,
+      supervisor_name: form.supervisor_name || undefined,
+      supervisor_phone: form.supervisor_phone || undefined,
     }
     createMutation.mutate(payload)
   }
@@ -240,6 +248,33 @@ export default function AddSchool() {
                 />
                 <p className="text-xs text-[var(--muted-foreground)]">Can also be added later from the school's Edit tab.</p>
               </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Bus Operations</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1.5">
+                <Label>Timezone *</Label>
+                <Select value={form.timezone} onValueChange={(v) => set('timezone', v)}>
+                  <SelectTrigger><SelectValue placeholder="Select a timezone" /></SelectTrigger>
+                  <SelectContent>
+                    {TIMEZONE_OPTIONS.map((tz) => (
+                      <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-[var(--muted-foreground)]">Used for trip dates, bus status resets, and "today" throughout this school's account.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="as-supervisor-name">Supervisor name</Label>
+                <Input id="as-supervisor-name" value={form.supervisor_name} onChange={(e) => set('supervisor_name', e.target.value)} placeholder="Mariam Al-Suwaidi" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="as-supervisor-phone">Supervisor phone</Label>
+                <Input id="as-supervisor-phone" value={form.supervisor_phone} onChange={(e) => set('supervisor_phone', e.target.value)} placeholder="+971-50-555-0100" />
+              </div>
+              <p className="col-span-2 text-xs text-[var(--muted-foreground)]">Shown to parents/students as the school's bus supervisor contact.</p>
             </div>
           </div>
 

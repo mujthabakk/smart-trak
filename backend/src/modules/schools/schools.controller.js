@@ -8,6 +8,7 @@ const service = require('./schools.service');
 // platform/billing-level concerns, not something a school should change itself.
 const SCHOOL_ADMIN_EDITABLE_FIELDS = [
   'address', 'city', 'state', 'post_code', 'country', 'phone', 'website', 'logo_url', 'latitude', 'longitude',
+  'supervisor_name', 'supervisor_phone', 'timezone',
 ];
 
 const list = asyncHandler(async (req, res) => {

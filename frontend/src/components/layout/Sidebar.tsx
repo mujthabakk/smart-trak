@@ -27,6 +27,7 @@ import {
   UserPlus,
   Sparkles,
   Mail,
+  Radio,
   type LucideIcon,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -58,6 +59,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   UserPlus,
   Sparkles,
   Mail,
+  Radio,
 }
 
 const SIDEBAR_EXPANDED_WIDTH = 240

@@ -19,8 +19,8 @@ export interface StudentInput {
   dob: string
   gender?: string
   photo_url?: string
-  pickup_stop_id?: string
-  drop_stop_id?: string
+  pickup_stop_id?: string | null
+  drop_stop_id?: string | null
   address?: string
   is_active?: boolean
   parents?: Array<Partial<ParentDetail>>

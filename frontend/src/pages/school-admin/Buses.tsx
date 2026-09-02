@@ -91,6 +91,8 @@ interface BusFormData {
   seat_capacity: string
   insurance_expiry: string
   fitness_cert_expiry: string
+  assistant_name: string
+  assistant_phone: string
 }
 
 const emptyForm: BusFormData = {
@@ -100,6 +102,8 @@ const emptyForm: BusFormData = {
   seat_capacity: '',
   insurance_expiry: '',
   fitness_cert_expiry: '',
+  assistant_name: '',
+  assistant_phone: '',
 }
 
 function busToForm(bus: Bus): BusFormData {
@@ -110,6 +114,8 @@ function busToForm(bus: Bus): BusFormData {
     seat_capacity: String(bus.seat_capacity),
     insurance_expiry: bus.insurance_expiry ?? '',
     fitness_cert_expiry: bus.fitness_cert_expiry ?? '',
+    assistant_name: bus.assistant_name ?? '',
+    assistant_phone: bus.assistant_phone ?? '',
   }
 }
 
@@ -211,6 +217,25 @@ function BusFormDialog({ open, onOpenChange, initial, title, onSubmit }: BusForm
               type="date"
               value={form.fitness_cert_expiry}
               onChange={(e) => set('fitness_cert_expiry', e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="assistant_name">Assistant Name</Label>
+            <Input
+              id="assistant_name"
+              placeholder="e.g. Fatima Noor"
+              value={form.assistant_name}
+              onChange={(e) => set('assistant_name', e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="assistant_phone">Assistant Phone</Label>
+            <Input
+              id="assistant_phone"
+              type="tel"
+              placeholder="e.g. +971 50 123 4567"
+              value={form.assistant_phone}
+              onChange={(e) => set('assistant_phone', e.target.value)}
             />
           </div>
           <DialogFooter className="col-span-2 pt-2">
@@ -519,6 +544,8 @@ export default function Buses() {
       seat_capacity: Number(data.seat_capacity) || 30,
       insurance_expiry: data.insurance_expiry || undefined,
       fitness_cert_expiry: data.fitness_cert_expiry || undefined,
+      assistant_name: data.assistant_name || undefined,
+      assistant_phone: data.assistant_phone || undefined,
     }
   }
 

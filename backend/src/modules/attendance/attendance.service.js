@@ -2,6 +2,7 @@ const { query, withTransaction } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
 const { createNotification } = require('../notifications/notifications.service');
+const { todayInTimezone } = require('../../utils/timezone');
 
 function formatDateString(d) {
   if (!d) return d;
@@ -43,6 +44,7 @@ function toResponse(row) {
     drop_time: row.drop_time || undefined,
     offboard_status: row.offboard_status || undefined,
     offboard_reason: row.offboard_reason || undefined,
+    offboarded_at: row.offboarded_at || undefined,
     route_name: row.route_name || undefined,
     date: formatDateString(row.date),
   };
@@ -239,15 +241,21 @@ async function bulkOffboard(schoolId, tripId, records) {
       );
       if (!recordRows[0]) throw ApiError.notFound(`Attendance record ${rec.attendance_id} not found for this trip`);
 
-      const dropTime = rec.drop_time || (rec.offboard_status === 'offboarded' ? new Date().toISOString() : null);
+      const dropTime = rec.drop_time || null;
+      // offboarded_at is the "reached this student's stop" timestamp — kept
+      // separate from drop_time, which markByQrCode already uses for
+      // "boarded the bus at school" on a drop trip (see attendance.service.js
+      // header comment on getDaySummary for the full boarded/reached split).
+      const offboardedAt = rec.offboarded_at || (rec.offboard_status === 'offboarded' ? new Date().toISOString() : null);
 
       await client.query(
         `UPDATE attendance_records SET
            offboard_status = $1,
            offboard_reason = $2,
-           drop_time = COALESCE($3, drop_time)
-         WHERE id = $4`,
-        [rec.offboard_status, rec.offboard_reason || null, dropTime, rec.attendance_id]
+           drop_time = COALESCE($3, drop_time),
+           offboarded_at = COALESCE($4, offboarded_at)
+         WHERE id = $5`,
+        [rec.offboard_status, rec.offboard_reason || null, dropTime, offboardedAt, rec.attendance_id]
       );
       updated.push(rec.attendance_id);
     }
@@ -258,7 +266,7 @@ async function bulkOffboard(schoolId, tripId, records) {
 
 async function update(id, schoolId, data) {
   await getById(id, schoolId);
-  const fields = ['status', 'stop_id', 'pickup_time', 'drop_time', 'offboard_status', 'offboard_reason'];
+  const fields = ['status', 'stop_id', 'pickup_time', 'drop_time', 'offboard_status', 'offboard_reason', 'offboarded_at'];
   const sets = [];
   const params = [];
   for (const field of fields) {
@@ -315,12 +323,23 @@ const TRIP_LABELS = { pickup: 'Morning Trip', drop: 'Afternoon Trip' };
 const BUS_STATUS_LABELS = { not_started: 'not_started', in_progress: 'on_route', completed: 'reached' };
 
 /**
- * Assembles the parent app's per-day Attendance screen: one card per trip
- * type (pickup/drop) run on the student's own route for the given date,
- * combining that trip's status with the student's attendance record for it
- * (if attendance has been marked yet — a trip that hasn't reached this
- * student's stop returns trip_status/bus_status_label with no
- * attendance_status/time).
+ * Assembles the parent app's per-day Attendance/Bus-Status screen: one card
+ * per trip type (pickup/drop) run on the student's own route for the given
+ * date (defaulting to "today" in the school's own timezone), combining that
+ * trip's status with the student's attendance record for it.
+ *
+ * "Boarded" and "reached" are deliberately two different columns per trip
+ * type, not one derived from the other:
+ *  - pickup: boarded_at = pickup_time (scanned in at their stop),
+ *    reached_at = the trip's ended_at (bus reached school — shared by every
+ *    student on the trip, so no per-student column needed).
+ *  - drop: boarded_at = drop_time (scanned in at school — markByQrCode
+ *    stamps drop_time at boarding time for a drop trip, not at drop-off),
+ *    reached_at = offboarded_at (this student's own stop was reached,
+ *    stamped by bulkOffboard — see attendance.service.js:227-260).
+ * A trip that hasn't started yet, or a shift that the student is on
+ * approved leave for, returns no_data:true instead of times so the client
+ * doesn't need its own date/leave logic.
  */
 async function getDaySummary(schoolId, studentId, date, parentUserId) {
   const params = [studentId];
@@ -341,7 +360,9 @@ async function getDaySummary(schoolId, studentId, date, parentUserId) {
   }
 
   const { rows: studentRows } = await query(
-    `SELECT s.id, s.name, ps.route_id AS pickup_route_id, ds.route_id AS drop_route_id
+    `SELECT s.id, s.name, s.school_id, s.pickup_stop_id, s.drop_stop_id,
+       ps.route_id AS pickup_route_id, ps.name AS pickup_stop_name,
+       ds.route_id AS drop_route_id, ds.name AS drop_stop_name
      FROM students s
      LEFT JOIN stops ps ON ps.id = s.pickup_stop_id
      LEFT JOIN stops ds ON ds.id = s.drop_stop_id
@@ -351,42 +372,127 @@ async function getDaySummary(schoolId, studentId, date, parentUserId) {
   if (!studentRows[0]) throw ApiError.notFound('Student not found');
   const student = studentRows[0];
 
+  const { rows: schoolRows } = await query(
+    'SELECT timezone, supervisor_name, supervisor_phone FROM schools WHERE id = $1',
+    [student.school_id]
+  );
+  const school = schoolRows[0] || {};
+
   const routeIds = [...new Set([student.pickup_route_id, student.drop_route_id].filter(Boolean))];
-  const dateStr = formatDateString(date);
+  const dateStr = date ? formatDateString(date) : todayInTimezone(school.timezone || 'Asia/Kolkata');
   if (!routeIds.length) {
     return { student_id: student.id, student_name: student.name, date: dateStr, trips: [] };
   }
 
   const { rows: tripRows } = await query(
-    `SELECT id, trip_type, status AS trip_status
-     FROM trips WHERE route_id = ANY($1) AND trip_date = $2
-     ORDER BY trip_type`,
+    `SELECT t.id, t.trip_type, t.status AS trip_status, t.ended_at,
+       b.assistant_name, b.assistant_phone
+     FROM trips t
+     LEFT JOIN buses b ON b.id = t.bus_id
+     WHERE t.route_id = ANY($1) AND t.trip_date = $2
+     ORDER BY t.trip_type`,
     [routeIds, dateStr]
   );
 
   let attendanceByTrip = {};
+  // Stops the bus has actually reached on each trip — i.e. someone (not
+  // necessarily this student) has been marked there — keyed "trip_id:stop_id".
+  // Lets a student whose own attendance hasn't been scanned yet still see
+  // "the bus is at your stop" the moment a stop-mate is marked, rather than
+  // waiting for their own scan.
+  let reachedStops = new Set();
+  let latestStopByTrip = {};
   if (tripRows.length) {
+    const tripIds = tripRows.map((t) => t.id);
     const { rows: attRows } = await query(
-      `SELECT ar.trip_id, ar.status, ar.pickup_time, ar.drop_time, st.name AS stop_name
+      `SELECT ar.trip_id, ar.status, ar.pickup_time, ar.drop_time, ar.offboarded_at, st.name AS stop_name
        FROM attendance_records ar
        LEFT JOIN stops st ON st.id = ar.stop_id
        WHERE ar.student_id = $1 AND ar.trip_id = ANY($2)`,
-      [studentId, tripRows.map((t) => t.id)]
+      [studentId, tripIds]
     );
     attendanceByTrip = Object.fromEntries(attRows.map((r) => [r.trip_id, r]));
+
+    const { rows: reachedRows } = await query(
+      `SELECT DISTINCT trip_id, stop_id FROM attendance_records WHERE trip_id = ANY($1) AND stop_id IS NOT NULL`,
+      [tripIds]
+    );
+    reachedStops = new Set(reachedRows.map((r) => `${r.trip_id}:${r.stop_id}`));
+
+    // The bus's general progress on the trip — the most recently marked stop,
+    // regardless of whose stop it is — so every parent on the trip can see
+    // where the bus currently is, not just the family whose own stop it hit.
+    const { rows: latestRows } = await query(
+      `SELECT DISTINCT ON (ar.trip_id) ar.trip_id, st.name AS stop_name
+       FROM attendance_records ar
+       JOIN stops st ON st.id = ar.stop_id
+       WHERE ar.trip_id = ANY($1)
+       ORDER BY ar.trip_id, ar.created_at DESC`,
+      [tripIds]
+    );
+    latestStopByTrip = Object.fromEntries(latestRows.map((r) => [r.trip_id, r.stop_name]));
+  }
+
+  let leaveByType = { pickup: false, drop: false };
+  const { rows: leaveRows } = await query(
+    `SELECT shift FROM leaves
+     WHERE student_id = $1 AND status = 'approved' AND $2 BETWEEN from_date AND to_date`,
+    [studentId, dateStr]
+  );
+  for (const l of leaveRows) {
+    if (l.shift === 'full_day') leaveByType = { pickup: true, drop: true };
+    if (l.shift === 'morning') leaveByType.pickup = true;
+    if (l.shift === 'evening') leaveByType.drop = true;
   }
 
   const trips = tripRows.map((t) => {
     const att = attendanceByTrip[t.id];
-    return {
+    const isOnLeave = leaveByType[t.trip_type];
+    const notStarted = t.trip_status === 'not_started';
+    const base = {
       trip_id: t.id,
       trip_type: t.trip_type,
       label: TRIP_LABELS[t.trip_type] || t.trip_type,
-      stop_name: att?.stop_name || undefined,
-      attendance_status: att?.status || undefined,
-      time: (t.trip_type === 'pickup' ? att?.pickup_time : att?.drop_time) || undefined,
       trip_status: t.trip_status,
       bus_status_label: BUS_STATUS_LABELS[t.trip_status] || t.trip_status,
+      supervisor_name: school.supervisor_name || undefined,
+      supervisor_phone: school.supervisor_phone || undefined,
+      assistant_name: t.assistant_name || undefined,
+      assistant_phone: t.assistant_phone || undefined,
+    };
+
+    if (isOnLeave || notStarted) {
+      return { ...base, no_data: true, reason: isOnLeave ? 'on_leave' : 'not_started' };
+    }
+
+    const boardedAt = (t.trip_type === 'pickup' ? att?.pickup_time : att?.drop_time) || undefined;
+    const reachedAt = (t.trip_type === 'pickup' ? t.ended_at : att?.offboarded_at) || undefined;
+
+    // This student's own designated stop for this trip type — checked against
+    // reachedStops so "the bus is at your stop" (stop_name populated) can be
+    // reported even before their own attendance is scanned, as long as a
+    // stop-mate has already been marked there. No separate boolean needed:
+    // stop_name present with boarded_at absent already means "reached, not
+    // yet boarded" — attendance_status/boarded_at absent is the signal.
+    const ownStopId = t.trip_type === 'pickup' ? student.pickup_stop_id : student.drop_stop_id;
+    const ownStopName = t.trip_type === 'pickup' ? student.pickup_stop_name : student.drop_stop_name;
+    const busAtOwnStop = Boolean(ownStopId) && reachedStops.has(`${t.id}:${ownStopId}`);
+
+    return {
+      ...base,
+      no_data: false,
+      reason: null,
+      stop_name: att?.stop_name || (busAtOwnStop ? ownStopName : undefined) || undefined,
+      attendance_status: att?.status || undefined,
+      boarded_at: boardedAt,
+      reached_at: reachedAt,
+      // The bus's overall progress on this trip (most recent stop marked for
+      // *any* student), distinct from stop_name above (this student's own
+      // stop). Every parent on the trip sees this move, not just families at
+      // whichever stop was just marked. Same key name as Bus.current_stop /
+      // BusLocationEvent.current_stop elsewhere in the app.
+      current_stop: latestStopByTrip[t.id] || undefined,
+      time: boardedAt, // deprecated alias, kept for existing consumers
     };
   });
 

@@ -2,9 +2,11 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { parsePagination } = require('../../utils/pagination');
 const { resolveSchoolId } = require('../../middleware/auth');
 const ApiError = require('../../utils/ApiError');
+const { query } = require('../../config/db');
 const service = require('./attendance.service');
 const tripsService = require('../trips/trips.service');
 const driversService = require('../drivers/drivers.service');
+const alertsService = require('../alerts/alerts.service');
 
 /** Throws unless the trip belongs to the logged-in driver — reuses the same
  * ownership check the trips module applies to its own status-only PATCH. */
@@ -21,8 +23,45 @@ async function broadcastAndNotify(req, schoolId, tripId, records, type) {
     const event = { trip_id: tripId, timestamp: new Date().toISOString() };
     if (schoolId) io.to(`school:${schoolId}`).emit('attendance:updated', event);
     io.to(`trip:${tripId}`).emit('attendance:updated', event);
+
+    // Bus-status cards are keyed per student, so recompute and push each
+    // affected student's own summary rather than making clients refetch on
+    // every attendance:updated tick. This fans out to *every* student on the
+    // trip's route — not just the ones actually marked — for two reasons:
+    // a stop-mate should see "the bus is at your stop" (getDaySummary's
+    // stop_name) the moment anyone else there is marked, and every parent on
+    // the trip should see the bus's general progress (current_stop)
+    // regardless of whose stop was just marked.
+    if (schoolId) {
+      const { rows: tripRows } = await query('SELECT route_id FROM trips WHERE id = $1', [tripId]);
+      const routeId = tripRows[0]?.route_id;
+      const studentIds = routeId
+        ? await tripsService.getStudentIdsForRoute(routeId).catch((err) => {
+            console.error('Failed to resolve route students for bus:status', err);
+            return (records || []).map((r) => r.student_id).filter(Boolean);
+          })
+        : (records || []).map((r) => r.student_id).filter(Boolean);
+      for (const studentId of new Set(studentIds)) {
+        service.getDaySummary(schoolId, studentId).then((summary) => {
+          io.to(`school:${schoolId}`).emit('bus:status', summary);
+        }).catch((err) => {
+          console.error('Failed to broadcast bus:status', err);
+        });
+      }
+
+      // Stop-proximity alerts, driven by attendance being marked at a stop —
+      // not live GPS coordinates (see alertsService.checkAlertsForStop).
+      if (type === 'pickup' || type === 'drop') {
+        const stopIds = [...new Set((records || []).map((r) => r.stop_id).filter(Boolean))];
+        for (const stopId of stopIds) {
+          alertsService.checkAlertsForStop({ schoolId, tripId, stopId, tripType: type }).catch((err) => {
+            console.error('Failed to check stop alerts', err);
+          });
+        }
+      }
+    }
   }
-  
+
   // Notify parents
   if (records && records.length > 0) {
     // Fire and forget (don't block the response)
