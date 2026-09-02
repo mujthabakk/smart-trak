@@ -10,6 +10,8 @@ export interface User {
   phone?: string
   school_id?: string
   school_name?: string
+  plan_type?: string
+  plan_label?: string
   avatar?: string
   fcm_token?: string
   created_at?: string

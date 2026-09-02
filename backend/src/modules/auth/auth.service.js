@@ -5,9 +5,11 @@ const ApiError = require('../../utils/ApiError');
 
 const USER_SELECT = `
   SELECT u.id, u.name, u.email, u.phone, u.role, u.school_id,
-         s.name AS school_name, u.avatar, u.fcm_token, u.created_at, u.last_login
+         s.name AS school_name, p.name AS plan_type, p.label AS plan_label,
+         u.avatar, u.fcm_token, u.created_at, u.last_login
   FROM users u
   LEFT JOIN schools s ON s.id = u.school_id
+  LEFT JOIN plans p ON p.id = s.plan_id
 `;
 
 function toUserResponse(row) {
@@ -20,6 +22,8 @@ function toUserResponse(row) {
     role: row.role,
     school_id: row.school_id || undefined,
     school_name: row.school_name || undefined,
+    plan_type: row.role !== 'super_admin' ? row.plan_type || undefined : undefined,
+    plan_label: row.role !== 'super_admin' ? row.plan_label || undefined : undefined,
     avatar: row.avatar || undefined,
     fcm_token: row.fcm_token || undefined,
     created_at: row.created_at,

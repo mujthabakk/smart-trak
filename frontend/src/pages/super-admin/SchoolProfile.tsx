@@ -13,6 +13,7 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { LocationPicker } from '@/components/shared/LocationPicker'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -94,6 +95,8 @@ interface EditForm {
   state: string
   post_code: string
   country: string
+  latitude: string
+  longitude: string
   student_count: string
   bus_count: string
   driver_count: string
@@ -102,6 +105,7 @@ interface EditForm {
 const EMPTY_EDIT_FORM: EditForm = {
   name: '', admin_name: '', admin_email: '', phone: '', website: '',
   plan_name: 'standard', address: '', city: '', state: '', post_code: '', country: 'UAE',
+  latitude: '', longitude: '',
   student_count: '', bus_count: '', driver_count: '',
 }
 
@@ -118,6 +122,8 @@ function schoolToForm(s: School): EditForm {
     state: s.state ?? '',
     post_code: s.post_code ?? '',
     country: s.country ?? 'UAE',
+    latitude: s.latitude != null ? String(s.latitude) : '',
+    longitude: s.longitude != null ? String(s.longitude) : '',
     student_count: String(s.student_count ?? ''),
     bus_count: String(s.bus_count ?? ''),
     driver_count: String(s.driver_count ?? ''),
@@ -215,6 +221,8 @@ export default function SchoolProfile() {
       state: form.state,
       post_code: form.post_code || undefined,
       country: form.country,
+      latitude: form.latitude.trim() === '' ? undefined : Number(form.latitude),
+      longitude: form.longitude.trim() === '' ? undefined : Number(form.longitude),
     })
   }
 
@@ -374,6 +382,9 @@ export default function SchoolProfile() {
                   <InfoRow icon={MapPin} label="City / State" value={`${school.city}, ${school.state}`} />
                   {school.post_code && <InfoRow icon={MapPin} label="Post Code" value={school.post_code} />}
                   {school.country && <InfoRow icon={Globe} label="Country" value={school.country} />}
+                  {school.latitude != null && school.longitude != null && (
+                    <InfoRow icon={MapPin} label="Coordinates" value={`${school.latitude}, ${school.longitude}`} />
+                  )}
                   {school.website && <InfoRow icon={Globe} label="Website" value={school.website} />}
                   <InfoRow icon={Phone} label="Phone" value={school.phone} />
                   <InfoRow icon={Calendar} label="Onboarded" value={formatDate(school.created_at)} />
@@ -558,6 +569,17 @@ export default function SchoolProfile() {
                       <div className="space-y-1.5">
                         <Label htmlFor="e-country">Country</Label>
                         <Input id="e-country" value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="UAE" />
+                      </div>
+                      <div className="sm:col-span-2 space-y-1.5">
+                        <Label>School location</Label>
+                        <LocationPicker
+                          latitude={form.latitude.trim() === '' ? undefined : Number(form.latitude)}
+                          longitude={form.longitude.trim() === '' ? undefined : Number(form.longitude)}
+                          onChange={(lat, lng) => {
+                            set('latitude', String(lat))
+                            set('longitude', String(lng))
+                          }}
+                        />
                       </div>
                     </div>
                   </CardContent>

@@ -17,6 +17,8 @@ const createSchool = z.object({
   admin_email: z.string().email().optional(),
   logo_url: z.string().optional(),
   status: z.enum(['active', 'suspended', 'pending']).optional(),
+  latitude: z.coerce.number().min(-90).max(90).optional(),
+  longitude: z.coerce.number().min(-180).max(180).optional(),
 });
 
 const updateSchool = createSchool.partial();

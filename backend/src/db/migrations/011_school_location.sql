@@ -1,0 +1,2 @@
+ALTER TABLE schools ADD COLUMN latitude NUMERIC(10,7);
+ALTER TABLE schools ADD COLUMN longitude NUMERIC(10,7);

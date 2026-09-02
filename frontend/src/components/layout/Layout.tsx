@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react'
+import { useEffect } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { AIAssistant } from '@/components/shared/AIAssistant'
-import { useAppSelector } from '@/store/hooks'
+import { useAppSelector, useAppDispatch } from '@/store/hooks'
+import { updateUser } from '@/store/slices/authSlice'
+import { fetchMe } from '@/lib/api/auth'
 import { cn } from '@/lib/utils'
 
 interface LayoutProps {
@@ -13,6 +16,20 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated)
   const sidebarCollapsed = useAppSelector((s) => s.app.sidebarCollapsed)
+  const dispatch = useAppDispatch()
+
+  // The cached user in localStorage is only as fresh as the last login — it
+  // never picks up server-side additions (e.g. plan_type) on its own. One
+  // /auth/me refresh per session keeps it in sync without forcing a re-login.
+  useEffect(() => {
+    if (!isAuthenticated) return
+    fetchMe()
+      .then((user) => dispatch(updateUser(user)))
+      .catch(() => {
+        // Non-fatal — the page just keeps using its existing cached user.
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />

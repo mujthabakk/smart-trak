@@ -6,7 +6,7 @@
 const bcrypt = require('bcryptjs');
 const { masterPool, getTenantPool } = require('../config/db');
 const { runMigrationsOnPool } = require('./migrate');
-const { generateQrCode } = require('../utils/qrcode');
+const { generateQrCode, generateSeedQrCode } = require('../utils/qrcode');
 
 const DEMO_ACCOUNTS = [
   { role: 'super_admin', email: 'superadmin@smarttrack.ae', password: 'Super@123', name: 'Khalid Al Maktoum', phone: '+971 50 100 1000' },
@@ -197,12 +197,12 @@ async function seedFleetAndRoutes(driverUserId) {
     const bus1 = await client.query(
       `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year, insurance_expiry, fitness_cert_expiry, safety_qr_code, driver_id, status)
        VALUES ('GREENFIELD','B-001',45,'Toyota Coaster 2022',2022,'2026-12-31','2026-06-30',$1,$2,'idle') RETURNING id`,
-      [generateQrCode('BUS'), driverId1]
+      [generateSeedQrCode('BUS', 'GREENFIELD-B-001'), driverId1]
     );
     const bus2 = await client.query(
       `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year, insurance_expiry, fitness_cert_expiry, safety_qr_code, driver_id, status)
        VALUES ('GREENFIELD','B-002',35,'Mitsubishi Rosa 2021',2021,'2026-08-15','2026-08-15',$1,$2,'idle') RETURNING id`,
-      [generateQrCode('BUS'), driverId2]
+      [generateSeedQrCode('BUS', 'GREENFIELD-B-002'), driverId2]
     );
     const busId1 = bus1.rows[0].id;
     const busId2 = bus2.rows[0].id;
@@ -213,7 +213,7 @@ async function seedFleetAndRoutes(driverUserId) {
     const route1 = await client.query(
       `INSERT INTO routes (school_id, bus_id, driver_id, name, start_point, end_point, route_qr_code)
        VALUES ('GREENFIELD',$1,$2,'Route A','Al Barsha South','Greenfield Academy',$3) RETURNING id`,
-      [busId1, driverId1, generateQrCode('RT')]
+      [busId1, driverId1, generateSeedQrCode('RT', 'GREENFIELD-Route-A')]
     );
     const routeId1 = route1.rows[0].id;
 
@@ -242,7 +242,7 @@ async function seedFleetAndRoutes(driverUserId) {
       const { rows } = await client.query(
         `INSERT INTO students (school_id, name, class, division, roll_number, dob, student_qr_code, pickup_stop_id, drop_stop_id)
          VALUES ('GREENFIELD',$1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`,
-        [name, klass, division, roll, dob, generateQrCode('STD'), pickupStopId]
+        [name, klass, division, roll, dob, generateSeedQrCode('STD', `GREENFIELD-STD-${roll}`), pickupStopId]
       );
       const email = parentEmail || `parent.${rows[0].id}@example.com`;
       const parentName = parentEmail ? 'Aisha Mohammed' : `Parent of ${name}`;

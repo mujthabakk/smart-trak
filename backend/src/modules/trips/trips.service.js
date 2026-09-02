@@ -127,6 +127,25 @@ async function getBoardingStudents(id, schoolId) {
   return rows;
 }
 
+/** Full recorded GPS trail for a trip, oldest first — the traveled-path
+ * polyline on the Live Map is drawn straight from this. */
+async function getPath(id, schoolId) {
+  const trip = await getRawById(id);
+  if (schoolId && trip.school_id !== schoolId) {
+    throw ApiError.notFound('Trip not found');
+  }
+  const { rows } = await query(
+    `SELECT latitude, longitude, recorded_at FROM bus_locations
+     WHERE trip_id = $1 ORDER BY recorded_at ASC`,
+    [id]
+  );
+  return rows.map((r) => ({
+    latitude: Number(r.latitude),
+    longitude: Number(r.longitude),
+    recorded_at: r.recorded_at,
+  }));
+}
+
 async function getLocationsForTrip(routeId, tripType) {
   const order = tripType === 'drop' ? 'DESC' : 'ASC';
   const { rows: stops } = await query(`
@@ -420,4 +439,4 @@ async function endTrip(schoolId, data, driverUserId) {
   return { trip: updatedTrip };
 }
 
-module.exports = { list, getById, getBoardingStudents, create, update, remove, isDriverOwnTrip, startTrip, prepareTrip, startPreparedTrip, endTrip };
+module.exports = { list, getById, getBoardingStudents, getPath, create, update, remove, isDriverOwnTrip, startTrip, prepareTrip, startPreparedTrip, endTrip };

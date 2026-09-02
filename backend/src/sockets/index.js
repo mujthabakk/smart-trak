@@ -1,7 +1,17 @@
 const { Server } = require('socket.io');
 const { verifyToken } = require('../utils/jwt');
 const env = require('../config/env');
-const { query } = require('../config/db');
+const { query, tenantContext, getTenantPool, masterPool } = require('../config/db');
+const { impliedSpeedKmh } = require('../utils/geo');
+
+/** Mirrors middleware/tenant.js's school_id -> tenant DB name derivation, since
+ * Socket.IO connections never pass through Express middleware and would
+ * otherwise fall back to the master pool (which has its own empty copy of
+ * every tenant table from the shared migrations). */
+function tenantPoolForSchool(schoolId) {
+  if (!schoolId) return masterPool;
+  return getTenantPool(`smarttrack_${schoolId.replace('-', '_').toLowerCase()}`);
+}
 
 /**
  * Live Map realtime channel.
@@ -32,6 +42,7 @@ function attachSockets(httpServer) {
 
   io.on('connection', (socket) => {
     const { id: userId, role, school_id: schoolId } = socket.user;
+    const tenantPool = tenantPoolForSchool(schoolId);
 
     socket.join(`user:${userId}`);
 
@@ -54,26 +65,48 @@ function attachSockets(httpServer) {
 
     socket.on('bus:location', async (payload) => {
       if (role !== 'driver' && role !== 'guest_driver') return;
-      const { trip_id, bus_id, latitude, longitude, speed, current_stop, status } = payload || {};
+      const { trip_id, bus_id, latitude, longitude, current_stop, status } = payload || {};
       if (!trip_id || !bus_id || latitude == null || longitude == null) return;
 
+      // The phone only ever sends lat/lng — speed is derived here from the
+      // distance/time between this ping and the bus's last recorded one,
+      // rather than trusting a client-supplied value (the app doesn't send one).
+      let speed = 0;
       try {
-        await query(
-          `INSERT INTO bus_locations (trip_id, bus_id, latitude, longitude, speed, current_stop, status)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [trip_id, bus_id, latitude, longitude, speed || 0, current_stop || null, status || 'in_progress']
-        );
-        if (status) {
-          await query('UPDATE buses SET status = $1, current_stop = $2 WHERE id = $3', [
-            status === 'completed' ? 'idle' : 'running', current_stop || null, bus_id,
-          ]);
-        }
+        await tenantContext.run({ pool: tenantPool }, async () => {
+          const { rows: prevRows } = await query(
+            `SELECT latitude, longitude, recorded_at FROM bus_locations
+             WHERE bus_id = $1 ORDER BY recorded_at DESC LIMIT 1`,
+            [bus_id]
+          );
+          const prev = prevRows[0]
+            ? {
+                latitude: Number(prevRows[0].latitude),
+                longitude: Number(prevRows[0].longitude),
+                recordedAt: new Date(prevRows[0].recorded_at),
+              }
+            : null;
+          speed = impliedSpeedKmh(prev, { latitude, longitude, recordedAt: new Date() });
+
+          console.log(`[bus:location] driver=${userId} trip=${trip_id} bus=${bus_id} lat=${latitude} lng=${longitude} speed=${speed.toFixed(1)} status=${status || 'in_progress'}`);
+
+          await query(
+            `INSERT INTO bus_locations (trip_id, bus_id, latitude, longitude, speed, current_stop, status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [trip_id, bus_id, latitude, longitude, speed, current_stop || null, status || 'in_progress']
+          );
+          if (status) {
+            await query('UPDATE buses SET status = $1, current_stop = $2 WHERE id = $3', [
+              status === 'completed' ? 'idle' : 'running', current_stop || null, bus_id,
+            ]);
+          }
+        });
       } catch (err) {
         console.error('Failed to persist bus location', err);
       }
 
       const event = {
-        trip_id, bus_id, latitude, longitude, speed: speed || 0,
+        trip_id, bus_id, latitude, longitude, speed,
         current_stop: current_stop || undefined, status: status || 'in_progress',
         recorded_at: new Date().toISOString(),
       };

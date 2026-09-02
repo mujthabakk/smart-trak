@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import {
   Check, User, Bell, Shield, Mail, Smartphone, MessageCircle, Globe,
-  Lock, Camera, AlertCircle,
+  Lock, Camera, AlertCircle, Building2,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -16,6 +16,9 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { updateUser as updateUserAction } from '@/store/slices/authSlice'
 import { changePassword } from '@/lib/api/auth'
+import { getSchool, updateSchool } from '@/lib/api/schools'
+import { LocationPicker } from '@/components/shared/LocationPicker'
+import type { School } from '@/types'
 import { getInitials, cn } from '@/lib/utils'
 
 const NOTIFICATION_PREFS = [
@@ -30,8 +33,35 @@ interface SettingsViewProps {
   scope?: 'super_admin' | 'school_admin'
 }
 
+interface SchoolForm {
+  address: string
+  city: string
+  state: string
+  post_code: string
+  country: string
+  phone: string
+  website: string
+  latitude: string
+  longitude: string
+}
+
+function schoolToForm(s: School): SchoolForm {
+  return {
+    address: s.address ?? '',
+    city: s.city ?? '',
+    state: s.state ?? '',
+    post_code: s.post_code ?? '',
+    country: s.country ?? '',
+    phone: s.phone ?? '',
+    website: s.website ?? '',
+    latitude: s.latitude != null ? String(s.latitude) : '',
+    longitude: s.longitude != null ? String(s.longitude) : '',
+  }
+}
+
 export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
   const dispatch = useAppDispatch()
+  const queryClient = useQueryClient()
   const user = useAppSelector((s) => s.auth.user)
 
   const [name, setName] = useState(user?.name ?? '')
@@ -46,6 +76,48 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
     dispatch(updateUserAction({ name, email, phone }))
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  // ── School contact/address details (school_admin only — plan, status,
+  // subdomain and admin credentials stay super_admin-only, edited elsewhere) ──
+  const schoolId = user?.school_id
+  const { data: school } = useQuery({
+    queryKey: ['school', schoolId],
+    queryFn: () => getSchool(schoolId as string),
+    enabled: scope === 'school_admin' && !!schoolId,
+  })
+  const [schoolForm, setSchoolForm] = useState<SchoolForm>(schoolToForm({} as School))
+  useEffect(() => {
+    if (school) setSchoolForm(schoolToForm(school))
+  }, [school])
+  const [schoolSaved, setSchoolSaved] = useState(false)
+  const [schoolError, setSchoolError] = useState('')
+
+  const updateSchoolMutation = useMutation({
+    mutationFn: () =>
+      updateSchool(schoolId as string, {
+        address: schoolForm.address,
+        city: schoolForm.city,
+        state: schoolForm.state,
+        post_code: schoolForm.post_code || undefined,
+        country: schoolForm.country || undefined,
+        phone: schoolForm.phone,
+        website: schoolForm.website || undefined,
+        latitude: schoolForm.latitude.trim() === '' ? undefined : Number(schoolForm.latitude),
+        longitude: schoolForm.longitude.trim() === '' ? undefined : Number(schoolForm.longitude),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['school', schoolId] })
+      setSchoolSaved(true)
+      setSchoolError('')
+      setTimeout(() => setSchoolSaved(false), 2000)
+    },
+    onError: () => setSchoolError('Failed to save school details. Please try again.'),
+  })
+
+  function setSchoolField(field: keyof SchoolForm, value: string) {
+    setSchoolForm((f) => ({ ...f, [field]: value }))
+    setSchoolSaved(false)
   }
 
   const [currentPw, setCurrentPw] = useState('')
@@ -88,6 +160,9 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
       <Tabs defaultValue="profile" className="w-full">
         <TabsList className="mb-6 flex-wrap h-auto">
           <TabsTrigger value="profile" className="gap-1.5"><User size={15} /> Profile</TabsTrigger>
+          {scope === 'school_admin' && (
+            <TabsTrigger value="school" className="gap-1.5"><Building2 size={15} /> School</TabsTrigger>
+          )}
           <TabsTrigger value="notifications" className="gap-1.5"><Bell size={15} /> Notifications</TabsTrigger>
           <TabsTrigger value="security" className="gap-1.5"><Shield size={15} /> Security</TabsTrigger>
         </TabsList>
@@ -146,6 +221,79 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ───────── SCHOOL (school_admin only) ───────── */}
+        {scope === 'school_admin' && (
+          <TabsContent value="school">
+            <Card>
+              <CardHeader>
+                <CardTitle>School Details</CardTitle>
+                <CardDescription>
+                  Contact and address details for your school. Plan and subscription changes are handled by SmartTrack support.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {schoolError && (
+                  <div
+                    className="flex items-start gap-2 p-3 rounded-xl text-sm"
+                    style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+                  >
+                    <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {schoolError}
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2 space-y-1.5">
+                    <Label htmlFor="sc-address">Street address</Label>
+                    <Input id="sc-address" value={schoolForm.address} onChange={(e) => setSchoolField('address', e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sc-city">City</Label>
+                    <Input id="sc-city" value={schoolForm.city} onChange={(e) => setSchoolField('city', e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sc-state">State / Emirate</Label>
+                    <Input id="sc-state" value={schoolForm.state} onChange={(e) => setSchoolField('state', e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sc-postcode">Post / ZIP code</Label>
+                    <Input id="sc-postcode" value={schoolForm.post_code} onChange={(e) => setSchoolField('post_code', e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sc-country">Country</Label>
+                    <Input id="sc-country" value={schoolForm.country} onChange={(e) => setSchoolField('country', e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sc-phone">Phone number</Label>
+                    <Input id="sc-phone" value={schoolForm.phone} onChange={(e) => setSchoolField('phone', e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sc-website">Website</Label>
+                    <Input id="sc-website" value={schoolForm.website} onChange={(e) => setSchoolField('website', e.target.value)} />
+                  </div>
+                  <div className="md:col-span-2 space-y-1.5">
+                    <Label>School location</Label>
+                    <LocationPicker
+                      latitude={schoolForm.latitude.trim() === '' ? undefined : Number(schoolForm.latitude)}
+                      longitude={schoolForm.longitude.trim() === '' ? undefined : Number(schoolForm.longitude)}
+                      onChange={(lat, lng) => {
+                        setSchoolField('latitude', String(lat))
+                        setSchoolField('longitude', String(lng))
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button onClick={() => updateSchoolMutation.mutate()} loading={updateSchoolMutation.isPending}>Save Changes</Button>
+                  {schoolSaved && (
+                    <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-green-600 flex items-center gap-1">
+                      <Check size={15} /> Saved
+                    </motion.span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* ───────── NOTIFICATIONS ───────── */}
         <TabsContent value="notifications">

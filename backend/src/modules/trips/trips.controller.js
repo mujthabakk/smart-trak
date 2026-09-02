@@ -5,6 +5,19 @@ const ApiError = require('../../utils/ApiError');
 const service = require('./trips.service');
 const driversService = require('../drivers/drivers.service');
 
+/** Pushes an immediate bus-status change to the Live Map instead of leaving
+ * clients to wait on the next bus:location GPS ping (which may never come —
+ * e.g. the driver app stops its tracker right as the trip ends) to notice a
+ * trip started/ended. */
+function emitTripStatus(req, { schoolId, tripId, busId, status }) {
+  const io = req.app.get('io');
+  if (!io || !busId) return;
+  const event = { trip_id: tripId, bus_id: busId, status };
+  if (schoolId) io.to(`school:${schoolId}`).emit('trip:status', event);
+  io.to(`trip:${tripId}`).emit('trip:status', event);
+  io.to(`bus:${busId}`).emit('trip:status', event);
+}
+
 const list = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const pagination = parsePagination(req.query);
@@ -37,6 +50,11 @@ const getBoardingStudents = asyncHandler(async (req, res) => {
   res.json({ students: await service.getBoardingStudents(req.params.id, schoolId) });
 });
 
+const getPath = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  res.json({ points: await service.getPath(req.params.id, schoolId) });
+});
+
 const create = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const trip = await service.create(schoolId, req.body);
@@ -55,7 +73,11 @@ const update = asyncHandler(async (req, res) => {
     if (!ownsTrip) throw ApiError.forbidden('You do not have permission to update this trip');
   }
 
-  res.json({ trip: await service.update(req.params.id, schoolId, req.body) });
+  const trip = await service.update(req.params.id, schoolId, req.body);
+  if (req.body.status === 'completed' || req.body.status === 'in_progress') {
+    emitTripStatus(req, { schoolId, tripId: trip.id, busId: trip.bus_id, status: req.body.status });
+  }
+  res.json({ trip });
 });
 
 const remove = asyncHandler(async (req, res) => {
@@ -67,6 +89,7 @@ const remove = asyncHandler(async (req, res) => {
 const startTrip = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const result = await service.startTrip(schoolId, req.body, req.user.id);
+  emitTripStatus(req, { schoolId, tripId: result.trip.id, busId: result.trip.bus_id, status: 'in_progress' });
   res.status(201).json(result);
 });
 
@@ -79,13 +102,15 @@ const prepareTrip = asyncHandler(async (req, res) => {
 const startPreparedTrip = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const result = await service.startPreparedTrip(req.params.id, schoolId, req.user.id);
+  emitTripStatus(req, { schoolId, tripId: result.trip.id, busId: result.trip.bus_id, status: 'in_progress' });
   res.json(result);
 });
 
 const endTrip = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const result = await service.endTrip(schoolId, req.body, req.user.id);
+  emitTripStatus(req, { schoolId, tripId: result.trip.id, busId: result.trip.bus_id, status: 'completed' });
   res.json(result);
 });
 
-module.exports = { list, getOne, getBoardingStudents, create, update, remove, startTrip, prepareTrip, startPreparedTrip, endTrip };
+module.exports = { list, getOne, getBoardingStudents, getPath, create, update, remove, startTrip, prepareTrip, startPreparedTrip, endTrip };

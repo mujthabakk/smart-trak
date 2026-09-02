@@ -30,3 +30,12 @@ export interface BusLocationEvent {
   status: 'not_started' | 'in_progress' | 'completed'
   recorded_at: string
 }
+
+/** Pushed immediately when a trip starts/ends via the REST API, so the Live
+ * Map doesn't have to wait on the next GPS ping (which may never arrive) to
+ * notice the bus should flip to running/idle. */
+export interface TripStatusEvent {
+  trip_id: string
+  bus_id: string
+  status: 'not_started' | 'in_progress' | 'completed'
+}

@@ -573,3 +573,19 @@ body {
 .animate-spin-slow {
   animation: spin 2s linear infinite;
 }
+
+/* ============================================================
+   Google Maps InfoWindow overrides (Live Map bus popup)
+   Google locks the content wrapper to a max-height computed from its
+   first measurement and adds overflow:auto + pager arrows when React's
+   rendered content doesn't match that first guess. Content here is small
+   and fixed-size, so scrolling/paging is never actually needed.
+   ============================================================ */
+.gm-style-iw-d {
+  overflow: hidden !important;
+  max-height: none !important;
+}
+
+.gm-style-iw-c {
+  max-height: none !important;
+}

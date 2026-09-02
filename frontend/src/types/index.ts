@@ -22,6 +22,8 @@ export interface User {
   role: UserRole
   school_id?: string
   school_name?: string
+  plan_type?: string
+  plan_label?: string
   avatar?: string
   fcm_token?: string
   created_at: string
@@ -77,6 +79,8 @@ export interface School {
   admin_email?: string
   created_at: string
   logo_url?: string
+  latitude?: number
+  longitude?: number
 }
 
 export interface EmailLog {
@@ -431,4 +435,10 @@ export interface BusLocation {
   current_stop?: string
   status: TripStatus
   recorded_at: string
+  onboard_count: number
+  started_at?: string
+  ended_at?: string
+  eta_minutes: number | null
+  school_latitude?: number
+  school_longitude?: number
 }

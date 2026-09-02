@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { LocationPicker } from '@/components/shared/LocationPicker'
 import { listPlans } from '@/lib/api/plans'
 import { createSchool } from '@/lib/api/schools'
 import type { School } from '@/types'
@@ -38,6 +39,8 @@ interface FormState {
   state: string
   post_code: string
   country: string
+  latitude: string
+  longitude: string
   plan_id: string
   school_code: string
 }
@@ -45,6 +48,7 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   name: '', subdomain: '', subdomainTouched: false, phone: '', email: '', website: '',
   admin_name: '', admin_email: '', address: '', city: '', state: '', post_code: '', country: 'UAE',
+  latitude: '', longitude: '',
   plan_id: '', school_code: '',
 }
 
@@ -100,6 +104,8 @@ export default function AddSchool() {
       state: form.state,
       post_code: form.post_code || undefined,
       country: form.country || 'UAE',
+      latitude: form.latitude.trim() === '' ? undefined : Number(form.latitude),
+      longitude: form.longitude.trim() === '' ? undefined : Number(form.longitude),
       phone: form.phone,
       email: form.email,
       website: form.website || undefined,
@@ -221,6 +227,18 @@ export default function AddSchool() {
               <div className="space-y-1.5">
                 <Label htmlFor="as-country">Country</Label>
                 <Input id="as-country" value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="UAE" />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>School location (optional)</Label>
+                <LocationPicker
+                  latitude={form.latitude.trim() === '' ? undefined : Number(form.latitude)}
+                  longitude={form.longitude.trim() === '' ? undefined : Number(form.longitude)}
+                  onChange={(lat, lng) => {
+                    set('latitude', String(lat))
+                    set('longitude', String(lng))
+                  }}
+                />
+                <p className="text-xs text-[var(--muted-foreground)]">Can also be added later from the school's Edit tab.</p>
               </div>
             </div>
           </div>

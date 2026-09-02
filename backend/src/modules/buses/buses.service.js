@@ -1,7 +1,8 @@
-const { query, withTransaction } = require('../../config/db');
+const { query, withTransaction, masterPool } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
 const { generateQrCode } = require('../../utils/qrcode');
+const { haversineKm } = require('../../utils/geo');
 
 const BASE_SELECT = `
   SELECT b.*, d.name AS driver_name
@@ -117,19 +118,60 @@ async function remove(id, schoolId) {
   if (!rowCount) throw ApiError.notFound('Bus not found');
 }
 
+/** ETA to the trip's final destination stop: for a pickup trip that's the
+ * highest order_index stop (last one visited, typically the school); for a
+ * drop trip it's the lowest (the last student's stop). Null when idle/no
+ * speed — can't estimate arrival time while stationary. */
+async function getEtaMinutes({ routeId, tripType, latitude, longitude, speedKmh }) {
+  if (!routeId || speedKmh < 1) return null;
+  const { rows } = await query(
+    `SELECT latitude, longitude FROM stops WHERE route_id = $1
+     ORDER BY order_index ${tripType === 'drop' ? 'ASC' : 'DESC'} LIMIT 1`,
+    [routeId]
+  );
+  const finalStop = rows[0];
+  if (!finalStop) return null;
+  const distanceKm = haversineKm(latitude, longitude, Number(finalStop.latitude), Number(finalStop.longitude));
+  return Math.round((distanceKm / speedKmh) * 60);
+}
+
 async function getLatestLocation(id, schoolId) {
   await getById(id, schoolId);
   const { rows } = await query(
-    `SELECT bl.*, b.bus_number, d.name AS driver_name
+    `SELECT bl.*, b.bus_number, b.school_id, d.name AS driver_name, t.started_at AS trip_started_at, t.ended_at AS trip_ended_at,
+       t.route_id AS trip_route_id, t.trip_type AS trip_type,
+       (SELECT COUNT(*)::int FROM attendance_records ar
+          WHERE ar.trip_id = bl.trip_id AND ar.status = 'present'
+            AND ar.pickup_time IS NOT NULL AND ar.drop_time IS NULL
+       ) AS onboard_count
      FROM bus_locations bl
      JOIN buses b ON b.id = bl.bus_id
      LEFT JOIN drivers d ON d.id = b.driver_id
+     LEFT JOIN trips t ON t.id = bl.trip_id
      WHERE bl.bus_id = $1
      ORDER BY bl.recorded_at DESC LIMIT 1`,
     [id]
   );
   if (!rows[0]) return null;
   const row = rows[0];
+  const etaMinutes = row.status === 'in_progress'
+    ? await getEtaMinutes({
+        routeId: row.trip_route_id,
+        tripType: row.trip_type,
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        speedKmh: Number(row.speed),
+      })
+    : null;
+
+  // schools live in the master DB, not this tenant DB, so this can't be a
+  // plain SQL JOIN — it's a second query against a different database.
+  const { rows: schoolRows } = await masterPool.query(
+    'SELECT latitude, longitude FROM schools WHERE id = $1',
+    [row.school_id]
+  );
+  const school = schoolRows[0];
+
   return {
     trip_id: row.trip_id,
     bus_id: row.bus_id,
@@ -141,6 +183,12 @@ async function getLatestLocation(id, schoolId) {
     current_stop: row.current_stop || undefined,
     status: row.status,
     recorded_at: row.recorded_at,
+    onboard_count: row.onboard_count,
+    started_at: row.trip_started_at || undefined,
+    ended_at: row.trip_ended_at || undefined,
+    eta_minutes: etaMinutes,
+    school_latitude: school?.latitude != null ? Number(school.latitude) : undefined,
+    school_longitude: school?.longitude != null ? Number(school.longitude) : undefined,
   };
 }
 
