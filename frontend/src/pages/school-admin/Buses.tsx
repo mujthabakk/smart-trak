@@ -306,6 +306,10 @@ function BulkImportDialog({ open, onOpenChange, onImport }: BulkImportDialogProp
             seat_capacity: obj.seat_capacity,
             insurance_expiry: obj.insurance_expiry,
             fitness_cert_expiry: obj.fitness_cert_expiry,
+            // Not in the required column list — CSV imports rarely carry
+            // per-bus staff assignment, so these are filled in later via Edit.
+            assistant_name: obj.assistant_name ?? '',
+            assistant_phone: obj.assistant_phone ?? '',
           }
         })
         setPreview(parsed)
