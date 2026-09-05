@@ -181,7 +181,10 @@ async function addReply(ticketId, user, content) {
   if (!ticket) throw ApiError.notFound('Ticket not found');
 
   const canReply =
-    user.role === 'super_admin' || ticket.reporter_id === user.id || ticket.assigned_to === user.id;
+    user.role === 'super_admin' ||
+    (user.role === 'school_admin' && ticket.school_id === user.school_id) ||
+    ticket.reporter_id === user.id ||
+    ticket.assigned_to === user.id;
   if (!canReply) throw ApiError.forbidden('You do not have permission to reply to this ticket');
 
   await query('INSERT INTO ticket_replies (ticket_id, user_id, content) VALUES ($1,$2,$3)', [

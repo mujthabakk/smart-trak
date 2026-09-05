@@ -2,10 +2,19 @@ const { query } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
 
+// route_name/parent_phone follow students.service.js's BASE_SELECT display
+// pattern (pickup route falling back to drop route) — display-only, not used
+// for any membership/containment logic.
 const BASE_SELECT = `
-  SELECT lv.*, s.name AS student_name, s.class AS student_class
+  SELECT lv.*, s.name AS student_name, s.class AS student_class,
+    COALESCE(pr.name, dr.name) AS route_name,
+    (SELECT phone FROM parent_details WHERE student_id = s.id ORDER BY created_at ASC LIMIT 1) AS parent_phone
   FROM leaves lv
   JOIN students s ON s.id = lv.student_id
+  LEFT JOIN stops ps ON ps.id = s.pickup_stop_id
+  LEFT JOIN routes pr ON pr.id = ps.route_id
+  LEFT JOIN stops ds ON ds.id = s.drop_stop_id
+  LEFT JOIN routes dr ON dr.id = ds.route_id
 `;
 
 function toResponse(row) {
@@ -14,6 +23,8 @@ function toResponse(row) {
     student_id: row.student_id,
     student_name: row.student_name,
     student_class: row.student_class || undefined,
+    route_name: row.route_name || undefined,
+    parent_phone: row.parent_phone || undefined,
     school_id: row.school_id,
     from_date: row.from_date,
     to_date: row.to_date,
@@ -81,6 +92,18 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   if (filters.to) {
     params.push(filters.to);
     conditions.push(`lv.from_date <= $${params.length}`);
+  }
+  // Exact-day containment, for the admin dashboard's date-picker screens
+  // (distinct from from/to's range-overlap use by the parent's leave list).
+  if (filters.date) {
+    params.push(filters.date);
+    const idx = params.length;
+    conditions.push(`lv.from_date <= $${idx} AND lv.to_date >= $${idx}`);
+  }
+  // A 'full_day' leave counts toward both the morning and afternoon groups.
+  if (filters.shift) {
+    params.push(filters.shift);
+    conditions.push(`(lv.shift = $${params.length} OR lv.shift = 'full_day')`);
   }
   if (filters.parentUserId) {
     params.push(filters.parentUserId);

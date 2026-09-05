@@ -16,11 +16,25 @@ router.post(
   validate({ body: schema.createTransfer }),
   controller.create
 );
+// Driver-initiated: reports a problem on their own current trip, no bus
+// chosen yet — that's the admin's job via PATCH /:id/assign below.
+router.post(
+  '/request',
+  requireRole('driver'),
+  validate({ body: schema.requestTransfer }),
+  controller.requestTransfer
+);
 router.patch(
   '/:id',
   requireRole('super_admin', 'school_admin'),
   validate({ params: schema.idParam, body: schema.updateTransfer }),
   controller.update
+);
+router.patch(
+  '/:id/assign',
+  requireRole('super_admin', 'school_admin'),
+  validate({ params: schema.idParam, body: schema.assignBus }),
+  controller.assignBus
 );
 
 module.exports = router;

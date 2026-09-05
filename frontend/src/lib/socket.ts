@@ -1,6 +1,6 @@
 import { io, type Socket } from 'socket.io-client'
 import { store } from '@/store'
-import type { BusStatusSummary } from '@/types'
+import type { BusStatusSummary, BusTransfer } from '@/types'
 
 let socket: Socket | null = null
 
@@ -45,3 +45,10 @@ export interface TripStatusEvent {
  * attendance or trip status changes — consumed by the student/parent mobile
  * app, not this web app, but typed here to document the socket contract. */
 export type BusStatusEvent = BusStatusSummary
+
+/** Pushed to the school room the instant a driver requests a bus transfer
+ * (POST /bus-transfers/request) — lets the admin app surface it live instead
+ * of waiting for the next list refetch. */
+export interface BusTransferRequestedEvent {
+  transfer: BusTransfer
+}

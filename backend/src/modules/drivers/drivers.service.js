@@ -1,6 +1,10 @@
 const { query, withTransaction } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
+const usersService = require('../users/users.service');
+const { emailUserCredentials } = require('../../utils/userCredentialsEmail');
+const { generateTempPassword } = require('../../utils/tempPassword');
+const crypto = require('crypto');
 
 const BASE_SELECT = `
   SELECT d.*, b.bus_number AS assigned_bus_number
@@ -25,6 +29,13 @@ function toResponse(row) {
     assigned_bus_id: row.assigned_bus_id || undefined,
     assigned_bus_number: row.assigned_bus_number || undefined,
     is_active: row.is_active,
+    is_guest: row.is_guest,
+    ...(row.is_guest && {
+      guest_validity_type: row.guest_validity_type || undefined,
+      guest_expires_at: row.guest_expires_at || undefined,
+      guest_max_trips: row.guest_max_trips ?? undefined,
+      guest_trips_used: row.guest_trips_used,
+    }),
     created_at: row.created_at,
   };
 }
@@ -43,6 +54,10 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   if (filters.is_active !== undefined) {
     params.push(filters.is_active === 'true');
     conditions.push(`d.is_active = $${params.length}`);
+  }
+  if (filters.is_guest !== undefined) {
+    params.push(filters.is_guest === 'true');
+    conditions.push(`d.is_guest = $${params.length}`);
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -122,12 +137,74 @@ async function create(schoolId, data) {
   return getById(id, schoolId);
 }
 
+/**
+ * Creates a driver that can log in and use every real driver endpoint
+ * (start a trip, mark attendance, end a trip) exactly like a normal driver,
+ * but expires after a number of days or a number of trips started —
+ * enforced at login (auth.service.js) and again at trip-start
+ * (trips.service.js) as defense in depth. No bus/route/student assignment
+ * step, same as normal driver creation never required one either.
+ */
+async function createGuestDriver(actorRole, schoolId, data) {
+  if (!schoolId) throw ApiError.badRequest('school_id is required');
+
+  const tempPassword = generateTempPassword();
+  const user = await usersService.create(actorRole, schoolId, {
+    name: data.name,
+    email: data.email,
+    phone: data.phone,
+    password: tempPassword,
+    role: 'driver',
+  });
+
+  // Not something the admin should have to type for a temp hire — just
+  // needs to be unique per school, same as a real employee_id.
+  const employeeId = `GUEST-${crypto.randomBytes(4).toString('hex')}`;
+  const guestExpiresAt = data.guest_validity_type === 'days'
+    ? new Date(Date.now() + data.guest_validity_value * 24 * 60 * 60 * 1000)
+    : null;
+  const guestMaxTrips = data.guest_validity_type === 'trips' ? data.guest_validity_value : null;
+
+  const { rows } = await query(
+    `INSERT INTO drivers (school_id, user_id, name, employee_id, email, phone,
+       license_number, license_expiry, is_active, is_guest, guest_validity_type,
+       guest_expires_at, guest_max_trips)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,true,$9,$10,$11)
+     RETURNING id`,
+    [
+      schoolId, user.id, data.name, employeeId, data.email, data.phone,
+      data.license_number, data.license_expiry, data.guest_validity_type,
+      guestExpiresAt, guestMaxTrips,
+    ]
+  );
+  const driverId = rows[0].id;
+
+  // Fire-and-forget, same non-blocking pattern users.service.js already
+  // uses for credential emails — never lets a down/misconfigured SMTP
+  // server fail the actual account creation.
+  emailUserCredentials(
+    { id: user.id, name: user.name, email: user.email, school_id: schoolId },
+    tempPassword,
+    { triggerType: 'guest_driver_credentials' }
+  ).catch((err) => console.error('Failed to email guest driver credentials', err));
+
+  const driver = await getById(driverId, schoolId);
+  // The plaintext password is returned exactly once, here — only its
+  // bcrypt hash is ever persisted, so this is the admin's one chance to
+  // see/relay it (the email above is the other copy).
+  return { driver, credentials: { email: user.email, password: tempPassword } };
+}
+
 async function update(id, schoolId, data) {
   const existing = await getById(id, schoolId);
   const driverId = await withTransaction(async (client) => {
     const fields = [
       'user_id', 'name', 'employee_id', 'email', 'phone', 'whatsapp', 'license_number',
       'license_expiry', 'photo_url', 'address', 'is_active',
+      // Editing a guest driver's own validity after creation (extend/shorten
+      // access, or reset their trip count) — no-ops for a non-guest driver
+      // since these columns just sit unused.
+      'guest_validity_type', 'guest_max_trips', 'guest_expires_at', 'guest_trips_used',
     ];
     const sets = [];
     const params = [];
@@ -230,4 +307,4 @@ async function getRouteStudents(driverUserId, schoolId) {
   };
 }
 
-module.exports = { list, getById, create, update, remove, expiringDocuments, getIdByUserId, getRouteStudents };
+module.exports = { list, getById, create, createGuestDriver, update, remove, expiringDocuments, getIdByUserId, getRouteStudents };

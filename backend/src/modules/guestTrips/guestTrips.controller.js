@@ -43,6 +43,10 @@ const create = asyncHandler(async (req, res) => {
     const caller = await authService.findUserById(req.user.id);
     body.guest_driver_name = caller.name;
     body.guest_driver_phone = await ownPhone(req.user.id);
+  } else if (!body.guest_driver_name || !body.guest_driver_phone) {
+    // Any other caller (an admin requesting on behalf of an outside guest
+    // with no account) must supply both explicitly.
+    throw ApiError.badRequest('guest_driver_name and guest_driver_phone are required');
   }
 
   const trip = await service.create(schoolId, body);
@@ -68,4 +72,11 @@ const update = asyncHandler(async (req, res) => {
   res.json({ trip });
 });
 
-module.exports = { list, getOne, create, update };
+const markAttendance = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const ownerPhone = req.user.role === 'guest_driver' ? await ownPhone(req.user.id) : undefined;
+  const trip = await service.markAttendance(req.params.id, schoolId, req.body.records, ownerPhone);
+  res.json({ trip });
+});
+
+module.exports = { list, getOne, create, update, markAttendance };

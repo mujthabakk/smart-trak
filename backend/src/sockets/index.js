@@ -3,6 +3,9 @@ const { verifyToken } = require('../utils/jwt');
 const env = require('../config/env');
 const { query, tenantContext, getTenantPool, masterPool } = require('../config/db');
 const { impliedSpeedKmh } = require('../utils/geo');
+const reportsService = require('../modules/reports/reports.service');
+const tripsService = require('../modules/trips/trips.service');
+const busesService = require('../modules/buses/buses.service');
 
 /** Mirrors middleware/tenant.js's school_id -> tenant DB name derivation, since
  * Socket.IO connections never pass through Express middleware and would
@@ -48,6 +51,25 @@ function attachSockets(httpServer) {
 
     if (schoolId) {
       socket.join(`school:${schoolId}`);
+
+      // Admin Dashboard stats (dashboard:stats) is push-only — there's no
+      // separate REST endpoint for the client to poll for the initial
+      // snapshot, so push it here the moment an admin's socket joins the
+      // school room. Later changes (trip start/end, attendance, leave
+      // approval) are pushed the same way from their respective controllers.
+      if (role === 'school_admin' || role === 'super_admin') {
+        tenantContext.run({ pool: tenantPool }, async () => {
+          const stats = await reportsService.getAdminDashboardStats(schoolId);
+          socket.emit('dashboard:stats', stats);
+        }).catch((err) => console.error('Failed to push initial dashboard:stats', err));
+
+        // Same push-only pattern for the "Live Tracking"/"All Buses" list —
+        // no separate REST call needed on join, only on later changes.
+        tenantContext.run({ pool: tenantPool }, async () => {
+          const { trips } = await tripsService.list(schoolId, { page: 1, pageSize: 200, offset: 0 }, { status: 'in_progress' });
+          socket.emit('live-trips:update', { trips });
+        }).catch((err) => console.error('Failed to push initial live-trips:update', err));
+      }
     }
 
     socket.on('join:trip', (tripId) => {
@@ -113,6 +135,18 @@ function attachSockets(httpServer) {
       if (schoolId) io.to(`school:${schoolId}`).emit('bus:location', event);
       io.to(`trip:${trip_id}`).emit('bus:location', event);
       io.to(`bus:${bus_id}`).emit('bus:location', event);
+
+      // Enriched version of the same ping (driver contact, route, live trip
+      // status, onboard/total counts, ETA) for the admin Live Tracking detail
+      // sheet — kept as a separate event so a plain marker-mover doesn't pay
+      // for the extra joins on every tick.
+      tenantContext.run({ pool: tenantPool }, async () => {
+        const location = await busesService.getLatestLocation(bus_id, schoolId);
+        if (!location) return;
+        if (schoolId) io.to(`school:${schoolId}`).emit('bus:location:detail', location);
+        io.to(`trip:${trip_id}`).emit('bus:location:detail', location);
+        io.to(`bus:${bus_id}`).emit('bus:location:detail', location);
+      }).catch((err) => console.error('Failed to broadcast bus:location:detail', err));
     });
   });
 

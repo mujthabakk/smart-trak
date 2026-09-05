@@ -1,4 +1,5 @@
 const { query } = require('../../config/db');
+const { todayInTimezone, addDaysToDateString } = require('../../utils/timezone');
 
 /**
  * Revenue by month for the last 12 months (calendar months, oldest first),
@@ -239,10 +240,92 @@ async function getSchoolGrowth() {
   }));
 }
 
+/**
+ * The school admin app's home-screen stats: bus status (on route / reached),
+ * attendance (present / absent) and leave-applied counts, each split into
+ * morning (pickup) / afternoon (drop) and — for leave — today vs tomorrow.
+ * "Today"/"tomorrow" are resolved in the school's own timezone, matching
+ * every other "what day is it" computation added this session
+ * (attendance.service.js's getDaySummary, trips.service.js's schoolToday).
+ * Pushed live over the 'dashboard:stats' socket event whenever a trip
+ * starts/ends, attendance is marked, or a leave is approved/rejected — see
+ * trips.controller.js, attendance.controller.js, leave.controller.js.
+ */
+async function getAdminDashboardStats(schoolId) {
+  let timezone = 'Asia/Kolkata';
+  if (schoolId) {
+    const { rows } = await query('SELECT timezone FROM schools WHERE id = $1', [schoolId]);
+    timezone = rows[0]?.timezone || timezone;
+  }
+  const today = todayInTimezone(timezone);
+  const tomorrow = addDaysToDateString(today, 1);
+
+  const [busResult, attResult, leaveResult] = await Promise.all([
+    query(
+      `SELECT t.trip_type,
+         COUNT(*) FILTER (WHERE t.status = 'in_progress') AS on_route,
+         COUNT(*) FILTER (WHERE t.status = 'completed') AS reached
+       FROM trips t
+       JOIN routes r ON r.id = t.route_id
+       -- A trip still in_progress counts as "on route" regardless of which
+       -- calendar day it started on (it may have started before midnight
+       -- and still be running) — only "reached" (completed) is scoped to
+       -- today specifically, via the OR below.
+       WHERE (t.trip_date = $2 OR t.status = 'in_progress') AND ($1::text IS NULL OR r.school_id = $1)
+       GROUP BY t.trip_type`,
+      [schoolId || null, today]
+    ),
+    query(
+      `SELECT t.trip_type,
+         COUNT(*) FILTER (WHERE ar.status = 'present') AS present,
+         COUNT(*) FILTER (WHERE ar.status = 'absent') AS absent
+       FROM attendance_records ar
+       JOIN trips t ON t.id = ar.trip_id
+       JOIN routes r ON r.id = t.route_id
+       WHERE ar.date = $2 AND ($1::text IS NULL OR r.school_id = $1)
+       GROUP BY t.trip_type`,
+      [schoolId || null, today]
+    ),
+    // full_day counts toward both morning and afternoon.
+    query(
+      `SELECT
+         COUNT(*) FILTER (WHERE lv.from_date <= $2 AND lv.to_date >= $2 AND lv.shift IN ('morning','full_day')) AS morning_today,
+         COUNT(*) FILTER (WHERE lv.from_date <= $2 AND lv.to_date >= $2 AND lv.shift IN ('evening','full_day')) AS afternoon_today,
+         COUNT(*) FILTER (WHERE lv.from_date <= $3 AND lv.to_date >= $3 AND lv.shift IN ('morning','full_day')) AS morning_tomorrow,
+         COUNT(*) FILTER (WHERE lv.from_date <= $3 AND lv.to_date >= $3 AND lv.shift IN ('evening','full_day')) AS afternoon_tomorrow
+       FROM leaves lv
+       WHERE lv.status = 'approved' AND ($1::text IS NULL OR lv.school_id = $1)`,
+      [schoolId || null, today, tomorrow]
+    ),
+  ]);
+
+  const busByType = Object.fromEntries(busResult.rows.map((r) => [r.trip_type, r]));
+  const attByType = Object.fromEntries(attResult.rows.map((r) => [r.trip_type, r]));
+  const lv = leaveResult.rows[0] || {};
+  const n = (v) => Number(v || 0);
+
+  return {
+    date: today,
+    bus_status: {
+      morning: { on_route: n(busByType.pickup?.on_route), reached: n(busByType.pickup?.reached) },
+      afternoon: { on_route: n(busByType.drop?.on_route), reached: n(busByType.drop?.reached) },
+    },
+    attendance_status: {
+      morning: { present: n(attByType.pickup?.present), absent: n(attByType.pickup?.absent) },
+      afternoon: { present: n(attByType.drop?.present), absent: n(attByType.drop?.absent) },
+    },
+    leave_applied: {
+      morning: { today: n(lv.morning_today), tomorrow: n(lv.morning_tomorrow) },
+      afternoon: { today: n(lv.afternoon_today), tomorrow: n(lv.afternoon_tomorrow) },
+    },
+  };
+}
+
 module.exports = {
   getRevenueTrend,
   getPlatformStats,
   getAttendanceTrend,
   getFleetSummary,
   getSchoolGrowth,
+  getAdminDashboardStats,
 };

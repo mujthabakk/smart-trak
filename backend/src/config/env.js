@@ -24,4 +24,5 @@ module.exports = {
     pass: process.env.SMTP_PASS || '',
     from: process.env.SMTP_FROM || 'SmartTrack <no-reply@smarttrack.app>',
   },
+  fcmCredentialsPath: process.env.FCM_CREDENTIALS_PATH || '',
 };

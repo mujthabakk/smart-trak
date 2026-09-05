@@ -7,12 +7,51 @@ const service = require('./attendance.service');
 const tripsService = require('../trips/trips.service');
 const driversService = require('../drivers/drivers.service');
 const alertsService = require('../alerts/alerts.service');
+const reportsService = require('../reports/reports.service');
 
 /** Throws unless the trip belongs to the logged-in driver — reuses the same
  * ownership check the trips module applies to its own status-only PATCH. */
 async function assertDriverOwnsTrip(tripId, userId) {
   const ownsTrip = await tripsService.isDriverOwnTrip(tripId, userId);
   if (!ownsTrip) throw ApiError.forbidden('You do not have permission to manage attendance for this trip');
+}
+
+/** Recomputes and pushes the school admin app's home-screen aggregate stats
+ * (bus status / attendance / leave counts) — see
+ * reportsService.getAdminDashboardStats. Mirrors trips.controller.js's
+ * helper of the same name (kept as a separate small copy rather than a
+ * shared import, since each caller already has its own io/schoolId locals). */
+function broadcastDashboardStats(io, schoolId) {
+  if (!io || !schoolId) return;
+  reportsService.getAdminDashboardStats(schoolId).then((stats) => {
+    io.to(`school:${schoolId}`).emit('dashboard:stats', stats);
+  }).catch((err) => console.error('Failed to broadcast dashboard:stats', err));
+}
+
+/** Recomputes and pushes the admin "Live Tracking"/"All Buses" list — see
+ * trips.controller.js's helper of the same name (same duplicated-small-copy
+ * convention as broadcastDashboardStats above). */
+function broadcastLiveTrips(io, schoolId) {
+  if (!io || !schoolId) return;
+  tripsService.list(schoolId, { page: 1, pageSize: 200, offset: 0 }, { status: 'in_progress' }).then(({ trips }) => {
+    io.to(`school:${schoolId}`).emit('live-trips:update', { trips });
+  }).catch((err) => console.error('Failed to broadcast live-trips:update', err));
+}
+
+/** Pushes the full boarding-students roster (with section counts) for one
+ * trip, live, to anyone watching that trip's roster — e.g. the "Student
+ * attendance" panel on the admin Live Tracking detail sheet. Room-scoped to
+ * trip:<id> only (not school-wide) since a mobile client only ever has one
+ * trip's roster open at a time. */
+function broadcastBoardingStudents(io, schoolId, tripId) {
+  if (!io || !tripId) return;
+  tripsService.getBoardingStudents(tripId, schoolId).then((students) => {
+    io.to(`trip:${tripId}`).emit('trip:boarding-students', {
+      trip_id: tripId,
+      students,
+      counts: tripsService.attendanceCounts(students),
+    });
+  }).catch((err) => console.error('Failed to broadcast trip:boarding-students', err));
 }
 
 /** Helper to broadcast live socket events and notify parents */
@@ -59,7 +98,12 @@ async function broadcastAndNotify(req, schoolId, tripId, records, type) {
           });
         }
       }
+
+      broadcastDashboardStats(io, schoolId);
+      broadcastLiveTrips(io, schoolId);
     }
+
+    broadcastBoardingStudents(io, schoolId, tripId);
   }
 
   // Notify parents

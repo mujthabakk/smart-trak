@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeftRight, Plus, Activity, CheckCircle2, Users,
-  Bus as BusIcon, ArrowRight, Clock, ShieldCheck, AlertTriangle, AlertCircle,
+  Bus as BusIcon, ArrowRight, Clock, ShieldCheck, AlertTriangle, AlertCircle, Bell, User,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -27,10 +27,11 @@ import {
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
-import { listBusTransfers, createBusTransfer, updateBusTransfer } from '@/lib/api/busTransfers'
+import { listBusTransfers, createBusTransfer, assignBusTransfer } from '@/lib/api/busTransfers'
 import { listBuses, createBuses } from '@/lib/api/buses'
 import { listTrips } from '@/lib/api/trips'
 import { formatDate } from '@/lib/utils'
+import { getSocket, type BusTransferRequestedEvent } from '@/lib/socket'
 import type { BusTransfer as BusTransferType, TransferStatus, Trip } from '@/types'
 
 function toLocalDateStr(d: Date): string {
@@ -45,21 +46,20 @@ const TRANSFER_REASONS = [
 ]
 
 const PROGRESS_BY_STATUS: Record<TransferStatus, number> = {
+  requested: 10,
   initiated: 25,
   in_progress: 65,
   completed: 100,
 }
 
-const NEXT_STATUS: Record<TransferStatus, TransferStatus | null> = {
-  initiated: 'in_progress',
-  in_progress: 'completed',
-  completed: null,
-}
-
-const NEXT_STATUS_LABEL: Record<TransferStatus, string> = {
-  initiated: 'Mark In Progress',
-  in_progress: 'Mark Completed',
-  completed: '',
+// Status only ever advances via real events now — request, assign, and the
+// standby driver's take-over scan (which completes it directly) — there's
+// no manual "advance" step for the admin to click through anymore.
+const STATUS_HINT: Record<TransferStatus, string> = {
+  requested: 'Awaiting bus assignment',
+  initiated: 'Waiting for the driver to scan and take over',
+  in_progress: 'Handover in progress',
+  completed: 'Handover complete',
 }
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -75,8 +75,9 @@ function ErrorBanner({ message }: { message: string }) {
   )
 }
 
-function BusChip({ label, tone, busId, onNavigate }: { label: string; tone: 'from' | 'to'; busId?: string; onNavigate?: (id: string) => void }) {
+function BusChip({ label, tone, busId, onNavigate }: { label?: string; tone: 'from' | 'to'; busId?: string; onNavigate?: (id: string) => void }) {
   const isFrom = tone === 'from'
+  const awaitingAssignment = !label
   return (
     <div
       className={
@@ -98,7 +99,9 @@ function BusChip({ label, tone, busId, onNavigate }: { label: string; tone: 'fro
         <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
           {isFrom ? 'From' : 'To'}
         </p>
-        {busId && onNavigate ? (
+        {awaitingAssignment ? (
+          <p className="truncate text-sm font-medium italic text-[var(--muted-foreground)]">Awaiting assignment</p>
+        ) : busId && onNavigate ? (
           <button
             onClick={() => onNavigate(busId)}
             className="truncate text-sm font-bold text-[var(--foreground)] hover:text-[var(--primary)] hover:underline transition-colors text-left"
@@ -113,15 +116,12 @@ function BusChip({ label, tone, busId, onNavigate }: { label: string; tone: 'fro
   )
 }
 
-function TransferRow({ transfer, index, onNavigateBus, onAdvance, advancing }: {
+function TransferRow({ transfer, index, onNavigateBus }: {
   transfer: BusTransferType
   index: number
   onNavigateBus: (id: string) => void
-  onAdvance: (id: string, status: TransferStatus) => void
-  advancing: boolean
 }) {
   const progress = PROGRESS_BY_STATUS[transfer.status]
-  const nextStatus = NEXT_STATUS[transfer.status]
   return (
     <motion.div
       variants={item}
@@ -190,27 +190,15 @@ function TransferRow({ transfer, index, onNavigateBus, onAdvance, advancing }: {
             {transfer.reason}
           </p>
 
-          {/* progress */}
+          {/* progress — driven entirely by real events (request, assign,
+              driver take-over scan), nothing for the admin to click here */}
           <div className="mt-3">
             <div className="mb-1 flex items-center justify-between text-[11px] text-[var(--muted-foreground)]">
-              <span>Transfer progress</span>
+              <span>{STATUS_HINT[transfer.status]}</span>
               <span className="font-semibold tabular-nums text-[var(--foreground)]">{progress}%</span>
             </div>
             <Progress value={progress} className="h-1.5" />
           </div>
-
-          {nextStatus && (
-            <div className="mt-3 flex justify-end">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={advancing}
-                onClick={() => onAdvance(transfer.id, nextStatus)}
-              >
-                {NEXT_STATUS_LABEL[transfer.status]}
-              </Button>
-            </div>
-          )}
         </div>
       </div>
     </motion.div>
@@ -255,7 +243,8 @@ export default function BusTransfer() {
   const fromTrip = useMemo(() => activeTrips.find((t) => t.id === fromTripId), [activeTrips, fromTripId])
 
   const stats = useMemo(() => {
-    const active = transfers.filter((t) => t.status !== 'completed').length
+    const pending = transfers.filter((t) => t.status === 'requested').length
+    const active = transfers.filter((t) => t.status !== 'completed' && t.status !== 'requested').length
     const completedToday = transfers.filter((t) => {
       if (t.status !== 'completed') return false
       const d = new Date(t.transfer_at)
@@ -265,13 +254,63 @@ export default function BusTransfer() {
     const affected = transfers
       .filter((t) => t.status !== 'completed')
       .reduce((sum, t) => sum + t.affected_students, 0)
-    return { active, completedToday, affected }
+    return { pending, active, completedToday, affected }
   }, [transfers])
 
   const sorted = useMemo(
     () => [...transfers].sort((a, b) => new Date(b.transfer_at).getTime() - new Date(a.transfer_at).getTime()),
     [transfers],
   )
+  // Driver-initiated requests need a bus assigned before they're a real
+  // transfer — surfaced in their own section instead of the timeline below.
+  const pendingRequests = useMemo(() => sorted.filter((t) => t.status === 'requested'), [sorted])
+  const otherTransfers = useMemo(() => sorted.filter((t) => t.status !== 'requested'), [sorted])
+
+  // Live: a driver's request shows up here the instant they submit it, no
+  // refresh needed.
+  useEffect(() => {
+    const socket = getSocket()
+    const handleRequested = (_event: BusTransferRequestedEvent) => {
+      queryClient.invalidateQueries({ queryKey: ['bus-transfers'] })
+    }
+    socket.on('bus-transfer:requested', handleRequested)
+    return () => {
+      socket.off('bus-transfer:requested', handleRequested)
+    }
+  }, [queryClient])
+
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false)
+  const [assigningTransfer, setAssigningTransfer] = useState<BusTransferType | null>(null)
+  const [assignBusId, setAssignBusId] = useState('')
+
+  function openAssignDialog(transfer: BusTransferType) {
+    setAssigningTransfer(transfer)
+    setAssignBusId('')
+    setAssignDialogOpen(true)
+  }
+
+  const assignMutation = useMutation({
+    mutationFn: ({ id, newBusId, newDriverId }: { id: string; newBusId: string; newDriverId?: string }) =>
+      assignBusTransfer(id, { new_bus_id: newBusId, new_driver_id: newDriverId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bus-transfers'] })
+      queryClient.invalidateQueries({ queryKey: ['buses'] })
+      setAssignDialogOpen(false)
+      setAssigningTransfer(null)
+      setAssignBusId('')
+    },
+  })
+
+  const assignBusOptions = useMemo(
+    () => buses.filter((b) => b.id !== assigningTransfer?.original_bus_id && b.status !== 'running'),
+    [buses, assigningTransfer],
+  )
+
+  function submitAssign() {
+    if (!assigningTransfer || !assignBusId) return
+    const newDriverId = buses.find((b) => b.id === assignBusId)?.driver_id
+    assignMutation.mutate({ id: assigningTransfer.id, newBusId: assignBusId, newDriverId })
+  }
 
   function resetForm() {
     setFromTripId('')
@@ -325,13 +364,6 @@ export default function BusTransfer() {
     },
   })
 
-  const advanceMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: TransferStatus }) => updateBusTransfer(id, { status }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bus-transfers'] })
-    },
-  })
-
   function submitTransfer() {
     if (!fromTrip) return
     if (useTempBus) {
@@ -380,11 +412,54 @@ export default function BusTransfer() {
           </Card>
         </motion.div>
 
-        <motion.div variants={item} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <motion.div variants={item} className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatsCard title="Pending Requests" value={stats.pending} icon={Bell} color="danger" subtitle="need a bus assigned" />
           <StatsCard title="Active Transfers" value={stats.active} icon={Activity} color="info" subtitle="in progress now" />
           <StatsCard title="Completed Today" value={stats.completedToday} icon={CheckCircle2} color="success" />
           <StatsCard title="Affected Students" value={stats.affected} icon={Users} color="warning" subtitle="being reassigned" />
         </motion.div>
+
+        {pendingRequests.length > 0 && (
+          <motion.div variants={item}>
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+              <Bell size={16} className="text-amber-500" />
+              Pending Requests from Drivers
+            </h2>
+            <div className="space-y-3">
+              {pendingRequests.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900/40 dark:bg-amber-900/10 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="flex items-center gap-1.5 text-sm font-bold text-[var(--foreground)]">
+                        <BusIcon size={15} className="text-amber-600" /> Bus {t.original_bus_number}
+                      </span>
+                      {t.requested_by_name && (
+                        <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+                          <User size={12} /> Requested by {t.requested_by_name}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+                        <Clock size={12} /> {formatDate(t.transfer_at, 'datetime')}
+                      </span>
+                      <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+                        <Users size={12} /> {t.affected_students} students
+                      </span>
+                    </div>
+                    <p className="mt-2 rounded-lg bg-white/70 px-3 py-2 text-sm text-[var(--foreground)] dark:bg-black/20">
+                      {t.reason}
+                    </p>
+                  </div>
+                  <Button size="sm" onClick={() => openAssignDialog(t)} className="sm:flex-shrink-0">
+                    Assign Bus
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
         <motion.div variants={item}>
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
@@ -398,12 +473,16 @@ export default function BusTransfer() {
             <div className="flex items-center justify-center py-24">
               <LoadingSpinner size="lg" />
             </div>
-          ) : sorted.length === 0 ? (
+          ) : otherTransfers.length === 0 ? (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)]">
               <EmptyState
                 icon={ArrowLeftRight}
-                title="No transfers yet"
-                description="When a bus breaks down or a route is disrupted, initiate a transfer to move students onto another bus."
+                title={pendingRequests.length > 0 ? 'No assigned transfers yet' : 'No transfers yet'}
+                description={
+                  pendingRequests.length > 0
+                    ? 'Assign a bus to a pending request above, or initiate a transfer yourself.'
+                    : 'When a bus breaks down or a route is disrupted, initiate a transfer to move students onto another bus.'
+                }
                 action={
                   <Button onClick={() => setDialogOpen(true)}>
                     <Plus size={16} /> Initiate Transfer
@@ -413,14 +492,12 @@ export default function BusTransfer() {
             </div>
           ) : (
             <div className="space-y-4">
-              {sorted.map((t, i) => (
+              {otherTransfers.map((t, i) => (
                 <TransferRow
                   key={t.id}
                   transfer={t}
                   index={i}
                   onNavigateBus={(id) => navigate(`/school-admin/buses/${id}`)}
-                  onAdvance={(id, status) => advanceMutation.mutate({ id, status })}
-                  advancing={advanceMutation.isPending}
                 />
               ))}
             </div>
@@ -588,6 +665,72 @@ export default function BusTransfer() {
               }
             >
               Initiate Transfer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign bus to a driver-requested transfer */}
+      <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell size={18} className="text-amber-500" /> Assign Replacement Bus
+            </DialogTitle>
+            <DialogDescription>
+              {assigningTransfer?.requested_by_name
+                ? `${assigningTransfer.requested_by_name} requested a transfer off Bus ${assigningTransfer.original_bus_number}.`
+                : 'Pick a replacement bus for this request.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {assignMutation.isError && <ErrorBanner message="Failed to assign the bus. Please try again." />}
+
+            {assigningTransfer && (
+              <p className="rounded-lg bg-[var(--muted)]/50 px-3 py-2 text-sm text-[var(--foreground)]">
+                {assigningTransfer.reason}
+              </p>
+            )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="assign-bus">Replacement Bus</Label>
+              <Select value={assignBusId} onValueChange={setAssignBusId}>
+                <SelectTrigger id="assign-bus">
+                  <SelectValue placeholder="Select an idle bus" />
+                </SelectTrigger>
+                <SelectContent>
+                  {assignBusOptions.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      Bus {b.bus_number}{b.driver_name ? ` · ${b.driver_name}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {assignBusOptions.length === 0 && (
+                <p className="text-xs text-[var(--muted-foreground)]">No idle buses available right now.</p>
+              )}
+            </div>
+
+            {assigningTransfer && assignBusId && (
+              <div className="flex items-center justify-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 p-3">
+                <span className="rounded-lg bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                  {assigningTransfer.original_bus_number}
+                </span>
+                <ArrowRight size={16} className="text-[var(--primary)]" />
+                <span className="rounded-lg bg-green-100 px-2.5 py-1 text-xs font-bold text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  {buses.find((b) => b.id === assignBusId)?.bus_number}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={submitAssign} loading={assignMutation.isPending} disabled={!assignBusId}>
+              Assign Bus
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -5,6 +5,29 @@ const ApiError = require('../../utils/ApiError');
 const service = require('./trips.service');
 const driversService = require('../drivers/drivers.service');
 const attendanceService = require('../attendance/attendance.service');
+const reportsService = require('../reports/reports.service');
+
+/** Recomputes and pushes the school admin app's home-screen aggregate stats
+ * (bus status / attendance / leave counts) — see
+ * reportsService.getAdminDashboardStats. Called wherever a trip, attendance
+ * mark, or leave approval could move those counts. */
+function broadcastDashboardStats(io, schoolId) {
+  if (!io || !schoolId) return;
+  reportsService.getAdminDashboardStats(schoolId).then((stats) => {
+    io.to(`school:${schoolId}`).emit('dashboard:stats', stats);
+  }).catch((err) => console.error('Failed to broadcast dashboard:stats', err));
+}
+
+/** Recomputes and pushes the admin "Live Tracking"/"All Buses" list — the
+ * same shape as GET /trips?status=in_progress — so that screen updates live
+ * instead of needing to poll. Called wherever a trip starts/ends or
+ * attendance changes (present_count shown on each card). */
+function broadcastLiveTrips(io, schoolId) {
+  if (!io || !schoolId) return;
+  service.list(schoolId, { page: 1, pageSize: 200, offset: 0 }, { status: 'in_progress' }).then(({ trips }) => {
+    io.to(`school:${schoolId}`).emit('live-trips:update', { trips });
+  }).catch((err) => console.error('Failed to broadcast live-trips:update', err));
+}
 
 /** Pushes an immediate bus-status change to the Live Map instead of leaving
  * clients to wait on the next bus:location GPS ping (which may never come —
@@ -29,6 +52,9 @@ function emitTripStatus(req, { schoolId, tripId, busId, status, routeId }) {
       }
     }).catch((err) => console.error('Failed to resolve route students for bus:status', err));
   }
+
+  broadcastDashboardStats(io, schoolId);
+  broadcastLiveTrips(io, schoolId);
 }
 
 const list = asyncHandler(async (req, res) => {
@@ -60,7 +86,16 @@ const getOne = asyncHandler(async (req, res) => {
 
 const getBoardingStudents = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
-  res.json({ students: await service.getBoardingStudents(req.params.id, schoolId) });
+  const students = await service.getBoardingStudents(req.params.id, schoolId);
+  res.json({ students, counts: service.attendanceCounts(students) });
+});
+
+const sendMessage = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const notification = await service.sendMessageToDriver(req.params.id, schoolId, req.body);
+  const io = req.app.get('io');
+  if (io) io.to(`user:${notification.user_id}`).emit('notification:update');
+  res.status(201).json({ notification });
 });
 
 const getPath = asyncHandler(async (req, res) => {
@@ -106,6 +141,13 @@ const startTrip = asyncHandler(async (req, res) => {
   res.status(201).json(result);
 });
 
+const takeOverTrip = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const trip = await service.takeOverTrip(schoolId, req.body, req.user.id);
+  emitTripStatus(req, { schoolId, tripId: trip.id, busId: trip.bus_id, status: 'in_progress', routeId: trip.route_id });
+  res.json({ trip });
+});
+
 const prepareTrip = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const result = await service.prepareTrip(schoolId, req.body, req.user.id);
@@ -126,4 +168,4 @@ const endTrip = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
-module.exports = { list, getOne, getBoardingStudents, getPath, create, update, remove, startTrip, prepareTrip, startPreparedTrip, endTrip };
+module.exports = { list, getOne, getBoardingStudents, sendMessage, getPath, create, update, remove, startTrip, takeOverTrip, prepareTrip, startPreparedTrip, endTrip };

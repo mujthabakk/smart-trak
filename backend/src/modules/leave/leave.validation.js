@@ -29,6 +29,8 @@ const listQuery = z.object({
   status: statusEnum.optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+  date: z.string().optional(),
+  shift: z.enum(['morning', 'evening']).optional(),
   page: z.string().optional(),
   pageSize: z.string().optional(),
 });

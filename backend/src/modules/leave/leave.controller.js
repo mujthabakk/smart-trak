@@ -3,8 +3,20 @@ const { parsePagination } = require('../../utils/pagination');
 const { resolveSchoolId } = require('../../middleware/auth');
 const ApiError = require('../../utils/ApiError');
 const service = require('./leave.service');
+const reportsService = require('../reports/reports.service');
 
 const ADMIN_ROLES = ['super_admin', 'school_admin'];
+
+/** Recomputes and pushes the school admin app's home-screen aggregate stats —
+ * see reportsService.getAdminDashboardStats. Mirrors the same helper in
+ * trips.controller.js / attendance.controller.js. */
+function broadcastDashboardStats(req, schoolId) {
+  const io = req.app.get('io');
+  if (!io || !schoolId) return;
+  reportsService.getAdminDashboardStats(schoolId).then((stats) => {
+    io.to(`school:${schoolId}`).emit('dashboard:stats', stats);
+  }).catch((err) => console.error('Failed to broadcast dashboard:stats', err));
+}
 
 const getReasons = asyncHandler(async (req, res) => {
   res.json({
@@ -27,6 +39,8 @@ const list = asyncHandler(async (req, res) => {
     status: req.query.status,
     from: req.query.from,
     to: req.query.to,
+    date: req.query.date,
+    shift: req.query.shift,
     // Parents only ever see/manage leave requests for their own child(ren).
     parentUserId: req.user.role === 'parent' ? req.user.id : undefined,
   });
@@ -57,6 +71,7 @@ const update = asyncHandler(async (req, res) => {
     await service.getById(req.params.id, schoolId, req.user.id);
   }
   const leave = await service.update(req.params.id, schoolId, req.body, req.user.id);
+  if (req.body.status !== undefined) broadcastDashboardStats(req, schoolId);
   res.json({ leave });
 });
 

@@ -32,3 +32,10 @@ export async function updateBusTransfer(id: string, payload: Partial<BusTransfer
   const { data } = await apiClient.patch<{ transfer: BusTransfer }>(`/bus-transfers/${id}`, payload)
   return data.transfer
 }
+
+/** Fulfils a driver-initiated request (status "requested") by picking the
+ * replacement bus — the trip is repointed onto it immediately. */
+export async function assignBusTransfer(id: string, payload: { new_bus_id: string; new_driver_id?: string }): Promise<BusTransfer> {
+  const { data } = await apiClient.patch<{ transfer: BusTransfer }>(`/bus-transfers/${id}/assign`, payload)
+  return data.transfer
+}

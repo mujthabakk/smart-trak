@@ -22,7 +22,9 @@ function formatDateString(d) {
 const BASE_SELECT = `
   SELECT ar.*, s.name AS student_name, s.class AS student_class, s.school_id AS student_school_id,
     st.name AS stop_name,
-    r.name AS route_name
+    r.name AS route_name,
+    t.trip_type,
+    (SELECT phone FROM parent_details WHERE student_id = s.id ORDER BY created_at ASC LIMIT 1) AS parent_phone
   FROM attendance_records ar
   JOIN students s ON s.id = ar.student_id
   LEFT JOIN stops st ON st.id = ar.stop_id
@@ -46,6 +48,8 @@ function toResponse(row) {
     offboard_reason: row.offboard_reason || undefined,
     offboarded_at: row.offboarded_at || undefined,
     route_name: row.route_name || undefined,
+    trip_type: row.trip_type || undefined,
+    parent_phone: row.parent_phone || undefined,
     date: formatDateString(row.date),
   };
 }

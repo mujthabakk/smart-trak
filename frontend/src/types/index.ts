@@ -11,7 +11,7 @@ export type LeaveStatus = 'pending' | 'approved' | 'rejected'
 export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'escalated'
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical'
 export type LostFoundStatus = 'reported' | 'claimed' | 'resolved'
-export type TransferStatus = 'initiated' | 'in_progress' | 'completed'
+export type TransferStatus = 'requested' | 'initiated' | 'in_progress' | 'completed'
 export type GuestTripStatus = 'pending_approval' | 'approved' | 'rejected' | 'completed'
 
 export interface User {
@@ -160,6 +160,11 @@ export interface Driver {
   assigned_bus_id?: string
   assigned_bus_number?: string
   is_active: boolean
+  is_guest?: boolean
+  guest_validity_type?: 'trips' | 'days'
+  guest_expires_at?: string
+  guest_max_trips?: number
+  guest_trips_used?: number
   created_at: string
 }
 
@@ -406,11 +411,17 @@ export interface BusTransfer {
   original_trip_id: string
   original_bus_id: string
   original_bus_number: string
-  new_bus_id: string
-  new_bus_number: string
+  // Unset while status is "requested" — a driver-initiated request has no
+  // replacement bus yet, only an admin's assign action fills these in.
+  new_bus_id?: string
+  new_bus_number?: string
   new_driver_id?: string
   new_driver_name?: string
-  authorised_by: string
+  // Set only for a driver-initiated request (POST /bus-transfers/request);
+  // undefined for an admin-initiated transfer.
+  requested_by?: string
+  requested_by_name?: string
+  authorised_by?: string
   transfer_at: string
   status: TransferStatus
   reason: string

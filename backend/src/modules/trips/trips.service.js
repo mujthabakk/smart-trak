@@ -3,6 +3,7 @@ const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
 const { createNotification } = require('../notifications/notifications.service');
 const { todayInTimezone } = require('../../utils/timezone');
+const { isGuestExpired } = require('../../utils/guestDriverExpiry');
 
 /** Notifies every parent linked to a student on this route — same real
  * notifications-table + push path attendance.service.js's
@@ -33,11 +34,18 @@ async function notifyRouteParents(schoolId, routeId, title, body) {
 // student_count reuses the same "students whose pickup/drop stop belongs to
 // the route's stops" logic as the routes module, joined through the trip's route_id.
 const BASE_SELECT = `
-  SELECT t.*, r.name AS route_name, r.school_id AS school_id, d.name AS driver_name, b.bus_number,
+  SELECT t.*, r.name AS route_name, r.school_id AS school_id, d.name AS driver_name,
+    d.phone AS driver_phone, d.email AS driver_email, b.bus_number,
     (SELECT COUNT(*)::int FROM students st
        WHERE st.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
           OR st.drop_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
     ) AS student_count,
+    -- How many of those students this trip has actually marked present so
+    -- far — the numerator for the admin "Bus Status"/"Attendance" screens'
+    -- "28/35 students" display.
+    (SELECT COUNT(*)::int FROM attendance_records ar
+       WHERE ar.trip_id = t.id AND ar.status = 'present'
+    ) AS present_count,
     -- Bus's overall progress on this trip — the most recently marked stop,
     -- for any student, not GPS. Same "reached" signal attendance.service.js's
     -- getDaySummary uses for its per-trip current_stop.
@@ -59,6 +67,8 @@ function toResponse(row) {
     route_name: row.route_name,
     driver_id: row.driver_id,
     driver_name: row.driver_name,
+    driver_phone: row.driver_phone || undefined,
+    driver_email: row.driver_email || undefined,
     bus_id: row.bus_id,
     bus_number: row.bus_number,
     trip_type: row.trip_type,
@@ -66,6 +76,7 @@ function toResponse(row) {
     started_at: row.started_at || undefined,
     ended_at: row.ended_at || undefined,
     student_count: row.student_count,
+    present_count: row.present_count,
     current_stop: row.current_stop || undefined,
   };
 }
@@ -106,9 +117,17 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
     conditions.push(`t.status = $${params.length}`);
   }
   // "Current trips" is the default view most pages need, so default to today
-  // when no explicit date filter is supplied.
-  params.push(filters.date || await schoolToday(schoolId));
-  conditions.push(`t.trip_date = $${params.length}`);
+  // when no explicit date filter is supplied — EXCEPT when the caller is
+  // asking for in_progress trips specifically: a trip that started before
+  // midnight and is still running is unambiguously "current" regardless of
+  // which calendar day its trip_date says it started on, and every live
+  // view (dashboard-stats, live-trips:update, Bus Status/Attendance) relies
+  // on this list to reflect trips that are ACTUALLY running right now, not
+  // just ones that started today.
+  if (filters.date || filters.status !== 'in_progress') {
+    params.push(filters.date || await schoolToday(schoolId));
+    conditions.push(`t.trip_date = $${params.length}`);
+  }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -140,6 +159,28 @@ async function getRawById(id) {
   const { rows } = await query(`${BASE_SELECT} WHERE t.id = $1`, [id]);
   if (!rows[0]) throw ApiError.notFound('Trip not found');
   return rows[0];
+}
+
+/** Sends a one-way message notification to this trip's driver — the envelope
+ * icon on the admin Bus Status/Attendance route cards. Lands in the driver's
+ * normal notification inbox (type: 'message'), same table/socket path as
+ * every other notification, not a separate chat/thread system. */
+async function sendMessageToDriver(id, schoolId, { title, body }) {
+  const trip = await getRawById(id);
+  if (schoolId && trip.school_id !== schoolId) {
+    throw ApiError.notFound('Trip not found');
+  }
+  const { rows } = await query('SELECT user_id FROM drivers WHERE id = $1', [trip.driver_id]);
+  const driverUserId = rows[0]?.user_id;
+  if (!driverUserId) throw ApiError.badRequest('This driver has no linked login account to message');
+
+  return createNotification({
+    school_id: trip.school_id,
+    user_id: driverUserId,
+    title: title || `Message about ${trip.route_name}`,
+    body,
+    type: 'message',
+  });
 }
 
 async function getBoardingStudents(id, schoolId) {
@@ -349,6 +390,56 @@ async function remove(id, schoolId) {
   if (!rowCount) throw ApiError.notFound('Trip not found');
 }
 
+/**
+ * Hands an in-progress trip over to a standby driver after a bus breakdown.
+ * The admin must have already created a bus_transfers record naming this
+ * driver as new_driver_id (busTransfersService.create) — that step already
+ * repoints the trip's bus_id; this step is what actually lets the new
+ * driver operate the trip (mark attendance, end it), since every driver-only
+ * endpoint checks trips.driver_id against the caller.
+ *
+ * The driver scans the ORIGINAL (breakdown) bus's QR code, not the new
+ * bus's — that's the only bus they have physical/visual access to at the
+ * point of breakdown, and it's what identifies which pending transfer is
+ * theirs to claim.
+ */
+async function takeOverTrip(schoolId, data, driverUserId) {
+  const { rows: driverRows } = await query('SELECT id FROM drivers WHERE user_id = $1 AND school_id = $2', [driverUserId, schoolId]);
+  if (!driverRows[0]) throw ApiError.badRequest('Driver profile not found');
+  const driverId = driverRows[0].id;
+
+  const { rows: busRows } = await query('SELECT * FROM buses WHERE safety_qr_code = $1 AND school_id = $2', [data.safety_qr_code, schoolId]);
+  if (!busRows[0]) throw ApiError.badRequest('Invalid safety QR code. Bus not found for this school.');
+  const bus = busRows[0];
+
+  // Only an 'initiated' transfer is unclaimed — claiming it here flips it
+  // straight to 'completed' (see below) so a second scan of the same
+  // breakdown bus doesn't match the same transfer again.
+  const { rows: transferRows } = await query(
+    `SELECT * FROM bus_transfers WHERE original_bus_id = $1 AND school_id = $2 AND status = 'initiated'
+     ORDER BY transfer_at DESC LIMIT 1`,
+    [bus.id, schoolId]
+  );
+  const transfer = transferRows[0];
+  if (!transfer) throw ApiError.badRequest('No pending bus transfer found for this bus');
+  if (transfer.new_driver_id !== driverId) {
+    throw ApiError.forbidden('You are not the assigned driver for this transfer');
+  }
+
+  const trip = await getRawById(transfer.original_trip_id);
+  if (trip.status !== 'in_progress') {
+    throw ApiError.badRequest('This trip is no longer in progress');
+  }
+
+  await query('UPDATE trips SET driver_id = $1 WHERE id = $2', [driverId, transfer.original_trip_id]);
+  // The scan IS the completion event from the admin's point of view — the
+  // standby driver has physically taken over and is now driving; there's no
+  // separate "in_progress" stage to wait on afterward.
+  await query(`UPDATE bus_transfers SET status = 'completed' WHERE id = $1`, [transfer.id]);
+
+  return getById(transfer.original_trip_id, schoolId);
+}
+
 async function startTrip(schoolId, data, driverUserId) {
   // 1. Verify route belongs to school
   const { rows: routeRows } = await query('SELECT * FROM routes WHERE id = $1 AND school_id = $2', [data.route_id, schoolId]);
@@ -356,9 +447,21 @@ async function startTrip(schoolId, data, driverUserId) {
   const route = routeRows[0];
 
   // 2. Find driver ID from the logged-in user
-  const { rows: driverRows } = await query('SELECT id FROM drivers WHERE user_id = $1 AND school_id = $2', [driverUserId, schoolId]);
+  const { rows: driverRows } = await query(
+    `SELECT id, is_active, is_guest, guest_validity_type, guest_expires_at, guest_max_trips, guest_trips_used
+     FROM drivers WHERE user_id = $1 AND school_id = $2`,
+    [driverUserId, schoolId]
+  );
   if (!driverRows[0]) throw ApiError.badRequest('Driver profile not found');
-  const driverId = driverRows[0].id;
+  const driver = driverRows[0];
+  const driverId = driver.id;
+  // Defense in depth alongside auth.service.js's verifyCredentials — a
+  // long-lived JWT issued before expiry shouldn't let a guest keep
+  // starting trips past their budget without re-logging in.
+  if (!driver.is_active) throw ApiError.forbidden('Your account has been deactivated');
+  if (driver.is_guest && isGuestExpired(driver)) {
+    throw ApiError.forbidden('Your temporary driver access has expired');
+  }
 
   // 3. Find the bus dynamically using the scanned safety QR code
   const { rows: busRows } = await query('SELECT * FROM buses WHERE safety_qr_code = $1 AND school_id = $2', [data.safety_qr_code, schoolId]);
@@ -375,6 +478,10 @@ async function startTrip(schoolId, data, driverUserId) {
     trip_date: await schoolToday(schoolId),
     started_at: new Date().toISOString()
   });
+
+  if (driver.is_guest && driver.guest_validity_type === 'trips') {
+    await query('UPDATE drivers SET guest_trips_used = guest_trips_used + 1 WHERE id = $1', [driverId]);
+  }
 
   // 4. Notify parents
   await notifyRouteParents(schoolId, route.id, 'Trip Started', `The ${data.trip_type} trip for route ${route.name} has started.`);
@@ -470,4 +577,18 @@ async function endTrip(schoolId, data, driverUserId) {
   return { trip: updatedTrip };
 }
 
-module.exports = { list, getById, getBoardingStudents, getStudentIdsForRoute, getPath, create, update, remove, isDriverOwnTrip, startTrip, prepareTrip, startPreparedTrip, endTrip };
+/** Section-header counts for a boarding-students roster (Present / Absent /
+ * Not Boarded) — shared by the REST controller action and the live socket
+ * push so both compute it identically. A student on leave is pulled out of
+ * all three, matching the rest of the app's leave-aware suppression. */
+function attendanceCounts(students) {
+  return students.reduce((acc, s) => {
+    if (s.is_leave_applied) acc.leave++;
+    else if (s.status === 'present') acc.present++;
+    else if (s.status === 'absent') acc.absent++;
+    else acc.not_boarded++;
+    return acc;
+  }, { present: 0, absent: 0, not_boarded: 0, leave: 0 });
+}
+
+module.exports = { list, getById, getBoardingStudents, sendMessageToDriver, getStudentIdsForRoute, getPath, create, update, remove, isDriverOwnTrip, startTrip, takeOverTrip, prepareTrip, startPreparedTrip, endTrip, attendanceCounts };

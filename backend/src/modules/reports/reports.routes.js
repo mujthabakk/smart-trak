@@ -14,5 +14,6 @@ router.get('/school-growth', requireRole('super_admin'), controller.schoolGrowth
 // Tenant-scoped (any authenticated role — resolveSchoolId pins non-super_admin to their own school)
 router.get('/attendance-trend', controller.attendanceTrend);
 router.get('/fleet-summary', controller.fleetSummary);
+router.get('/dashboard-stats', controller.dashboardStats);
 
 module.exports = router;

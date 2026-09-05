@@ -216,19 +216,23 @@ export default function SchoolProfile() {
     const planLabel = form.plan_name.charAt(0).toUpperCase() + form.plan_name.slice(1)
     const matchedPlan = plans.find((p) => p.name.toLowerCase() === form.plan_name.toLowerCase())
     updateMutation.mutate({
-      name: form.name,
+      // Guarded with `|| undefined` since the backend validates these as
+      // non-empty/valid-format when present (not just when the key exists)
+      // — an empty string on any one of these would reject the WHOLE
+      // request, including the location, not just leave that field as-is.
+      name: form.name || undefined,
       admin_name: form.admin_name || undefined,
-      admin_email: form.admin_email,
-      email: form.admin_email,
-      phone: form.phone,
+      admin_email: form.admin_email || undefined,
+      email: form.admin_email || undefined,
+      phone: form.phone || undefined,
       website: form.website || undefined,
       plan_id: matchedPlan?.id,
       plan_name: planLabel,
-      address: form.address,
-      city: form.city,
-      state: form.state,
+      address: form.address || undefined,
+      city: form.city || undefined,
+      state: form.state || undefined,
       post_code: form.post_code || undefined,
-      country: form.country,
+      country: form.country || undefined,
       latitude: form.latitude.trim() === '' ? undefined : Number(form.latitude),
       longitude: form.longitude.trim() === '' ? undefined : Number(form.longitude),
       timezone: form.timezone,

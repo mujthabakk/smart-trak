@@ -15,5 +15,10 @@ router.post('/', validate({ body: schema.createTrip }), controller.create);
 // Any authenticated same-school user may PATCH (e.g. mark completed); approving/rejecting
 // is further gated to admins inside the controller.
 router.patch('/:id', validate({ params: schema.idParam, body: schema.updateTrip }), controller.update);
+router.patch(
+  '/:id/attendance',
+  validate({ params: schema.idParam, body: schema.markAttendance }),
+  controller.markAttendance
+);
 
 module.exports = router;

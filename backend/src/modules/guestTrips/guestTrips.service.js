@@ -17,24 +17,27 @@ function toResponse(row) {
   };
 }
 
-/** Projection of students table shape expected on GuestTrip.students: {id, name, class, division}. */
+/** Projection of students table shape expected on GuestTrip.students:
+ * {id, name, class, division, status, marked_at}. status/marked_at come from
+ * guest_trip_students, this trip's own lightweight attendance record — not
+ * the real attendance_records table (a guest trip never touches it). */
 async function getStudentsForTrip(guestTripId) {
   const { rows } = await query(
-    `SELECT s.id, s.name, s.class, s.division
+    `SELECT s.id, s.name, s.class, s.division, gts.status, gts.marked_at
      FROM guest_trip_students gts
      JOIN students s ON s.id = gts.student_id
      WHERE gts.guest_trip_id = $1
      ORDER BY s.name`,
     [guestTripId]
   );
-  return rows;
+  return rows.map((r) => ({ ...r, marked_at: r.marked_at || undefined }));
 }
 
 /** Batches the student join for a page of trips so list() doesn't N+1 query. */
 async function getStudentsForTrips(tripIds) {
   if (tripIds.length === 0) return {};
   const { rows } = await query(
-    `SELECT gts.guest_trip_id, s.id, s.name, s.class, s.division
+    `SELECT gts.guest_trip_id, s.id, s.name, s.class, s.division, gts.status, gts.marked_at
      FROM guest_trip_students gts
      JOIN students s ON s.id = gts.student_id
      WHERE gts.guest_trip_id = ANY($1::text[])
@@ -43,7 +46,10 @@ async function getStudentsForTrips(tripIds) {
   );
   const grouped = {};
   for (const row of rows) {
-    (grouped[row.guest_trip_id] ||= []).push({ id: row.id, name: row.name, class: row.class, division: row.division });
+    (grouped[row.guest_trip_id] ||= []).push({
+      id: row.id, name: row.name, class: row.class, division: row.division,
+      status: row.status, marked_at: row.marked_at || undefined,
+    });
   }
   return grouped;
 }
@@ -167,4 +173,32 @@ async function update(id, schoolId, data, actingUserId) {
   return getById(id, schoolId);
 }
 
-module.exports = { list, getById, create, update };
+/**
+ * Marks present/absent for one or more of this guest trip's assigned
+ * students. Only allowed once the trip is 'approved' (in flight) — marking
+ * attendance before approval or after completion doesn't make sense.
+ * `ownerPhone`, when passed, scopes to the caller's own trip the same way
+ * getById does (404, not 403, on a mismatch).
+ */
+async function markAttendance(id, schoolId, records, ownerPhone) {
+  const trip = await getById(id, schoolId, ownerPhone);
+  if (trip.status !== 'approved') {
+    throw ApiError.badRequest('Attendance can only be marked on an approved, in-progress guest trip');
+  }
+
+  const assignedIds = new Set(trip.students.map((s) => s.id));
+  for (const record of records) {
+    if (!assignedIds.has(record.student_id)) {
+      throw ApiError.badRequest(`Student ${record.student_id} is not assigned to this guest trip`);
+    }
+    await query(
+      `UPDATE guest_trip_students SET status = $1, marked_at = now()
+       WHERE guest_trip_id = $2 AND student_id = $3`,
+      [record.status, id, record.student_id]
+    );
+  }
+
+  return getById(id, schoolId);
+}
+
+module.exports = { list, getById, create, update, markAttendance };

@@ -12,7 +12,8 @@ import { login as loginAction, type UserRole } from '@/store/slices/authSlice'
 import { WEB_ACCOUNTS, MOBILE_ACCOUNTS } from '@/lib/demoAccounts'
 import type { DemoAccount } from '@/lib/demoAccounts'
 import { getRoleLabel, cn } from '@/lib/utils'
-import { login as apiLogin } from '@/lib/api/auth'
+import { login as apiLogin, registerFcmToken } from '@/lib/api/auth'
+import { requestFcmToken } from '@/lib/firebase'
 import { isAxiosError } from 'axios'
 
 const ROLE_ICON: Record<UserRole, typeof Shield> = {
@@ -62,6 +63,12 @@ export default function Login() {
       }
       dispatch(loginAction({ user, token }))
       navigate(user.role === 'super_admin' ? '/super-admin/dashboard' : '/school-admin/dashboard', { replace: true })
+
+      // Fire-and-forget: browser push permission/registration should never
+      // block or fail a sign-in. requestFcmToken() never throws.
+      requestFcmToken().then((result) => {
+        if (result) registerFcmToken(result.deviceId, result.token).catch((err) => console.error('Failed to register FCM token', err))
+      })
     } catch (err) {
       setIsLoading(false)
       if (isAxiosError(err) && err.response?.status === 401) {

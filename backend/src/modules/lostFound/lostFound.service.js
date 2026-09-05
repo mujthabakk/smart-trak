@@ -131,7 +131,7 @@ async function create(schoolId, data) {
     `INSERT INTO lost_found_items (school_id, bus_id, driver_id, description, photo_url, image_url)
      VALUES ($1,$2,$3,$4,$5,$6)
      RETURNING id`,
-    [schoolId, data.bus_id, data.driver_id, data.description, data.photo_url || null, data.image_url || null]
+    [schoolId, data.bus_id || null, data.driver_id || null, data.description, data.photo_url || null, data.image_url || null]
   );
   return getById(rows[0].id, schoolId);
 }

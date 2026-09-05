@@ -24,4 +24,9 @@ const fleetSummary = asyncHandler(async (req, res) => {
   res.json({ stats: await service.getFleetSummary(schoolId) });
 });
 
-module.exports = { revenue, platformStats, schoolGrowth, attendanceTrend, fleetSummary };
+const dashboardStats = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  res.json(await service.getAdminDashboardStats(schoolId));
+});
+
+module.exports = { revenue, platformStats, schoolGrowth, attendanceTrend, fleetSummary, dashboardStats };

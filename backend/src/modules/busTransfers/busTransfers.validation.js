@@ -17,13 +17,22 @@ const updateTransfer = z.object({
   new_driver_id: z.string().optional(),
 });
 
+const requestTransfer = z.object({
+  reason: z.string().min(1),
+});
+
+const assignBus = z.object({
+  new_bus_id: z.string().min(1),
+  new_driver_id: z.string().optional(),
+});
+
 const idParam = z.object({ id: z.string().min(1) });
 
 const listQuery = z.object({
   school_id: z.string().optional(),
   page: z.string().optional(),
   pageSize: z.string().optional(),
-  status: z.enum(['initiated', 'in_progress', 'completed']).optional(),
+  status: z.enum(['requested', 'initiated', 'in_progress', 'completed']).optional(),
 });
 
-module.exports = { createTransfer, updateTransfer, idParam, listQuery };
+module.exports = { createTransfer, updateTransfer, requestTransfer, assignBus, idParam, listQuery };

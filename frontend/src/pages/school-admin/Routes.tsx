@@ -41,7 +41,10 @@ const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Auto-generate 2–3 intermediate stops from start/end words */
+/** Bulk-import only (no interactive UI to add stops one at a time there) —
+ * a placeholder stop list from start/end names, since a CSV row has no
+ * per-stop input of its own. Manual creation via AddRouteDialog below does
+ * NOT use this — the admin adds each real stop themselves via the + button. */
 function generateStops(routeId: string, start: string, end: string): Stop[] {
   const startWords = start.trim().split(/\s+/)
   const endWords = end.trim().split(/\s+/)
@@ -236,11 +239,44 @@ function AddRouteDialog({ allStudentsState, onAdd }: AddRouteDialogProps) {
   const [name, setName] = useState('')
   const [startPoint, setStartPoint] = useState('')
   const [endPoint, setEndPoint] = useState('')
+  const [stops, setStops] = useState<Stop[]>([])
+  const [newStopName, setNewStopName] = useState('')
+  const [newStopTime, setNewStopTime] = useState('')
+
+  function resetForm() {
+    setName(''); setStartPoint(''); setEndPoint('')
+    setStops([]); setNewStopName(''); setNewStopTime('')
+  }
+
+  function handleAddStop() {
+    if (!newStopName.trim()) return
+    setStops((prev) => [
+      ...prev,
+      {
+        id: `stop_new_${Date.now()}`,
+        route_id: '',
+        name: newStopName.trim(),
+        // No location picker in this quick-add flow yet — placeholder
+        // coordinates, same convention RouteDetail.tsx's own quick-add
+        // already uses; refine the real position later from the route's
+        // detail page.
+        latitude: 25.1 + prev.length * 0.01,
+        longitude: 55.2 + prev.length * 0.01,
+        order_index: prev.length + 1,
+        estimated_time: newStopTime.trim() || undefined,
+        student_count: 0,
+      },
+    ])
+    setNewStopName('')
+    setNewStopTime('')
+  }
+
+  function handleRemoveStop(id: string) {
+    setStops((prev) => prev.filter((s) => s.id !== id).map((s, i) => ({ ...s, order_index: i + 1 })))
+  }
 
   function handleCreate() {
     if (!name.trim()) return
-    const tempId = `route-${Date.now()}`
-    const autoStops = generateStops(tempId, startPoint || 'Start', endPoint || 'End')
 
     // Prefer truly unassigned students; fall back to the first 5 so a newly created route isn't empty
     const unassigned = allStudentsState.filter((s) => !s.route_name)
@@ -251,16 +287,16 @@ function AddRouteDialog({ allStudentsState, onAdd }: AddRouteDialogProps) {
       start_point: startPoint.trim(),
       end_point: endPoint.trim(),
       is_active: true,
-      stops: autoStops,
+      stops,
     }
 
     onAdd(payload, toAssign)
-    setName(''); setStartPoint(''); setEndPoint('')
+    resetForm()
     setOpen(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) resetForm() }}>
       <Button onClick={() => setOpen(true)}>
         <Plus size={16} /> Add Route
       </Button>
@@ -268,7 +304,7 @@ function AddRouteDialog({ allStudentsState, onAdd }: AddRouteDialogProps) {
         <DialogHeader>
           <DialogTitle>Add New Route</DialogTitle>
           <DialogDescription>
-            Enter start and end points. Intermediate stops will be auto-generated and unassigned students will be auto-enrolled.
+            Enter start and end points, then add each stop along the way. Unassigned students will be auto-enrolled.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
@@ -301,9 +337,52 @@ function AddRouteDialog({ allStudentsState, onAdd }: AddRouteDialogProps) {
               />
             </div>
           </div>
-          <p className="text-xs text-[var(--muted-foreground)]">
-            Stops will be auto-generated from the start and end point names.
-          </p>
+
+          <div className="space-y-1.5">
+            <Label>Stops</Label>
+            {stops.length > 0 && (
+              <ul className="space-y-1.5 rounded-lg border border-[var(--border)] p-2">
+                {stops.map((s, i) => (
+                  <li key={s.id} className="flex items-center gap-2 rounded-md bg-[var(--muted)]/40 px-2 py-1.5 text-sm">
+                    <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/10 text-[10px] font-semibold text-[var(--primary)]">
+                      {i + 1}
+                    </span>
+                    <span className="flex-1 truncate text-[var(--foreground)]">{s.name}</span>
+                    {s.estimated_time && <span className="text-xs text-[var(--muted-foreground)]">{s.estimated_time}</span>}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveStop(s.id)}
+                      className="text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
+                    >
+                      <X size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Stop name"
+                value={newStopName}
+                onChange={(e) => setNewStopName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddStop() } }}
+                className="flex-1"
+              />
+              <Input
+                placeholder="Time (optional)"
+                value={newStopTime}
+                onChange={(e) => setNewStopTime(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddStop() } }}
+                className="w-32"
+              />
+              <Button type="button" variant="outline" size="icon" onClick={handleAddStop} disabled={!newStopName.trim()}>
+                <Plus size={16} />
+              </Button>
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Add each stop in order along the route — you can add more or fine-tune positions later from the route's detail page.
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <DialogClose asChild>

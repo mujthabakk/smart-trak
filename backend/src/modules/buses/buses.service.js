@@ -141,23 +141,34 @@ async function getEtaMinutes({ routeId, tripType, latitude, longitude, speedKmh 
 async function getLatestLocation(id, schoolId) {
   await getById(id, schoolId);
   const { rows } = await query(
-    `SELECT bl.*, b.bus_number, b.school_id, d.name AS driver_name, t.started_at AS trip_started_at, t.ended_at AS trip_ended_at,
-       t.route_id AS trip_route_id, t.trip_type AS trip_type,
+    `SELECT bl.*, b.bus_number, b.school_id, d.name AS driver_name, d.phone AS driver_phone,
+       t.started_at AS trip_started_at, t.ended_at AS trip_ended_at, t.status AS trip_status,
+       t.route_id AS trip_route_id, t.trip_type AS trip_type, r.name AS route_name,
        (SELECT COUNT(*)::int FROM attendance_records ar
           WHERE ar.trip_id = bl.trip_id AND ar.status = 'present'
             AND ar.pickup_time IS NOT NULL AND ar.drop_time IS NULL
-       ) AS onboard_count
+       ) AS onboard_count,
+       (SELECT COUNT(*)::int FROM students st
+          WHERE st.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
+             OR st.drop_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
+       ) AS student_count
      FROM bus_locations bl
      JOIN buses b ON b.id = bl.bus_id
      LEFT JOIN drivers d ON d.id = b.driver_id
      LEFT JOIN trips t ON t.id = bl.trip_id
+     LEFT JOIN routes r ON r.id = t.route_id
      WHERE bl.bus_id = $1
      ORDER BY bl.recorded_at DESC LIMIT 1`,
     [id]
   );
   if (!rows[0]) return null;
   const row = rows[0];
-  const etaMinutes = row.status === 'in_progress'
+  // The trip's own live status, not bl.status — bl.status is a snapshot
+  // frozen at the moment of that GPS ping, so a bus whose trip has since
+  // ended would otherwise keep reporting "in_progress" forever (while
+  // ended_at is simultaneously set) until a newer ping happens to arrive.
+  const liveStatus = row.trip_status || row.status;
+  const etaMinutes = liveStatus === 'in_progress'
     ? await getEtaMinutes({
         routeId: row.trip_route_id,
         tripType: row.trip_type,
@@ -180,13 +191,16 @@ async function getLatestLocation(id, schoolId) {
     bus_id: row.bus_id,
     bus_number: row.bus_number,
     driver_name: row.driver_name || undefined,
+    driver_phone: row.driver_phone || undefined,
+    route_name: row.route_name || undefined,
     latitude: Number(row.latitude),
     longitude: Number(row.longitude),
     speed: Number(row.speed),
     current_stop: row.current_stop || undefined,
-    status: row.status,
+    status: liveStatus,
     recorded_at: row.recorded_at,
     onboard_count: row.onboard_count,
+    student_count: row.student_count,
     started_at: row.trip_started_at || undefined,
     ended_at: row.trip_ended_at || undefined,
     eta_minutes: etaMinutes,

@@ -10,6 +10,21 @@ const list = asyncHandler(async (req, res) => {
   const result = await service.list(schoolId, pagination, {
     search: req.query.search,
     is_active: req.query.is_active,
+    is_guest: req.query.is_guest,
+  });
+  res.json(result);
+});
+
+/** GET /drivers/guest — the natural mirror of POST /drivers/guest.
+ * Equivalent to GET /drivers?is_guest=true, still honoring the usual
+ * search/is_active/pagination params, just always scoped to guests. */
+const listGuestDrivers = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const pagination = parsePagination(req.query);
+  const result = await service.list(schoolId, pagination, {
+    search: req.query.search,
+    is_active: req.query.is_active,
+    is_guest: 'true',
   });
   res.json(result);
 });
@@ -24,6 +39,13 @@ const create = asyncHandler(async (req, res) => {
   if (!schoolId) throw ApiError.badRequest('school_id is required');
   const driver = await service.create(schoolId, req.body);
   res.status(201).json({ driver });
+});
+
+const createGuestDriver = asyncHandler(async (req, res) => {
+  const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.user.school_id;
+  if (!schoolId) throw ApiError.badRequest('school_id is required');
+  const result = await service.createGuestDriver(req.user.role, schoolId, req.body);
+  res.status(201).json(result);
 });
 
 const update = asyncHandler(async (req, res) => {
@@ -48,4 +70,4 @@ const getRouteStudents = asyncHandler(async (req, res) => {
   res.json(await service.getRouteStudents(req.user.id, schoolId));
 });
 
-module.exports = { list, getOne, create, update, remove, expiringDocuments, getRouteStudents };
+module.exports = { list, listGuestDrivers, getOne, create, createGuestDriver, update, remove, expiringDocuments, getRouteStudents };

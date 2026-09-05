@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import { useJsApiLoader, GoogleMap, Marker, InfoWindow, Polyline } from '@react-google-maps/api'
@@ -40,6 +40,13 @@ const STATUS_MARKER_COLOR: Record<string, string> = {
   running: '#22c55e',
   idle: '#f59e0b',
   offline: '#9ca3af',
+}
+
+// Fleet list order: whatever's actually moving belongs at the top.
+const STATUS_RANK: Record<string, number> = {
+  running: 0,
+  idle: 1,
+  offline: 2,
 }
 
 /** Pin-shaped bus glyph, tinted by status, for the Live Map markers — shows
@@ -100,7 +107,9 @@ function StatStrip({ label, value, icon: Icon, dot }: {
 
 export default function LiveMap() {
   const navigate = useNavigate()
-  const [selectedBusId, setSelectedBusId] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const focusBusId = searchParams.get('busId')
+  const [selectedBusId, setSelectedBusId] = useState<string | null>(focusBusId)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [selectedDate, setSelectedDate] = useState(TODAY)
@@ -264,16 +273,21 @@ export default function LiveMap() {
   }, [schoolBuses, liveLocations, statusOverrides])
 
   const filteredBuses = useMemo(() => {
-    return schoolBuses.filter((b) => {
-      const matchesFilter =
-        filter === 'all' || getEffectiveStatus(b) === filter
-      const q = search.trim().toLowerCase()
-      const matchesSearch =
-        !q ||
-        b.bus_number.toLowerCase().includes(q) ||
-        (b.driver_name ?? '').toLowerCase().includes(q)
-      return matchesFilter && matchesSearch
-    })
+    return schoolBuses
+      .filter((b) => {
+        const matchesFilter =
+          filter === 'all' || getEffectiveStatus(b) === filter
+        const q = search.trim().toLowerCase()
+        const matchesSearch =
+          !q ||
+          b.bus_number.toLowerCase().includes(q) ||
+          (b.driver_name ?? '').toLowerCase().includes(q)
+        return matchesFilter && matchesSearch
+      })
+      // Running buses first, then idle, then offline — whoever's actually
+      // on the road belongs at the top of the fleet list, not wherever the
+      // API happened to return them from.
+      .sort((a, b) => STATUS_RANK[getEffectiveStatus(a)] - STATUS_RANK[getEffectiveStatus(b)])
   }, [schoolBuses, search, filter, liveLocations, statusOverrides])
 
   const selectedBus = useMemo(
@@ -292,15 +306,22 @@ export default function LiveMap() {
   // never snaps back to the Dubai default just because the popup was closed.
   const [mapCenter, setMapCenter] = useState<google.maps.LatLngLiteral>(DUBAI_CENTER)
   const [mapZoom, setMapZoom] = useState(12)
+  // Tracks which bus we've already centered on, so a deep link (?busId=...)
+  // still pans once its location finishes loading (position is null on the
+  // very first render, before the REST/socket data arrives) without this
+  // effect re-centering again on every later GPS tick of the same bus.
+  const centeredBusIdRef = useRef<string | null>(null)
   useEffect(() => {
     if (!selectedBusId) return
+    if (centeredBusIdRef.current === selectedBusId) return
     const position = getBusPosition(selectedBusId)
     if (position) {
       setMapCenter(position)
       setMapZoom(14)
+      centeredBusIdRef.current = selectedBusId
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBusId])
+  }, [selectedBusId, selectedBusPosition])
 
   const getOccupancy = (bus: Bus) => initialLocations[bus.id]?.onboard_count ?? 0
 

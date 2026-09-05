@@ -45,9 +45,18 @@ const startTrip = z.object({
 
 const prepareTrip = startTrip;
 
+const takeOverTrip = z.object({
+  safety_qr_code: z.string().min(1),
+});
+
 const endTrip = z.object({
   trip_id: z.string().min(1),
   safety_qr_code: z.string().min(1),
 });
 
-module.exports = { createTrip, updateTrip, idParam, listQuery, startTrip, prepareTrip, endTrip };
+const sendMessage = z.object({
+  title: z.string().optional(),
+  body: z.string().min(1),
+});
+
+module.exports = { createTrip, updateTrip, idParam, listQuery, startTrip, takeOverTrip, prepareTrip, endTrip, sendMessage };

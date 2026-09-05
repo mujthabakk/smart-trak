@@ -5,7 +5,7 @@ import { isAxiosError } from 'axios'
 import { motion } from 'framer-motion'
 import {
   Plus, UserCheck, Users, Navigation, AlertTriangle, MoreVertical,
-  Eye, Pencil, Ban, Phone, BadgeCheck, Upload, AlertCircle,
+  Eye, Pencil, Ban, Phone, BadgeCheck, Upload, AlertCircle, Timer, Trash2,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import PageHeader from '@/components/shared/PageHeader'
@@ -13,6 +13,7 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import DataTable, { type Column } from '@/components/shared/DataTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import AddGuestDriverDialog from '@/components/shared/AddGuestDriverDialog'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -24,14 +25,20 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getInitials, formatDate, daysUntil, downloadCSV } from '@/lib/utils'
-import { listDrivers, createDriver, updateDriver, type DriverInput } from '@/lib/api/drivers'
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from '@/components/ui/select'
+import { getInitials, formatDate, daysUntil, downloadCSV, guestBudgetLabel } from '@/lib/utils'
+import { listDrivers, createDriver, updateDriver, deleteDriver, type DriverInput } from '@/lib/api/drivers'
 import type { Driver } from '@/types'
 
 function extractErrorMessage(err: unknown): string {
   if (isAxiosError(err)) {
-    const data = err.response?.data as { message?: string } | undefined
-    return data?.message || 'Something went wrong. Please try again.'
+    // The backend's error responses use { error: "..." } (see
+    // errorHandler.js), not { message: "..." } — this used to always fall
+    // through to the generic fallback below since that field never exists.
+    const data = err.response?.data as { error?: string; message?: string } | undefined
+    return data?.error || data?.message || 'Something went wrong. Please try again.'
   }
   return 'Something went wrong. Please try again.'
 }
@@ -73,6 +80,8 @@ type EditForm = {
   email: string
   phone: string
   license_number: string
+  guest_validity_type: 'trips' | 'days'
+  guest_validity_value: string
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -102,7 +111,7 @@ export default function Drivers() {
 
   // Edit dialog
   const [editDriver, setEditDriver] = useState<Driver | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', phone: '', license_number: '' })
+  const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', phone: '', license_number: '', guest_validity_type: 'trips', guest_validity_value: '' })
   const [editError, setEditError] = useState<string | null>(null)
 
   const createMutation = useMutation({
@@ -140,6 +149,16 @@ export default function Drivers() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['drivers'] })
     },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteDriver(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drivers'] })
+    },
+    // No toast/banner infra for a dropdown action — a blocked delete (FK:
+    // driver has trip history) surfaces as a plain alert instead.
+    onError: (err) => window.alert(extractErrorMessage(err)),
   })
 
   // ── Stats ───────────────────────────────────────────────────────────────────
@@ -209,25 +228,43 @@ export default function Drivers() {
 
   function openEdit(d: Driver) {
     setEditDriver(d)
-    setEditForm({ name: d.name, email: d.email, phone: d.phone, license_number: d.license_number })
+    setEditForm({
+      name: d.name, email: d.email, phone: d.phone, license_number: d.license_number,
+      guest_validity_type: d.guest_validity_type ?? 'trips',
+      guest_validity_value: d.guest_validity_type === 'trips'
+        ? String(d.guest_max_trips ?? '')
+        : d.guest_expires_at
+          ? d.guest_expires_at.slice(0, 10)
+          : '',
+    })
     setEditError(null)
   }
 
   function handleEditSave() {
     if (!editDriver) return
     setEditError(null)
+    const payload: Partial<DriverInput> = {
+      name: editForm.name.trim(),
+      email: editForm.email.trim(),
+      phone: editForm.phone.trim(),
+      license_number: editForm.license_number.trim(),
+    }
+    if (editDriver.is_guest && editForm.guest_validity_value) {
+      if (editForm.guest_validity_type === 'trips') {
+        payload.guest_max_trips = Number(editForm.guest_validity_value)
+      } else {
+        payload.guest_expires_at = editForm.guest_validity_value
+      }
+    }
     updateMutation.mutate(
-      {
-        id: editDriver.id,
-        payload: {
-          name: editForm.name.trim(),
-          email: editForm.email.trim(),
-          phone: editForm.phone.trim(),
-          license_number: editForm.license_number.trim(),
-        },
-      },
+      { id: editDriver.id, payload },
       { onSuccess: () => setEditDriver(null) },
     )
+  }
+
+  function handleDelete(d: Driver) {
+    if (!window.confirm(`Permanently delete ${d.name}? This can't be undone. (If they have any trip history, deletion will be blocked — deactivate them instead.)`)) return
+    deleteMutation.mutate(d.id)
   }
 
   // ── Toggle active ───────────────────────────────────────────────────────────
@@ -250,10 +287,22 @@ export default function Drivers() {
             <AvatarFallback className="text-xs">{getInitials(d.name)}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="font-medium text-[var(--foreground)] truncate">{d.name}</p>
+            <p className="flex items-center gap-1.5 truncate font-medium text-[var(--foreground)]">
+              {d.name}
+              {d.is_guest && (
+                <span className="flex-shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                  Guest
+                </span>
+              )}
+            </p>
             <p className="text-xs text-[var(--muted-foreground)] flex items-center gap-1">
               <Phone size={11} /> {d.phone}
             </p>
+            {d.is_guest && (
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                <Timer size={11} /> {guestBudgetLabel(d)}
+              </p>
+            )}
           </div>
         </div>
       ),
@@ -312,6 +361,9 @@ export default function Drivers() {
               <DropdownMenuItem destructive onClick={() => toggleActive(d)}>
                 <Ban size={14} /> {d.is_active ? 'Deactivate' : 'Activate'}
               </DropdownMenuItem>
+              <DropdownMenuItem destructive onClick={() => handleDelete(d)}>
+                <Trash2 size={14} /> Delete
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -353,6 +405,7 @@ export default function Drivers() {
               <Button variant="outline" onClick={() => setImportOpen(true)}>
                 <Upload size={16} /> Bulk Import
               </Button>
+              <AddGuestDriverDialog />
               <Button onClick={() => setAddOpen(true)}>
                 <Plus size={16} /> Add Driver
               </Button>
@@ -540,6 +593,14 @@ export default function Drivers() {
                   <dt className="text-[var(--muted-foreground)] text-xs uppercase tracking-wide mb-0.5">Status</dt>
                   <dd><StatusBadge status={viewDriver.is_active ? 'active' : 'inactive'} /></dd>
                 </div>
+                {viewDriver.is_guest && (
+                  <div>
+                    <dt className="text-[var(--muted-foreground)] text-xs uppercase tracking-wide mb-0.5">Guest Access</dt>
+                    <dd className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <Timer size={13} /> {guestBudgetLabel(viewDriver)}
+                    </dd>
+                  </div>
+                )}
                 {viewDriver.assigned_bus_number && (
                   <div>
                     <dt className="text-[var(--muted-foreground)] text-xs uppercase tracking-wide mb-0.5">Assigned Bus</dt>
@@ -595,6 +656,38 @@ export default function Drivers() {
                 onChange={(e) => setEditForm((f) => ({ ...f, license_number: e.target.value }))}
               />
             </div>
+            {editDriver?.is_guest && (
+              <div className="grid gap-1.5 rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/40 dark:bg-amber-900/10">
+                <Label className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                  <Timer size={13} /> Guest Access Validity
+                </Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Select
+                    value={editForm.guest_validity_type}
+                    onValueChange={(v: 'trips' | 'days') => setEditForm((f) => ({ ...f, guest_validity_type: v, guest_validity_value: '' }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="trips">Number of trips</SelectItem>
+                      <SelectItem value="days">Expires on date</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type={editForm.guest_validity_type === 'trips' ? 'number' : 'date'}
+                    min={editForm.guest_validity_type === 'trips' ? 1 : undefined}
+                    value={editForm.guest_validity_value}
+                    onChange={(e) => setEditForm((f) => ({ ...f, guest_validity_value: e.target.value }))}
+                  />
+                </div>
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  {editForm.guest_validity_type === 'trips'
+                    ? `Trips used so far: ${editDriver.guest_trips_used ?? 0}. Raise the limit above to extend access.`
+                    : 'Push the date out to extend access.'}
+                </p>
+              </div>
+            )}
           </div>
           {editError && (
             <p className="flex items-start gap-2 p-3 rounded-xl text-sm bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40">

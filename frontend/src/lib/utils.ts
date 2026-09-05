@@ -1,6 +1,7 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { format, parseISO, isValid } from 'date-fns'
+import type { Driver } from '@/types'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -173,6 +174,22 @@ export function daysUntil(date: string): number {
   const target = new Date(date)
   const now = new Date()
   return Math.ceil((target.getTime() - now.getTime()) / 86400000)
+}
+
+/** A guest driver's remaining access budget, for anywhere their list/detail
+ * shows up (Drivers page, Guest Drivers page) — undefined once there's
+ * nothing meaningful to show (not a guest, or validity type not set yet). */
+export function guestBudgetLabel(d: Driver): string | undefined {
+  if (!d.is_guest) return undefined
+  if (d.guest_validity_type === 'trips' && d.guest_max_trips != null) {
+    const left = Math.max(0, d.guest_max_trips - (d.guest_trips_used ?? 0))
+    return `${left}/${d.guest_max_trips} trips left`
+  }
+  if (d.guest_validity_type === 'days' && d.guest_expires_at) {
+    const days = daysUntil(d.guest_expires_at)
+    return days < 0 ? 'Expired' : `Expires in ${days}d`
+  }
+  return 'Guest'
 }
 
 export function isExpiringSoon(date: string, days = 30): boolean {

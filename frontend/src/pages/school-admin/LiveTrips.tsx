@@ -1,13 +1,15 @@
 import { useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bus as BusIcon, MapPin, Navigation, Users, Clock } from 'lucide-react'
+import { Bus as BusIcon, MapPin, Navigation, Users, Clock, ArrowRight } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { getInitials, formatDate, cn } from '@/lib/utils'
 import { listTrips, getBoardingStudents, type BoardingStudent } from '@/lib/api/trips'
 import { getRoute } from '@/lib/api/routes'
@@ -162,6 +164,7 @@ function TripTimeline({
 // stop + a fully-expanded stop timeline with a moving bus marker ───────────
 function TripCard({ trip }: { trip: Trip }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const rosterQuery = useQuery({
     queryKey: ['trip-roster', trip.id],
@@ -225,6 +228,14 @@ function TripCard({ trip }: { trip: Trip }) {
             {boardedCount}/{roster.length}
           </span>
         </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-3 w-full"
+          onClick={() => navigate(`/school-admin/live-map?busId=${trip.bus_id}`)}
+        >
+          View on Map <ArrowRight size={13} />
+        </Button>
       </CardHeader>
       <CardContent className="pt-0">
         {rosterQuery.isLoading || routeQuery.isLoading ? (

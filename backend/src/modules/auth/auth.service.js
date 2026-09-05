@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { query } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
+const { isGuestExpired } = require('../../utils/guestDriverExpiry');
 
 const USER_SELECT = `
   SELECT u.id, u.name, u.email, u.phone, u.role, u.school_id,
@@ -56,6 +57,24 @@ async function verifyCredentials(email, password, schoolId) {
 
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) throw ApiError.unauthorized('Invalid email or password');
+
+  if (user.role === 'driver') {
+    const { rows: driverRows } = await query(
+      `SELECT is_active, is_guest, guest_validity_type, guest_expires_at, guest_max_trips, guest_trips_used
+       FROM drivers WHERE user_id = $1`,
+      [user.id]
+    );
+    const driver = driverRows[0];
+    if (driver) {
+      // Previously unenforced — a deactivated driver could still log in and
+      // drive. Applies to every driver, not just guest ones.
+      if (!driver.is_active) throw ApiError.unauthorized('Your account has been deactivated');
+      if (driver.is_guest && isGuestExpired(driver)) {
+        throw ApiError.unauthorized('Your temporary driver access has expired');
+      }
+    }
+  }
+
   await query('UPDATE users SET last_login = now() WHERE id = $1', [user.id]);
   return findUserById(user.id);
 }

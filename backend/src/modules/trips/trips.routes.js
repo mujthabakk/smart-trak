@@ -12,8 +12,15 @@ router.get('/', validate({ query: schema.listQuery }), controller.list);
 router.get('/:id', validate({ params: schema.idParam }), controller.getOne);
 router.get('/:id/boarding-students', validate({ params: schema.idParam }), controller.getBoardingStudents);
 router.get('/:id/path', validate({ params: schema.idParam }), controller.getPath);
+router.post(
+  '/:id/message',
+  requireRole('super_admin', 'school_admin'),
+  validate({ params: schema.idParam, body: schema.sendMessage }),
+  controller.sendMessage
+);
 
 router.post('/start', requireRole('driver'), validate({ body: schema.startTrip }), controller.startTrip);
+router.post('/take-over', requireRole('driver'), validate({ body: schema.takeOverTrip }), controller.takeOverTrip);
 router.post('/prepare', requireRole('driver'), validate({ body: schema.prepareTrip }), controller.prepareTrip);
 router.post('/:id/start', requireRole('driver'), validate({ params: schema.idParam }), controller.startPreparedTrip);
 

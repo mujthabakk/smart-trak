@@ -33,6 +33,7 @@ const STATUS_COLORS: Record<string, string> = {
   offline: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
   high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
   reported: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  requested: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
 
   running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -40,7 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
   claimed: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
 }
 
-const PULSE_STATUSES = new Set(['running', 'in_progress'])
+const PULSE_STATUSES = new Set(['running', 'in_progress', 'requested'])
 
 const SIZE_CLASSES: Record<string, string> = {
   sm: 'text-xs px-2 py-0.5',

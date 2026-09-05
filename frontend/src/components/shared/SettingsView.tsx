@@ -104,12 +104,16 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
   const updateSchoolMutation = useMutation({
     mutationFn: () =>
       updateSchool(schoolId as string, {
-        address: schoolForm.address,
-        city: schoolForm.city,
-        state: schoolForm.state,
+        // Guarded with `|| undefined` since the backend validates these as
+        // non-empty when present (not just when the key exists) — an empty
+        // string here would reject the WHOLE request, location included,
+        // not just leave that one field unchanged.
+        address: schoolForm.address || undefined,
+        city: schoolForm.city || undefined,
+        state: schoolForm.state || undefined,
         post_code: schoolForm.post_code || undefined,
         country: schoolForm.country || undefined,
-        phone: schoolForm.phone,
+        phone: schoolForm.phone || undefined,
         website: schoolForm.website || undefined,
         latitude: schoolForm.latitude.trim() === '' ? undefined : Number(schoolForm.latitude),
         longitude: schoolForm.longitude.trim() === '' ? undefined : Number(schoolForm.longitude),

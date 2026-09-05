@@ -40,3 +40,10 @@ export async function changePassword(currentPassword: string, newPassword: strin
   const { data } = await apiClient.patch('/auth/change-password', { currentPassword, newPassword })
   return data
 }
+
+/** Registers this browser's FCM token so push notifications reach it —
+ * upserts on (user, device_id), so re-registering the same browser just
+ * refreshes its token rather than creating a duplicate. */
+export async function registerFcmToken(deviceId: string, fcmToken: string): Promise<void> {
+  await apiClient.post('/auth/fcm-tokens', { device_id: deviceId, fcm_token: fcmToken, platform: 'web' })
+}

@@ -1,5 +1,17 @@
-const { query } = require('../../config/db');
+const { masterPool } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
+
+// plans.* always reads/writes the MASTER database explicitly (never the
+// ambient tenant-context-routed `query()` from config/db) — every tenant DB
+// also carries a local copy of just its own school's current plan (seeded
+// once, purely to satisfy a local FK), so relying on ambient context here
+// would silently narrow the full public catalog down to whichever single
+// row happens to be mirrored for that request's tenant (or none, for a
+// super_admin/anonymous request with no school_id) — exactly the bug that
+// made the public /plans/public page show only one plan whenever the
+// caller's browser still carried a school-scoped JWT. Master is the single
+// source of truth for the plan catalog; see schools.service.js for the same
+// pattern.
 
 function toResponse(row) {
   return {
@@ -19,19 +31,19 @@ function toResponse(row) {
 }
 
 async function list() {
-  const { rows } = await query('SELECT * FROM plans ORDER BY price_monthly ASC');
+  const { rows } = await masterPool.query('SELECT * FROM plans ORDER BY price_monthly ASC');
   return rows.map(toResponse);
 }
 
 async function getById(id) {
-  const { rows } = await query('SELECT * FROM plans WHERE id = $1', [id]);
+  const { rows } = await masterPool.query('SELECT * FROM plans WHERE id = $1', [id]);
   if (!rows[0]) throw ApiError.notFound('Plan not found');
   return toResponse(rows[0]);
 }
 
 async function create(data) {
   const id = data.id || data.name.toLowerCase().replace(/\s+/g, '_');
-  const { rows } = await query(
+  const { rows } = await masterPool.query(
     `INSERT INTO plans (id, name, label, price_monthly, price_annual, price_per_student,
        billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
@@ -48,7 +60,7 @@ async function create(data) {
 async function update(id, data) {
   const existing = await getById(id);
   const merged = { ...existing, ...data };
-  const { rows } = await query(
+  const { rows } = await masterPool.query(
     `UPDATE plans SET name=$1, label=$2, price_monthly=$3, price_annual=$4, price_per_student=$5,
        billing_cycle=$6, max_students=$7, max_buses=$8, max_drivers=$9, features=$10,
        is_popular=$11, updated_at=now()
@@ -63,7 +75,7 @@ async function update(id, data) {
 }
 
 async function remove(id) {
-  const { rowCount } = await query('DELETE FROM plans WHERE id = $1', [id]);
+  const { rowCount } = await masterPool.query('DELETE FROM plans WHERE id = $1', [id]);
   if (!rowCount) throw ApiError.notFound('Plan not found');
 }
 
