@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
   Route as RouteIcon, Plus, Bus, MapPin, Clock, Users, Map as MapIcon,
   Pencil, ArrowRight, CircleDot, Navigation, X, Download, Upload, QrCode,
@@ -29,9 +30,19 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { downloadCSV, cn } from '@/lib/utils'
-import { listRoutes, createRoute, updateRoute, type RouteInput } from '@/lib/api/routes'
+import { listRoutes, createRoute, updateRoute, deleteRoute, type RouteInput } from '@/lib/api/routes'
 import { listStudents, updateStudent } from '@/lib/api/students'
 import type { Route as RouteType, Student, Stop } from '@/types'
+
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    // The backend's error responses use { error: "..." } (see errorHandler.js),
+    // not { message: "..." }.
+    const data = err.response?.data as { error?: string; message?: string } | undefined
+    return data?.error || data?.message || 'Something went wrong. Please try again.'
+  }
+  return 'Something went wrong. Please try again.'
+}
 
 const container = {
   hidden: { opacity: 0 },
@@ -715,11 +726,12 @@ interface RouteCardProps {
   onAddStudent: (routeId: string, student: Student) => void
   onAddStop: (routeId: string, stop: Stop) => void
   onViewDetails: (route: RouteType) => void
+  onDelete: (route: RouteType) => void
 }
 
 function RouteCard({
   route, studentsOnRoute, unassignedStudents,
-  onEdit, onViewMap, onDownloadQR, onAddStudent, onAddStop, onViewDetails,
+  onEdit, onViewMap, onDownloadQR, onAddStudent, onAddStop, onViewDetails, onDelete,
 }: RouteCardProps) {
   const [direction, setDirection] = useState<'pickup' | 'drop'>('pickup')
   const tabPickup = studentsOnRoute.filter((s) => route.stops?.some(stop => stop.id === s.pickup_stop_id))
@@ -849,6 +861,15 @@ function RouteCard({
           </Button>
           <Button variant="outline" size="sm" className="flex-1" onClick={() => onDownloadQR(route)}>
             <QrCode size={14} /> QR
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-[var(--destructive)] hover:bg-red-50 dark:hover:bg-red-950/30"
+            onClick={() => onDelete(route)}
+            title="Delete route"
+          >
+            <Trash2 size={14} />
           </Button>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1278,6 +1299,23 @@ export default function Routes() {
     },
   })
 
+  const deleteRouteMutation = useMutation({
+    mutationFn: (id: string) => deleteRoute(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['routes'] })
+    },
+    // No toast/banner infra for a card action — surface a plain alert instead.
+    onError: (err) => window.alert(extractErrorMessage(err)),
+  })
+
+  function handleDeleteRoute(route: RouteType) {
+    // Deleting a route cascades to delete its stops AND all trips/attendance
+    // records for it (DB migration 001_init.sql, routes.stops/trips FKs are
+    // ON DELETE CASCADE) — unlike buses/drivers, there's no FK guard here.
+    if (!window.confirm(`Permanently delete "${route.name}"? This will also delete all its stops, trips and attendance history. This can't be undone.`)) return
+    deleteRouteMutation.mutate(route.id)
+  }
+
   // A student's route is derived server-side from pickup_stop_id/drop_stop_id
   // (there's no directly-settable route_name column), so "adding" a student to
   // a route means assigning them to one of that route's stops.
@@ -1465,6 +1503,7 @@ export default function Routes() {
                   onAddStudent={handleAddStudent}
                   onAddStop={handleAddStop}
                   onViewDetails={(r) => navigate(`/school-admin/routes/${r.id}`)}
+                  onDelete={handleDeleteRoute}
                 />
               </motion.div>
             )

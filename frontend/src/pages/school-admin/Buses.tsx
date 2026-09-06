@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn, downloadCSV } from '@/lib/utils'
 import { getBusTripDurationDisplay } from '@/lib/tripDuration'
-import { listBuses, createBuses, updateBus, type BusInput } from '@/lib/api/buses'
+import { listBuses, createBuses, updateBus, deleteBus, type BusInput } from '@/lib/api/buses'
 import { listRoutes } from '@/lib/api/routes'
 import { listTrips } from '@/lib/api/trips'
 import { listStudents } from '@/lib/api/students'
@@ -39,8 +39,10 @@ import type { Bus } from '@/types'
 
 function extractErrorMessage(err: unknown): string {
   if (isAxiosError(err)) {
-    const data = err.response?.data as { message?: string } | undefined
-    return data?.message || 'Something went wrong. Please try again.'
+    // The backend's error responses use { error: "..." } (see errorHandler.js),
+    // not { message: "..." }.
+    const data = err.response?.data as { error?: string; message?: string } | undefined
+    return data?.error || data?.message || 'Something went wrong. Please try again.'
   }
   return 'Something went wrong. Please try again.'
 }
@@ -512,6 +514,21 @@ export default function Buses() {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteBus(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['buses'] })
+    },
+    // No toast/banner infra for a dropdown action — a blocked delete (FK: bus
+    // has trip/lost-found/transfer history) surfaces as a plain alert instead.
+    onError: (err) => window.alert(extractErrorMessage(err)),
+  })
+
+  function handleDelete(bus: Bus) {
+    if (!window.confirm(`Permanently delete ${bus.bus_number}? This can't be undone. (If it has any trip history, deletion will be blocked — deactivate it instead.)`)) return
+    deleteMutation.mutate(bus.id)
+  }
+
   const stats = useMemo(() => {
     const total = buses.length
     const running = buses.filter((b) => b.status === 'running').length
@@ -598,6 +615,9 @@ export default function Buses() {
           <DropdownMenuSeparator />
           <DropdownMenuItem destructive onClick={() => toggleActiveMutation.mutate(bus)}>
             <Ban size={14} /> {bus.is_active ? 'Deactivate' : 'Activate'}
+          </DropdownMenuItem>
+          <DropdownMenuItem destructive onClick={() => handleDelete(bus)}>
+            <Trash2 size={14} /> Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -932,6 +952,9 @@ export default function Buses() {
                           <DropdownMenuSeparator />
                           <DropdownMenuItem destructive onClick={(e) => { e.stopPropagation(); toggleActiveMutation.mutate(bus) }}>
                             <Ban size={14} /> {bus.is_active ? 'Deactivate' : 'Activate'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem destructive onClick={(e) => { e.stopPropagation(); handleDelete(bus) }}>
+                            <Trash2 size={14} /> Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

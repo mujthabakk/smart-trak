@@ -4,6 +4,7 @@ const { parsePagination, paginationMeta } = require('../../utils/pagination');
 const { createNotification } = require('../notifications/notifications.service');
 const { todayInTimezone } = require('../../utils/timezone');
 const { isGuestExpired } = require('../../utils/guestDriverExpiry');
+const platformSettingsService = require('../platformSettings/platformSettings.service');
 
 /** Notifies every parent linked to a student on this route — same real
  * notifications-table + push path attendance.service.js's
@@ -90,7 +91,7 @@ function todayDate() {
 async function schoolToday(schoolId) {
   if (!schoolId) return todayDate();
   const { rows } = await query('SELECT timezone FROM schools WHERE id = $1', [schoolId]);
-  return todayInTimezone(rows[0]?.timezone || 'Asia/Kolkata');
+  return todayInTimezone(rows[0]?.timezone || await platformSettingsService.getDefaultTimezone());
 }
 
 async function list(schoolId, { page, pageSize, offset }, filters) {
@@ -310,16 +311,35 @@ async function create(schoolId, data) {
     const { rows } = await query('SELECT id FROM routes WHERE id = $1 AND school_id = $2', [data.route_id, schoolId]);
     if (!rows[0]) throw ApiError.badRequest('Invalid route_id for this school');
   }
-  const { rows } = await query(
-    `INSERT INTO trips (route_id, driver_id, bus_id, trip_type, status, trip_date, started_at, ended_at)
-     VALUES ($1,$2,$3,$4,COALESCE($5,'not_started'),COALESCE($6, CURRENT_DATE),$7,$8)
-     RETURNING id`,
-    [
-      data.route_id, data.driver_id, data.bus_id, data.trip_type, data.status || null,
-      data.trip_date || null, data.started_at || null, data.ended_at || null,
-    ]
-  );
-  return getById(rows[0].id, schoolId);
+
+  let tripId;
+  await withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO trips (route_id, driver_id, bus_id, trip_type, status, trip_date, started_at, ended_at)
+       VALUES ($1,$2,$3,$4,COALESCE($5,'not_started'),COALESCE($6, CURRENT_DATE),$7,$8)
+       RETURNING id`,
+      [
+        data.route_id, data.driver_id, data.bus_id, data.trip_type, data.status || null,
+        data.trip_date || null, data.started_at || null, data.ended_at || null,
+      ]
+    );
+    tripId = rows[0].id;
+
+    // startTrip() (the QR-scan flow drivers actually use) inserts the trip
+    // as already 'in_progress' instead of going through update()'s
+    // in_progress transition below — without this, buses.current_trip_id
+    // never gets set, so endTrip()'s `WHERE current_trip_id = $2` guard
+    // never matches and the bus is stuck reporting whatever status the last
+    // GPS ping left it in (usually "running") forever after the trip ends.
+    if ((data.status || 'not_started') === 'in_progress') {
+      await client.query(
+        `UPDATE buses SET current_trip_id = $1, status = 'running', updated_at = now() WHERE id = $2`,
+        [tripId, data.bus_id]
+      );
+    }
+  });
+
+  return getById(tripId, schoolId);
 }
 
 /**

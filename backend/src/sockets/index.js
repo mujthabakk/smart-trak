@@ -118,9 +118,18 @@ function attachSockets(httpServer) {
             [trip_id, bus_id, latitude, longitude, speed, current_stop || null, status || 'in_progress']
           );
           if (status) {
-            await query('UPDATE buses SET status = $1, current_stop = $2 WHERE id = $3', [
-              status === 'completed' ? 'idle' : 'running', current_stop || null, bus_id,
-            ]);
+            if (status === 'completed') {
+              await query('UPDATE buses SET status = $1, current_stop = $2 WHERE id = $3', ['idle', current_stop || null, bus_id]);
+            } else {
+              // Only resurrect "running" while this ping's trip is still the
+              // bus's current one — a late/out-of-order ping for a trip that
+              // has since ended (current_trip_id already cleared/reassigned
+              // by endTrip) must not flip the bus back to "running" forever.
+              await query(
+                'UPDATE buses SET status = $1, current_stop = $2 WHERE id = $3 AND current_trip_id = $4',
+                ['running', current_stop || null, bus_id, trip_id]
+              );
+            }
           }
         });
       } catch (err) {

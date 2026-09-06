@@ -323,6 +323,38 @@ export default function LiveMap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBusId, selectedBusPosition])
 
+  // Live handle to the underlying Google Map instance, so the selected bus
+  // can be kept in view imperatively (map.panTo) without going through
+  // React state — mapCenter/mapZoom stay untouched so this can't fight with
+  // the "center once on select" effect above.
+  const mapInstanceRef = useRef<google.maps.Map | null>(null)
+
+  // Once a bus is being followed, keep it inside the visible map area: as
+  // soon as its marker nears the edge of the current viewport, pan just
+  // enough to bring it back toward the center instead of letting it slide
+  // off the container.
+  useEffect(() => {
+    if (!selectedBusId || !selectedBusPosition) return
+    const map = mapInstanceRef.current
+    if (!map) return
+    const bounds = map.getBounds()
+    if (!bounds) return
+
+    const ne = bounds.getNorthEast()
+    const sw = bounds.getSouthWest()
+    const latSpan = ne.lat() - sw.lat()
+    const lngSpan = ne.lng() - sw.lng()
+    // 15% inset — pan before the marker visually reaches the container edge.
+    const margin = 0.15
+    const insetBounds = new google.maps.LatLngBounds(
+      { lat: sw.lat() + latSpan * margin, lng: sw.lng() + lngSpan * margin },
+      { lat: ne.lat() - latSpan * margin, lng: ne.lng() - lngSpan * margin },
+    )
+    if (!insetBounds.contains(selectedBusPosition)) {
+      map.panTo(selectedBusPosition)
+    }
+  }, [selectedBusId, selectedBusPosition])
+
   const getOccupancy = (bus: Bus) => initialLocations[bus.id]?.onboard_count ?? 0
 
   const getStartTime = (bus: Bus) => {
@@ -448,6 +480,8 @@ export default function LiveMap() {
               mapContainerStyle={MAP_CONTAINER_STYLE}
               center={mapCenter}
               zoom={mapZoom}
+              onLoad={(map) => { mapInstanceRef.current = map }}
+              onUnmount={() => { mapInstanceRef.current = null }}
               options={{
                 disableDefaultUI: false,
                 zoomControl: true,

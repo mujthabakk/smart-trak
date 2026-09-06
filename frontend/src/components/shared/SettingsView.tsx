@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import {
   Check, User, Bell, Shield, Mail, Smartphone, MessageCircle, Globe,
-  Lock, Camera, AlertCircle, Building2,
+  Lock, Camera, AlertCircle, Building2, Clock,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -17,6 +17,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { updateUser as updateUserAction } from '@/store/slices/authSlice'
 import { changePassword } from '@/lib/api/auth'
 import { getSchool, updateSchool } from '@/lib/api/schools'
+import { getPlatformSettings, updatePlatformSettings } from '@/lib/api/platformSettings'
 import { LocationPicker } from '@/components/shared/LocationPicker'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezones'
@@ -135,6 +136,27 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
     setSchoolSaved(false)
   }
 
+  // ── Platform-wide default timezone (super_admin only) ──────────────────────
+  const { data: platformSettings } = useQuery({
+    queryKey: ['platformSettings'],
+    queryFn: () => getPlatformSettings(),
+    enabled: scope === 'super_admin',
+  })
+  const [defaultTimezone, setDefaultTimezone] = useState(DEFAULT_TIMEZONE)
+  useEffect(() => {
+    if (platformSettings) setDefaultTimezone(platformSettings.default_timezone)
+  }, [platformSettings])
+  const [platformSaved, setPlatformSaved] = useState(false)
+
+  const updatePlatformSettingsMutation = useMutation({
+    mutationFn: () => updatePlatformSettings({ default_timezone: defaultTimezone }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['platformSettings'] })
+      setPlatformSaved(true)
+      setTimeout(() => setPlatformSaved(false), 2000)
+    },
+  })
+
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw] = useState('')
   const [confirmPw, setConfirmPw] = useState('')
@@ -177,6 +199,9 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
           <TabsTrigger value="profile" className="gap-1.5"><User size={15} /> Profile</TabsTrigger>
           {scope === 'school_admin' && (
             <TabsTrigger value="school" className="gap-1.5"><Building2 size={15} /> School</TabsTrigger>
+          )}
+          {scope === 'super_admin' && (
+            <TabsTrigger value="platform" className="gap-1.5"><Clock size={15} /> Platform</TabsTrigger>
           )}
           <TabsTrigger value="notifications" className="gap-1.5"><Bell size={15} /> Notifications</TabsTrigger>
           <TabsTrigger value="security" className="gap-1.5"><Shield size={15} /> Security</TabsTrigger>
@@ -319,6 +344,47 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
                 <div className="flex items-center gap-3">
                   <Button onClick={() => updateSchoolMutation.mutate()} loading={updateSchoolMutation.isPending}>Save Changes</Button>
                   {schoolSaved && (
+                    <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-green-600 flex items-center gap-1">
+                      <Check size={15} /> Saved
+                    </motion.span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* ───────── PLATFORM (super_admin only) ───────── */}
+        {scope === 'super_admin' && (
+          <TabsContent value="platform">
+            <Card>
+              <CardHeader>
+                <CardTitle>Platform Defaults</CardTitle>
+                <CardDescription>
+                  Server-wide default timezone, used for date calculations (trip auto-close, daily
+                  reports) whenever a school hasn't set its own timezone.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 max-w-md">
+                <div className="space-y-1.5">
+                  <Label>Server Timezone</Label>
+                  <Select value={defaultTimezone} onValueChange={setDefaultTimezone}>
+                    <SelectTrigger><SelectValue placeholder="Select a timezone" /></SelectTrigger>
+                    <SelectContent>
+                      {TIMEZONE_OPTIONS.map((tz) => (
+                        <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={() => updatePlatformSettingsMutation.mutate()}
+                    loading={updatePlatformSettingsMutation.isPending}
+                  >
+                    Save Changes
+                  </Button>
+                  {platformSaved && (
                     <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-green-600 flex items-center gap-1">
                       <Check size={15} /> Saved
                     </motion.span>

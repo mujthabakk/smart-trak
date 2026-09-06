@@ -1,20 +1,29 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bus as BusIcon, MapPin, Navigation, Users, Clock, ArrowRight } from 'lucide-react'
+import { Bus as BusIcon, MapPin, Navigation, Users, Clock, ArrowRight, History } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
+import DataTable, { type Column } from '@/components/shared/DataTable'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { getInitials, formatDate, cn } from '@/lib/utils'
+import { getTripDurationDisplay } from '@/lib/tripDuration'
 import { listTrips, getBoardingStudents, type BoardingStudent } from '@/lib/api/trips'
 import { getRoute } from '@/lib/api/routes'
 import { getSocket, type TripStatusEvent } from '@/lib/socket'
 import type { Trip, Stop } from '@/types'
+
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const TODAY = toLocalDateStr(new Date())
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } }
 const item = { hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0 } }
@@ -257,6 +266,140 @@ function TripCard({ trip }: { trip: Trip }) {
   )
 }
 
+// ─── Trip History: completed trips for a chosen day ──────────────────────────
+interface HistoryRow {
+  id: string
+  bus_id: string
+  bus_number: string
+  route_name: string
+  driver_name: string
+  trip_type: Trip['trip_type']
+  started_at?: string
+  ended_at?: string
+  student_count: number
+}
+
+function TripHistoryTab() {
+  const navigate = useNavigate()
+  const [historyDate, setHistoryDate] = useState(TODAY)
+
+  const historyQuery = useQuery({
+    queryKey: ['trips', 'history', historyDate],
+    queryFn: () => listTrips({ status: 'completed', date: historyDate, pageSize: 200 }),
+  })
+  const historyTrips = historyQuery.data?.trips ?? []
+
+  const rows: HistoryRow[] = useMemo(
+    () =>
+      historyTrips.map((t) => ({
+        id: t.id,
+        bus_id: t.bus_id,
+        bus_number: t.bus_number,
+        route_name: t.route_name,
+        driver_name: t.driver_name,
+        trip_type: t.trip_type,
+        started_at: t.started_at,
+        ended_at: t.ended_at,
+        student_count: t.student_count,
+      })),
+    [historyTrips],
+  )
+
+  const columns: Column<HistoryRow>[] = [
+    {
+      key: 'bus_number',
+      header: 'Bus',
+      sortable: true,
+      accessor: (r) => r.bus_number,
+      render: (r) => (
+        <span className="flex items-center gap-1.5 font-medium text-[var(--foreground)]">
+          <BusIcon size={13} className="text-[var(--muted-foreground)]" /> {r.bus_number}
+        </span>
+      ),
+    },
+    { key: 'route_name', header: 'Route', sortable: true, accessor: (r) => r.route_name },
+    { key: 'driver_name', header: 'Driver', sortable: true, accessor: (r) => r.driver_name },
+    {
+      key: 'trip_type',
+      header: 'Type',
+      render: (r) => (
+        <Badge
+          variant="secondary"
+          className={cn(
+            'text-xs',
+            r.trip_type === 'pickup'
+              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+              : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+          )}
+        >
+          {r.trip_type === 'pickup' ? 'Morning' : 'Afternoon'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'started_at',
+      header: 'Started',
+      sortable: true,
+      accessor: (r) => r.started_at ?? '',
+      render: (r) => (r.started_at ? formatDate(r.started_at, 'time') : '—'),
+    },
+    {
+      key: 'ended_at',
+      header: 'Ended',
+      sortable: true,
+      accessor: (r) => r.ended_at ?? '',
+      render: (r) => (r.ended_at ? formatDate(r.ended_at, 'time') : '—'),
+    },
+    {
+      key: 'duration',
+      header: 'Duration',
+      render: (r) => {
+        if (!r.started_at || !r.ended_at) return '—'
+        const { label } = getTripDurationDisplay({ started_at: r.started_at, ended_at: r.ended_at, status: 'completed' } as Trip)
+        return <span className="tabular-nums">{label}</span>
+      },
+    },
+    {
+      key: 'student_count',
+      header: 'Students',
+      className: 'text-right',
+      render: (r) => (
+        <span className="flex items-center justify-end gap-1 tabular-nums text-[var(--foreground)]">
+          <Users size={12} className="text-[var(--muted-foreground)]" /> {r.student_count}
+        </span>
+      ),
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="pt-4 pb-3">
+          <HorizontalCalendar selectedDate={historyDate} onSelectDate={setHistoryDate} />
+        </CardContent>
+      </Card>
+
+      {historyQuery.isLoading ? (
+        <div className="flex items-center justify-center py-24">
+          <LoadingSpinner size="lg" />
+        </div>
+      ) : (
+        <DataTable
+          columns={columns}
+          data={rows}
+          keyField="id"
+          searchable
+          searchKeys={['bus_number', 'route_name', 'driver_name']}
+          searchPlaceholder="Search bus, route or driver…"
+          onRowClick={(r) => navigate(`/school-admin/buses/${r.bus_id}`)}
+          emptyTitle="No completed trips"
+          emptyDescription="No trips were completed on this day."
+        />
+      )}
+    </div>
+  )
+}
+
 export default function LiveTrips() {
   const queryClient = useQueryClient()
 
@@ -284,32 +427,45 @@ export default function LiveTrips() {
     <Layout>
       <PageHeader title="Live Trips" subtitle="Every bus on the road right now, with live boarding status per student." />
 
-      {tripsQuery.isLoading ? (
-        <div className="flex items-center justify-center py-24">
-          <LoadingSpinner size="lg" />
-        </div>
-      ) : trips.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={BusIcon}
-            title="No trips running"
-            description="Once a driver starts a pickup or drop trip, it'll show up here with live boarding status."
-          />
-        </Card>
-      ) : (
-        <motion.div
-          variants={container}
-          initial="hidden"
-          animate="show"
-          className="grid grid-cols-1 gap-4 lg:grid-cols-2"
-        >
-          {trips.map((trip) => (
-            <motion.div key={trip.id} variants={item}>
-              <TripCard trip={trip} />
+      <Tabs defaultValue="live" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="live" className="gap-1.5"><Navigation size={14} /> Live</TabsTrigger>
+          <TabsTrigger value="history" className="gap-1.5"><History size={14} /> Trip History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="live">
+          {tripsQuery.isLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : trips.length === 0 ? (
+            <Card>
+              <EmptyState
+                icon={BusIcon}
+                title="No trips running"
+                description="Once a driver starts a pickup or drop trip, it'll show up here with live boarding status."
+              />
+            </Card>
+          ) : (
+            <motion.div
+              variants={container}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+            >
+              {trips.map((trip) => (
+                <motion.div key={trip.id} variants={item}>
+                  <TripCard trip={trip} />
+                </motion.div>
+              ))}
             </motion.div>
-          ))}
-        </motion.div>
-      )}
+          )}
+        </TabsContent>
+
+        <TabsContent value="history">
+          <TripHistoryTab />
+        </TabsContent>
+      </Tabs>
     </Layout>
   )
 }

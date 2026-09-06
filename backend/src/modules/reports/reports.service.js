@@ -1,5 +1,6 @@
 const { query } = require('../../config/db');
 const { todayInTimezone, addDaysToDateString } = require('../../utils/timezone');
+const platformSettingsService = require('../platformSettings/platformSettings.service');
 
 /**
  * Revenue by month for the last 12 months (calendar months, oldest first),
@@ -252,7 +253,7 @@ async function getSchoolGrowth() {
  * trips.controller.js, attendance.controller.js, leave.controller.js.
  */
 async function getAdminDashboardStats(schoolId) {
-  let timezone = 'Asia/Kolkata';
+  let timezone = await platformSettingsService.getDefaultTimezone();
   if (schoolId) {
     const { rows } = await query('SELECT timezone FROM schools WHERE id = $1', [schoolId]);
     timezone = rows[0]?.timezone || timezone;

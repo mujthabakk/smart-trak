@@ -1,20 +1,5 @@
 const { z } = require('zod');
-
-/** Intl.supportedValuesOf('timeZone') only lists CANONICAL zone names — it
- * excludes widely-used valid aliases like 'UTC' and 'Asia/Kolkata' (whose
- * canonical forms are 'Etc/UTC' and 'Asia/Calcutta'), so checking against
- * that list rejects perfectly valid, commonly-picked timezones. Actually
- * trying to construct a formatter is the correct validity check — it
- * throws only for genuinely unknown zone names, resolving aliases exactly
- * like real usage (todayInTimezone, etc.) already does. */
-function isValidTimezone(tz) {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
+const { isValidTimezone } = require('../../utils/timezone');
 
 const createSchool = z.object({
   school_code: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_-]+$/, 'Must be alphanumeric with dashes or underscores'),

@@ -3,6 +3,7 @@ const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
 const { createNotification } = require('../notifications/notifications.service');
 const { todayInTimezone } = require('../../utils/timezone');
+const platformSettingsService = require('../platformSettings/platformSettings.service');
 
 function formatDateString(d) {
   if (!d) return d;
@@ -383,7 +384,7 @@ async function getDaySummary(schoolId, studentId, date, parentUserId) {
   const school = schoolRows[0] || {};
 
   const routeIds = [...new Set([student.pickup_route_id, student.drop_route_id].filter(Boolean))];
-  const dateStr = date ? formatDateString(date) : todayInTimezone(school.timezone || 'Asia/Kolkata');
+  const dateStr = date ? formatDateString(date) : todayInTimezone(school.timezone || await platformSettingsService.getDefaultTimezone());
   if (!routeIds.length) {
     return { student_id: student.id, student_name: student.name, date: dateStr, trips: [] };
   }

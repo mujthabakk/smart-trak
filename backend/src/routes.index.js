@@ -7,6 +7,7 @@ router.use('/plans', require('./modules/plans/plans.routes'));
 router.use('/feature-catalog', require('./modules/featureCatalog/featureCatalog.routes'));
 router.use('/email-logs', require('./modules/emailLogs/emailLogs.routes'));
 router.use('/schools', require('./modules/schools/schools.routes'));
+router.use('/platform-settings', require('./modules/platformSettings/platformSettings.routes'));
 router.use('/subscriptions', require('./modules/subscriptions/subscriptions.routes'));
 router.use('/users', require('./modules/users/users.routes'));
 router.use('/students', require('./modules/students/students.routes'));

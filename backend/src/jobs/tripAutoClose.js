@@ -2,6 +2,7 @@ const { masterPool, getTenantPool, tenantContext, query } = require('../config/d
 const { todayInTimezone } = require('../utils/timezone');
 const tripsService = require('../modules/trips/trips.service');
 const reportsService = require('../modules/reports/reports.service');
+const platformSettingsService = require('../modules/platformSettings/platformSettings.service');
 
 const CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes — see module comment for why exact-midnight precision isn't needed
 
@@ -26,7 +27,7 @@ function tenantPoolForSchool(schoolId) {
 async function closeStaleTripsForSchool(io, schoolId, timezone) {
   const pool = tenantPoolForSchool(schoolId);
   await tenantContext.run({ pool }, async () => {
-    const today = todayInTimezone(timezone || 'Asia/Kolkata');
+    const today = todayInTimezone(timezone || await platformSettingsService.getDefaultTimezone());
     const { rows: staleTrips } = await query(
       `SELECT id FROM trips WHERE status = 'in_progress' AND trip_date < $1`,
       [today]

@@ -138,31 +138,75 @@ async function getEtaMinutes({ routeId, tripType, latitude, longitude, speedKmh 
   return Math.round((distanceKm / speedKmh) * 60);
 }
 
+const LOCATION_META_SELECT = `
+  b.bus_number, b.school_id, d.name AS driver_name, d.phone AS driver_phone,
+  t.started_at AS trip_started_at, t.ended_at AS trip_ended_at, t.status AS trip_status,
+  t.route_id AS trip_route_id, t.trip_type AS trip_type, r.name AS route_name,
+  (SELECT COUNT(*)::int FROM attendance_records ar
+     WHERE ar.trip_id = t.id AND ar.status = 'present'
+       AND ar.pickup_time IS NOT NULL AND ar.drop_time IS NULL
+  ) AS onboard_count,
+  (SELECT COUNT(*)::int FROM students st
+     WHERE st.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
+        OR st.drop_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
+  ) AS student_count
+`;
+
 async function getLatestLocation(id, schoolId) {
-  await getById(id, schoolId);
-  const { rows } = await query(
-    `SELECT bl.*, b.bus_number, b.school_id, d.name AS driver_name, d.phone AS driver_phone,
-       t.started_at AS trip_started_at, t.ended_at AS trip_ended_at, t.status AS trip_status,
-       t.route_id AS trip_route_id, t.trip_type AS trip_type, r.name AS route_name,
-       (SELECT COUNT(*)::int FROM attendance_records ar
-          WHERE ar.trip_id = bl.trip_id AND ar.status = 'present'
-            AND ar.pickup_time IS NOT NULL AND ar.drop_time IS NULL
-       ) AS onboard_count,
-       (SELECT COUNT(*)::int FROM students st
-          WHERE st.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
-             OR st.drop_stop_id IN (SELECT id FROM stops WHERE route_id = t.route_id)
-       ) AS student_count
-     FROM bus_locations bl
-     JOIN buses b ON b.id = bl.bus_id
-     LEFT JOIN drivers d ON d.id = b.driver_id
-     LEFT JOIN trips t ON t.id = bl.trip_id
-     LEFT JOIN routes r ON r.id = t.route_id
-     WHERE bl.bus_id = $1
-     ORDER BY bl.recorded_at DESC LIMIT 1`,
-    [id]
-  );
-  if (!rows[0]) return null;
-  const row = rows[0];
+  const bus = await getById(id, schoolId);
+  let row;
+
+  if (bus.current_trip_id) {
+    // A trip that has just started but hasn't sent its first GPS ping yet
+    // has no bus_locations row of its own — naively taking "whichever row
+    // is most recent for this bus" would then surface the *previous*
+    // (already-ended) trip's start time/route/driver as if they belonged
+    // to the new one. So pin the trip metadata to the bus's actual active
+    // trip, and only borrow a position from the last GPS ping of any trip
+    // (if this one hasn't pinged yet) to keep the map marker in place.
+    const { rows } = await query(
+      `SELECT t.id AS trip_id, $1::text AS bus_id, ${LOCATION_META_SELECT},
+         pos.latitude, pos.longitude, pos.speed, pos.current_stop, pos.recorded_at
+       FROM trips t
+       JOIN buses b ON b.id = $1
+       LEFT JOIN drivers d ON d.id = b.driver_id
+       LEFT JOIN routes r ON r.id = t.route_id
+       LEFT JOIN LATERAL (
+         SELECT latitude, longitude, speed, current_stop, recorded_at
+         FROM bus_locations WHERE bus_id = $1 AND trip_id = t.id
+         ORDER BY recorded_at DESC LIMIT 1
+       ) pos ON true
+       WHERE t.id = $2`,
+      [id, bus.current_trip_id]
+    );
+    row = rows[0];
+    if (row && row.latitude == null) {
+      const { rows: lastKnown } = await query(
+        `SELECT latitude, longitude, speed, current_stop, recorded_at
+         FROM bus_locations WHERE bus_id = $1 ORDER BY recorded_at DESC LIMIT 1`,
+        [id]
+      );
+      if (lastKnown[0]) Object.assign(row, lastKnown[0]);
+    }
+  } else {
+    // No active trip — last-known parked position (any past trip) is the
+    // best we can show, same as before.
+    const { rows } = await query(
+      `SELECT bl.trip_id, bl.bus_id, bl.latitude, bl.longitude, bl.speed, bl.current_stop, bl.recorded_at,
+         ${LOCATION_META_SELECT}
+       FROM bus_locations bl
+       JOIN buses b ON b.id = bl.bus_id
+       LEFT JOIN drivers d ON d.id = b.driver_id
+       LEFT JOIN trips t ON t.id = bl.trip_id
+       LEFT JOIN routes r ON r.id = t.route_id
+       WHERE bl.bus_id = $1
+       ORDER BY bl.recorded_at DESC LIMIT 1`,
+      [id]
+    );
+    row = rows[0];
+  }
+
+  if (!row || row.latitude == null) return null;
   // The trip's own live status, not bl.status — bl.status is a snapshot
   // frozen at the moment of that GPS ping, so a bus whose trip has since
   // ended would otherwise keep reporting "in_progress" forever (while
