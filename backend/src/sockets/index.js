@@ -34,7 +34,16 @@ function attachSockets(httpServer) {
 
   io.use((socket, next) => {
     try {
-      const token = socket.handshake.auth?.token;
+      // The driver app authenticates its socket via whichever of these it
+      // has on hand (auth payload, query string, or a Bearer header) — only
+      // reading handshake.auth left query-string-only connections (what the
+      // app's own reconnect attempts were actually sending) rejected as
+      // Unauthorized, silently dropping every bus:location ping.
+      const header = socket.handshake.headers?.authorization || '';
+      const token =
+        socket.handshake.auth?.token ||
+        socket.handshake.query?.token ||
+        (header.startsWith('Bearer ') ? header.slice(7) : null);
       if (!token) throw new Error('Missing token');
       socket.user = verifyToken(token);
       next();
