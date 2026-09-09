@@ -49,3 +49,10 @@ export async function updateStudent(id: string, payload: Partial<StudentInput>):
 export async function deleteStudent(id: string): Promise<void> {
   await apiClient.delete(`/students/${id}`)
 }
+
+/** Sends (or resets) login credentials for one of this student's parents,
+ * matched by their contact email — provisions the login on first send. */
+export async function sendParentCredentials(studentId: string, email: string): Promise<{ emailStatus: string }> {
+  const { data } = await apiClient.post<{ emailStatus: string }>(`/students/${studentId}/parent-credentials`, { email })
+  return data
+}

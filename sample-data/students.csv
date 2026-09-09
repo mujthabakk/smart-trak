@@ -1,0 +1,6 @@
+name,class,division,roll_number,dob,gender,address,parent_name,parent_relationship,parent_phone,parent_email,pickup_stop_name,drop_stop_name
+Aisha Al Farsi,3,A,2001,2017-06-14,female,"5 Al Barsha South, Dubai",Mohammed Al Farsi,Father,+971502223301,mohammed.alfarsi@example.com,Al Barsha South 1,Al Barsha South 1
+Yusuf Rahman,3,A,2002,2017-09-02,male,"9 Al Barsha South, Dubai",Imran Rahman,Father,+971502223302,imran.rahman@example.com,Al Barsha South 1,Al Barsha South 2
+Layla Haddad,4,B,2003,2016-11-23,female,"3 Al Quoz, Dubai",Samir Haddad,Father,+971502223303,samir.haddad@example.com,Al Quoz,Al Quoz
+Omar Siddiqui,5,A,2004,2015-03-30,male,"18 JVC District 12, Dubai",Farhan Siddiqui,Father,+971502223304,farhan.siddiqui@example.com,JVC District 12,JVC District 12
+Mariam Youssef,5,B,2005,2015-07-19,female,"2 JVC District 10, Dubai",Khalid Youssef,Father,+971502223305,khalid.youssef@example.com,JVC District 10,JVC District 15

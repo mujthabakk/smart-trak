@@ -26,7 +26,7 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { hideClose?: boolean }
->(({ className, children, hideClose, ...props }, ref) => (
+>(({ className, children, hideClose, onPointerDownOutside, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -35,6 +35,18 @@ const DialogContent = React.forwardRef<
         'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 max-h-[90vh] overflow-y-auto',
         className,
       )}
+      onPointerDownOutside={(e) => {
+        // Google Places Autocomplete (used by LocationPicker) renders its
+        // suggestion list (.pac-container) directly on <body>, outside this
+        // dialog's own DOM subtree — without this, Radix treats clicking a
+        // suggestion as an outside click and closes the dialog before the
+        // place selection can register.
+        if ((e.target as HTMLElement | null)?.closest('.pac-container')) {
+          e.preventDefault()
+          return
+        }
+        onPointerDownOutside?.(e)
+      }}
       {...props}
     >
       {children}

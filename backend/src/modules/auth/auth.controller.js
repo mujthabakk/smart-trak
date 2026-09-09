@@ -39,8 +39,9 @@ const logout = asyncHandler(async (req, res) => {
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
   const { otp } = await authService.createOtp(email);
-  // No email/SMS provider is wired up yet — return the OTP in non-production
-  // environments so the flow is testable end-to-end.
+  // Also returned in non-production so the flow is testable without a real
+  // inbox — the OTP is genuinely emailed too (see passwordResetEmail.js),
+  // logged to email_logs like every other system email either way.
   res.json({
     message: 'A verification code has been sent to your email',
     ...(env.nodeEnv !== 'production' ? { devOtp: otp } : {}),

@@ -32,3 +32,10 @@ export async function getAuditLog(id: string): Promise<AuditLog> {
   const { data } = await apiClient.get<{ log: AuditLog }>(`/audit-logs/${id}`)
   return data.log
 }
+
+/** Turns a stored action like 'student.create' or 'school.impersonate_admin'
+ * into readable text ("Student Create", "School Impersonate Admin"). */
+export function humanizeAuditAction(action: string): string {
+  const words = action.replace(/[._]+/g, ' ').split(' ').filter(Boolean)
+  return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}

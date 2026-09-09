@@ -29,7 +29,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { downloadCSV, cn } from '@/lib/utils'
+import { downloadCSV, parseCSVRow } from '@/lib/utils'
 import { listRoutes, createRoute, updateRoute, deleteRoute, type RouteInput } from '@/lib/api/routes'
 import { listStudents, updateStudent } from '@/lib/api/students'
 import type { Route as RouteType, Student, Stop } from '@/types'
@@ -52,40 +52,67 @@ const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Bulk-import only (no interactive UI to add stops one at a time there) —
- * a placeholder stop list from start/end names, since a CSV row has no
- * per-stop input of its own. Manual creation via AddRouteDialog below does
- * NOT use this — the admin adds each real stop themselves via the + button. */
-function generateStops(routeId: string, start: string, end: string): Stop[] {
-  const startWords = start.trim().split(/\s+/)
-  const endWords = end.trim().split(/\s+/)
-  const names: string[] = []
+/** One row per stop, grouped by route_name — a route can have any number of
+ * stops, so a CSV needs a repeatable row rather than a fixed set of stop
+ * columns. Coordinates are the same placeholder convention AddRouteDialog's
+ * own quick-add already uses (no location picker in either flow yet —
+ * refine the real position later from the route's detail page). */
+interface ParsedRouteRow {
+  name: string
+  start_point: string
+  end_point: string
+  stops: Stop[]
+}
 
-  // Combine first word of start with last word of end
-  if (startWords.length > 0 && endWords.length > 0) {
-    names.push(`${startWords[0]} ${endWords[endWords.length - 1]} Junction`)
-  }
-  // Combine last word of start with first word of end
-  if (startWords.length > 0 && endWords.length > 0) {
-    names.push(`${startWords[startWords.length - 1]} ${endWords[0]} Crossing`)
-  }
-  // Add a midpoint name if start+end have enough words
-  if (startWords.length + endWords.length >= 4) {
-    names.push(`${startWords[Math.floor(startWords.length / 2)]} Midpoint`)
+function parseRoutesCSV(text: string): ParsedRouteRow[] {
+  const lines = text.trim().split('\n')
+  if (lines.length < 2) return []
+  const headers = parseCSVRow(lines[0]).map((h) => h.toLowerCase())
+  const nameIdx = headers.indexOf('route_name')
+  const startIdx = headers.indexOf('start_point')
+  const endIdx = headers.indexOf('end_point')
+  const stopNameIdx = headers.indexOf('stop_name')
+  const stopTimeIdx = headers.indexOf('stop_time')
+  if (nameIdx === -1) return []
+
+  const order: string[] = []
+  const byKey = new Map<string, ParsedRouteRow>()
+
+  for (const line of lines.slice(1)) {
+    const cols = parseCSVRow(line)
+    const routeName = (cols[nameIdx] ?? '').trim()
+    if (!routeName) continue
+    const key = routeName.toLowerCase()
+
+    let route = byKey.get(key)
+    if (!route) {
+      route = {
+        name: routeName,
+        start_point: startIdx !== -1 ? (cols[startIdx] ?? '').trim() : '',
+        end_point: endIdx !== -1 ? (cols[endIdx] ?? '').trim() : '',
+        stops: [],
+      }
+      byKey.set(key, route)
+      order.push(key)
+    }
+
+    const stopName = stopNameIdx !== -1 ? (cols[stopNameIdx] ?? '').trim() : ''
+    if (stopName) {
+      const i = route.stops.length
+      route.stops.push({
+        id: `stop_${key}_${i + 1}`,
+        route_id: '',
+        name: stopName,
+        latitude: 25.1 + i * 0.01,
+        longitude: 55.2 + i * 0.01,
+        order_index: i + 1,
+        estimated_time: (stopTimeIdx !== -1 ? (cols[stopTimeIdx] ?? '').trim() : '') || undefined,
+        student_count: 0,
+      })
+    }
   }
 
-  const times = ['7:10 AM', '7:20 AM', '7:30 AM']
-
-  return names.slice(0, 3).map((name, i): Stop => ({
-    id: `stop_${routeId}_auto_${i + 1}`,
-    route_id: routeId,
-    name,
-    latitude: 25.1 + i * 0.01,
-    longitude: 55.2 + i * 0.01,
-    order_index: i + 1,
-    estimated_time: times[i],
-    student_count: 0,
-  }))
+  return order.map((key) => byKey.get(key)!)
 }
 
 // ─── QR download ──────────────────────────────────────────────────────────────
@@ -466,7 +493,7 @@ function EditRouteDialog({ route, open, onOpenChange, onSave }: EditRouteDialogP
 
 // ─── Bulk Import Dialog ───────────────────────────────────────────────────────
 interface BulkImportDialogProps {
-  onImport: (routes: Partial<RouteType>[]) => void
+  onImport: (routes: ParsedRouteRow[]) => void
 }
 
 function BulkImportDialog({ onImport }: BulkImportDialogProps) {
@@ -476,7 +503,11 @@ function BulkImportDialog({ onImport }: BulkImportDialogProps) {
 
   function handleDownloadTemplate() {
     downloadCSV(
-      [{ name: '', start_point: '', end_point: '' }] as unknown as Record<string, unknown>[],
+      [
+        { route_name: 'Route D - Pickup', start_point: 'Al Barsha', end_point: 'School', stop_name: 'Al Barsha Mall', stop_time: '7:00 AM' },
+        { route_name: 'Route D - Pickup', start_point: 'Al Barsha', end_point: 'School', stop_name: 'Barsha Heights', stop_time: '7:10 AM' },
+        { route_name: 'Route D - Pickup', start_point: 'Al Barsha', end_point: 'School', stop_name: 'Marina Gate', stop_time: '7:20 AM' },
+      ],
       'routes_template',
     )
   }
@@ -488,24 +519,11 @@ function BulkImportDialog({ onImport }: BulkImportDialogProps) {
     reader.onload = (ev) => {
       try {
         const text = ev.target?.result as string
-        const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-        if (lines.length < 2) { setFeedback('CSV appears empty.'); return }
-        const headers = lines[0].split(',').map((h) => h.trim().toLowerCase())
-        const nameIdx = headers.indexOf('name')
-        const startIdx = headers.indexOf('start_point')
-        const endIdx = headers.indexOf('end_point')
-        if (nameIdx === -1) { setFeedback('Missing "name" column.'); return }
-        const parsed: Partial<RouteType>[] = lines.slice(1).map((line) => {
-          const cols = line.split(',').map((c) => c.trim())
-          return {
-            name: cols[nameIdx] ?? '',
-            start_point: startIdx !== -1 ? (cols[startIdx] ?? '') : '',
-            end_point: endIdx !== -1 ? (cols[endIdx] ?? '') : '',
-          }
-        }).filter((r) => r.name)
-        if (parsed.length === 0) { setFeedback('No valid rows found.'); return }
+        const parsed = parseRoutesCSV(text)
+        if (parsed.length === 0) { setFeedback('No valid rows found — make sure the CSV has a route_name column.'); return }
         onImport(parsed)
-        setFeedback(`Imported ${parsed.length} route${parsed.length === 1 ? '' : 's'}.`)
+        const totalStops = parsed.reduce((sum, r) => sum + r.stops.length, 0)
+        setFeedback(`Imported ${parsed.length} route${parsed.length === 1 ? '' : 's'} with ${totalStops} stop${totalStops === 1 ? '' : 's'} total.`)
         if (fileRef.current) fileRef.current.value = ''
         setTimeout(() => { setOpen(false); setFeedback(null) }, 1200)
       } catch {
@@ -534,7 +552,10 @@ function BulkImportDialog({ onImport }: BulkImportDialogProps) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-[var(--foreground)]">Download Template</p>
-              <p className="text-xs text-[var(--muted-foreground)]">CSV with name, start_point, end_point columns</p>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                One row per stop: route_name, start_point, end_point, stop_name, stop_time (optional). Repeat the
+                same route_name on every row for that route — as many stop rows as you need.
+              </p>
             </div>
             <Button size="sm" variant="outline" onClick={handleDownloadTemplate}>Download</Button>
           </div>
@@ -1358,15 +1379,14 @@ export default function Routes() {
     })
   }
 
-  function handleBulkImport(partials: Partial<RouteType>[]) {
-    partials.forEach((p, i) => {
-      const tempId = `route-bulk-${Date.now()}-${i}`
+  function handleBulkImport(parsedRoutes: ParsedRouteRow[]) {
+    parsedRoutes.forEach((r) => {
       const payload: RouteInput = {
-        name: p.name ?? 'Unnamed Route',
-        start_point: p.start_point ?? '',
-        end_point: p.end_point ?? '',
+        name: r.name,
+        start_point: r.start_point,
+        end_point: r.end_point,
         is_active: true,
-        stops: generateStops(tempId, p.start_point ?? 'Start', p.end_point ?? 'End'),
+        stops: r.stops,
       }
       createRouteMutation.mutate(payload)
     })

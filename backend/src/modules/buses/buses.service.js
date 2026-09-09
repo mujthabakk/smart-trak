@@ -121,12 +121,25 @@ async function remove(id, schoolId) {
   if (!rowCount) throw ApiError.notFound('Bus not found');
 }
 
-/** ETA to the trip's final destination stop: for a pickup trip that's the
- * highest order_index stop (last one visited, typically the school); for a
- * drop trip it's the lowest (the last student's stop). Null when idle/no
- * speed — can't estimate arrival time while stationary. */
-async function getEtaMinutes({ routeId, tripType, latitude, longitude, speedKmh }) {
-  if (!routeId || speedKmh < 1) return null;
+/** ETA to the trip's final destination: for a pickup trip that's the school
+ * itself — its own verified coordinates (schoolLatitude/schoolLongitude,
+ * from the master schools row) are used when set, rather than inferring
+ * "wherever the route's highest order_index stop happens to be", which
+ * silently breaks if a route's stops were seeded/edited inconsistently
+ * with the school's actual address. Falls back to that stop-based guess
+ * only when the school has no location set. A drop trip's destination is
+ * never the school, so it always uses the lowest order_index stop (the
+ * last student's stop). Null when idle/no speed — can't estimate arrival
+ * time while stationary. */
+async function getEtaMinutes({ routeId, tripType, latitude, longitude, speedKmh, schoolLatitude, schoolLongitude }) {
+  if (speedKmh < 1) return null;
+
+  if (tripType === 'pickup' && schoolLatitude != null && schoolLongitude != null) {
+    const distanceKm = haversineKm(latitude, longitude, schoolLatitude, schoolLongitude);
+    return Math.round((distanceKm / speedKmh) * 60);
+  }
+
+  if (!routeId) return null;
   const { rows } = await query(
     `SELECT latitude, longitude FROM stops WHERE route_id = $1
      ORDER BY order_index ${tripType === 'drop' ? 'ASC' : 'DESC'} LIMIT 1`,
@@ -207,6 +220,17 @@ async function getLatestLocation(id, schoolId) {
   }
 
   if (!row || row.latitude == null) return null;
+
+  // schools live in the master DB, not this tenant DB, so this can't be a
+  // plain SQL JOIN — it's a second query against a different database.
+  // Fetched before the ETA calc below, which prefers the school's own
+  // coordinates as a pickup trip's destination over guessing from stops.
+  const { rows: schoolRows } = await masterPool.query(
+    'SELECT latitude, longitude FROM schools WHERE id = $1',
+    [row.school_id]
+  );
+  const school = schoolRows[0];
+
   // The trip's own live status, not bl.status — bl.status is a snapshot
   // frozen at the moment of that GPS ping, so a bus whose trip has since
   // ended would otherwise keep reporting "in_progress" forever (while
@@ -219,16 +243,10 @@ async function getLatestLocation(id, schoolId) {
         latitude: Number(row.latitude),
         longitude: Number(row.longitude),
         speedKmh: Number(row.speed),
+        schoolLatitude: school?.latitude != null ? Number(school.latitude) : undefined,
+        schoolLongitude: school?.longitude != null ? Number(school.longitude) : undefined,
       })
     : null;
-
-  // schools live in the master DB, not this tenant DB, so this can't be a
-  // plain SQL JOIN — it's a second query against a different database.
-  const { rows: schoolRows } = await masterPool.query(
-    'SELECT latitude, longitude FROM schools WHERE id = $1',
-    [row.school_id]
-  );
-  const school = schoolRows[0];
 
   return {
     trip_id: row.trip_id,

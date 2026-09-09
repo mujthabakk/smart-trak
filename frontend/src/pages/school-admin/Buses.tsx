@@ -13,14 +13,12 @@ import QRCode from 'qrcode'
 import PageHeader from '@/components/shared/PageHeader'
 import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
-import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import DataTable, { type Column } from '@/components/shared/DataTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent } from '@/components/ui/card'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuSeparator,
@@ -28,7 +26,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog'
-import { cn, downloadCSV } from '@/lib/utils'
+import { cn, downloadCSV, parseCSVRow } from '@/lib/utils'
 import { getBusTripDurationDisplay } from '@/lib/tripDuration'
 import { listBuses, createBuses, updateBus, deleteBus, type BusInput } from '@/lib/api/buses'
 import { listRoutes } from '@/lib/api/routes'
@@ -274,6 +272,8 @@ function BulkImportDialog({ open, onOpenChange, onImport }: BulkImportDialogProp
           seat_capacity: 30,
           insurance_expiry: '2026-12-31',
           fitness_cert_expiry: '2026-06-30',
+          assistant_name: 'Ali Rahman',
+          assistant_phone: '+971501234500',
         },
       ],
       'bus-import-template',
@@ -292,13 +292,13 @@ function BulkImportDialog({ open, onOpenChange, onImport }: BulkImportDialogProp
         const text = ev.target?.result as string
         const lines = text.split(/\r?\n/).filter((l) => l.trim())
         if (lines.length < 2) throw new Error('CSV must have a header row and at least one data row.')
-        const headers = lines[0].split(',').map((h) => h.trim())
+        const headers = parseCSVRow(lines[0])
         const required = ['bus_number', 'make_model', 'year', 'seat_capacity', 'insurance_expiry', 'fitness_cert_expiry']
         for (const r of required) {
           if (!headers.includes(r)) throw new Error(`Missing column: ${r}`)
         }
         const parsed: BusFormData[] = lines.slice(1).map((line) => {
-          const vals = line.split(',').map((v) => v.trim())
+          const vals = parseCSVRow(line)
           const obj: Record<string, string> = {}
           headers.forEach((h, i) => { obj[h] = vals[i] ?? '' })
           return {
@@ -308,8 +308,6 @@ function BulkImportDialog({ open, onOpenChange, onImport }: BulkImportDialogProp
             seat_capacity: obj.seat_capacity,
             insurance_expiry: obj.insurance_expiry,
             fitness_cert_expiry: obj.fitness_cert_expiry,
-            // Not in the required column list — CSV imports rarely carry
-            // per-bus staff assignment, so these are filled in later via Edit.
             assistant_name: obj.assistant_name ?? '',
             assistant_phone: obj.assistant_phone ?? '',
           }
@@ -414,7 +412,9 @@ export default function Buses() {
   const [view, setView] = useState<'grid' | 'table'>('table')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
-  const [selectedDate, setSelectedDate] = useState(toLocalDateStr(new Date()))
+  // Per-bus attendance summaries always reflect today — this is a fleet
+  // registry, not a historical view, so there's no date picker for it.
+  const selectedDate = toLocalDateStr(new Date())
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['buses'],
@@ -837,18 +837,6 @@ export default function Buses() {
           <StatsCard title="Running" value={stats.running} icon={Navigation} color="info" />
           <StatsCard title="Idle" value={stats.idle} icon={Clock} color="warning" />
           <StatsCard title="Offline" value={stats.offline} icon={Ban} color="danger" />
-        </motion.div>
-
-        {/* Horizontal Calendar */}
-        <motion.div variants={item} className="mb-4">
-          <Card>
-            <CardContent className="pt-4 pb-3">
-              <HorizontalCalendar
-                selectedDate={selectedDate}
-                onSelectDate={setSelectedDate}
-              />
-            </CardContent>
-          </Card>
         </motion.div>
 
         {/* Filter pills + Search */}

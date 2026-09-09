@@ -2,6 +2,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { parsePagination } = require('../../utils/pagination');
 const { resolveSchoolId } = require('../../middleware/auth');
 const ApiError = require('../../utils/ApiError');
+const { recordAudit } = require('../auditLogs/auditLogs.service');
 const service = require('./students.service');
 
 const list = asyncHandler(async (req, res) => {
@@ -31,6 +32,10 @@ const create = asyncHandler(async (req, res) => {
   const student = await service.create(schoolId, req.body);
   const io = req.app.get('io');
   if (io) io.to(`school:${schoolId}`).emit('student:update', { action: 'create', studentId: student.id });
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'student.create',
+    entity_type: 'student', entity_id: student.id, details: { name: student.name },
+  });
   res.status(201).json({ student });
 });
 
@@ -39,6 +44,10 @@ const update = asyncHandler(async (req, res) => {
   const student = await service.update(req.params.id, schoolId, req.body);
   const io = req.app.get('io');
   if (io) io.to(`school:${schoolId}`).emit('student:update', { action: 'update', studentId: student.id });
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'student.update',
+    entity_type: 'student', entity_id: student.id, details: { name: student.name },
+  });
   res.json({ student });
 });
 
@@ -47,6 +56,10 @@ const remove = asyncHandler(async (req, res) => {
   await service.remove(req.params.id, schoolId);
   const io = req.app.get('io');
   if (io) io.to(`school:${schoolId}`).emit('student:update', { action: 'delete', studentId: req.params.id });
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'student.delete',
+    entity_type: 'student', entity_id: req.params.id,
+  });
   res.status(204).send();
 });
 
@@ -80,6 +93,16 @@ const updateAlertDropStop = asyncHandler(async (req, res) => {
   res.json({ student });
 });
 
+const sendParentCredentials = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const result = await service.sendParentCredentials(req.params.id, schoolId, req.body.email);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'student.send_parent_credentials',
+    entity_type: 'student', entity_id: req.params.id, details: { parent_email: req.body.email },
+  });
+  res.json({ emailStatus: result.status });
+});
+
 module.exports = {
   list,
   getOne,
@@ -90,4 +113,5 @@ module.exports = {
   updateDropLocation,
   updateAlertPickupStop,
   updateAlertDropStop,
+  sendParentCredentials,
 };

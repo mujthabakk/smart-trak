@@ -320,11 +320,11 @@ async function notifyParentsForAttendance(records, tripType) {
 }
 
 // Screen labels only — derived from data we actually store (trips.trip_type,
-// trips.status), never invented fields. pickup -> "Morning Trip"/drop ->
-// "Afternoon Trip" matches how the mobile Attendance screen groups the day;
+// trips.status), never invented fields. pickup -> "Pickup Trip"/drop ->
+// "Drop Trip" matches how the mobile Attendance screen groups the day;
 // not_started/in_progress/completed map to the same wording the Bus Status
 // page already uses for a trip's progress.
-const TRIP_LABELS = { pickup: 'Morning Trip', drop: 'Afternoon Trip' };
+const TRIP_LABELS = { pickup: 'Pickup Trip', drop: 'Drop Trip' };
 const BUS_STATUS_LABELS = { not_started: 'not_started', in_progress: 'on_route', completed: 'reached' };
 
 /**

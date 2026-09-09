@@ -30,12 +30,14 @@ function toLocalDateStr(d: Date): string {
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
+// Underlying value stays 'morning'/'evening' (matches the stored/API shift
+// value) — only the displayed label uses pickup/drop wording site-wide.
 function shiftLabel(shift?: LeaveType['shift']): string {
   switch (shift) {
     case 'morning':
-      return 'Morning'
+      return 'Pickup'
     case 'evening':
-      return 'Evening'
+      return 'Drop'
     case 'full_day':
       return 'Full Day'
     default:

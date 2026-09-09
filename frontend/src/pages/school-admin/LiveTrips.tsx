@@ -224,7 +224,7 @@ function TripCard({ trip }: { trip: Trip }) {
                 : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
             )}
           >
-            {trip.trip_type === 'pickup' ? 'Morning' : 'Afternoon'}
+            {trip.trip_type === 'pickup' ? 'Pickup' : 'Drop'}
           </Badge>
         </div>
         <div className="mt-3 flex items-center justify-between gap-2 text-sm">
@@ -332,7 +332,7 @@ function TripHistoryTab() {
               : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
           )}
         >
-          {r.trip_type === 'pickup' ? 'Morning' : 'Afternoon'}
+          {r.trip_type === 'pickup' ? 'Pickup' : 'Drop'}
         </Badge>
       ),
     },

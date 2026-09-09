@@ -1,3 +1,4 @@
+const bcrypt = require('bcryptjs');
 const { query, withTransaction } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
@@ -307,4 +308,49 @@ async function getRouteStudents(driverUserId, schoolId) {
   };
 }
 
-module.exports = { list, getById, create, createGuestDriver, update, remove, expiringDocuments, getIdByUserId, getRouteStudents };
+/**
+ * Sends (or resets) a driver's login credentials to their own email — a
+ * regular driver.create() never provisions a login (only createGuestDriver
+ * does), so this both provisions it the first time and resets it every time
+ * after, reusing whichever users row is already linked (driver.user_id) or
+ * already exists under that email, and (re)linking drivers.user_id to it.
+ */
+async function sendCredentials(driverId, schoolId) {
+  const driver = await getById(driverId, schoolId);
+  if (!driver.email) throw ApiError.badRequest('This driver has no email on file');
+
+  const tempPassword = generateTempPassword();
+  const passwordHash = await bcrypt.hash(tempPassword, 10);
+  const email = driver.email.trim().toLowerCase();
+
+  let userId = driver.user_id;
+  if (!userId) {
+    const { rows: existingRows } = await query('SELECT id FROM users WHERE lower(email) = lower($1)', [email]);
+    userId = existingRows[0]?.id;
+  }
+
+  if (userId) {
+    await query(
+      `UPDATE users SET password_hash = $1, name = $2, phone = COALESCE($3, phone), role = 'driver', school_id = $4, updated_at = now() WHERE id = $5`,
+      [passwordHash, driver.name, driver.phone || null, schoolId, userId]
+    );
+  } else {
+    const { rows } = await query(
+      `INSERT INTO users (name, email, password_hash, phone, role, school_id) VALUES ($1,$2,$3,$4,'driver',$5) RETURNING id`,
+      [driver.name, email, passwordHash, driver.phone || null, schoolId]
+    );
+    userId = rows[0].id;
+  }
+
+  if (driver.user_id !== userId) {
+    await query('UPDATE drivers SET user_id = $1 WHERE id = $2', [userId, driverId]);
+  }
+
+  return emailUserCredentials(
+    { id: userId, name: driver.name, email, school_id: schoolId },
+    tempPassword,
+    { triggerType: 'user_credentials' }
+  );
+}
+
+module.exports = { list, getById, create, createGuestDriver, update, remove, expiringDocuments, getIdByUserId, getRouteStudents, sendCredentials };

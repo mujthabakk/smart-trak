@@ -11,6 +11,7 @@ router.use('/platform-settings', require('./modules/platformSettings/platformSet
 router.use('/subscriptions', require('./modules/subscriptions/subscriptions.routes'));
 router.use('/users', require('./modules/users/users.routes'));
 router.use('/students', require('./modules/students/students.routes'));
+router.use('/classes', require('./modules/classes/classes.routes'));
 router.use('/drivers', require('./modules/drivers/drivers.routes'));
 router.use('/buses', require('./modules/buses/buses.routes'));
 router.use('/routes', require('./modules/routesResource/routes.routes'));
@@ -29,5 +30,6 @@ router.use('/training', require('./modules/training/training.routes'));
 router.use('/audit-logs', require('./modules/auditLogs/auditLogs.routes'));
 router.use('/reports', require('./modules/reports/reports.routes'));
 router.use('/upload', require('./modules/upload/upload.routes'));
+router.use('/assistant', require('./modules/assistant/assistant.routes'));
 
 module.exports = router;

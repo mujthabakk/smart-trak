@@ -2,6 +2,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { parsePagination } = require('../../utils/pagination');
 const { resolveSchoolId } = require('../../middleware/auth');
 const ApiError = require('../../utils/ApiError');
+const { recordAudit } = require('../auditLogs/auditLogs.service');
 const service = require('./routes.service');
 
 const list = asyncHandler(async (req, res) => {
@@ -25,17 +26,30 @@ const create = asyncHandler(async (req, res) => {
   const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.user.school_id;
   if (!schoolId) throw ApiError.badRequest('school_id is required');
   const route = await service.create(schoolId, req.body);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'route.create',
+    entity_type: 'route', entity_id: route.id, details: { name: route.name },
+  });
   res.status(201).json({ route });
 });
 
 const update = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
-  res.json({ route: await service.update(req.params.id, schoolId, req.body) });
+  const route = await service.update(req.params.id, schoolId, req.body);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'route.update',
+    entity_type: 'route', entity_id: route.id, details: { name: route.name },
+  });
+  res.json({ route });
 });
 
 const remove = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   await service.remove(req.params.id, schoolId);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'route.delete',
+    entity_type: 'route', entity_id: req.params.id,
+  });
   res.status(204).send();
 });
 

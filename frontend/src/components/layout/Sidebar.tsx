@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Bus,
@@ -28,6 +29,7 @@ import {
   Sparkles,
   Mail,
   Radio,
+  ScrollText,
   type LucideIcon,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -35,6 +37,7 @@ import { toggleSidebar as toggleSidebarAction } from '@/store/slices/appSlice'
 import { logout as logoutAction } from '@/store/slices/authSlice'
 import { SIDEBAR_NAV } from '@/lib/constants'
 import { cn, getInitials, getRoleLabel } from '@/lib/utils'
+import { listSchools } from '@/lib/api/schools'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -60,6 +63,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Sparkles,
   Mail,
   Radio,
+  ScrollText,
 }
 
 const SIDEBAR_EXPANDED_WIDTH = 240
@@ -75,7 +79,27 @@ export function Sidebar() {
   const [isHovering, setIsHovering] = useState(false)
 
   const navKey = role === 'super_admin' ? 'super_admin' : 'school_admin'
-  const navItems = SIDEBAR_NAV[navKey] ?? []
+
+  // Pending-application count for the "Schools" nav badge — no push
+  // invalidation is wired for this yet, so a 60s poll keeps it reasonably
+  // fresh without needing a socket round-trip just for a sidebar number.
+  const { data: pendingSchoolsData } = useQuery({
+    queryKey: ['schools', 'pending-count'],
+    queryFn: () => listSchools({ status: 'pending', pageSize: 1 }),
+    enabled: role === 'super_admin',
+    refetchInterval: 60_000,
+  })
+  const pendingSchoolsCount = pendingSchoolsData?.pagination.total ?? 0
+
+  const navItems = useMemo(
+    () =>
+      (SIDEBAR_NAV[navKey] ?? []).map((item) =>
+        item.path === '/super-admin/schools' && pendingSchoolsCount > 0
+          ? { ...item, badge: pendingSchoolsCount }
+          : item
+      ),
+    [navKey, pendingSchoolsCount]
+  )
 
   // While collapsed, hovering temporarily expands the sidebar as an overlay
   // (doesn't touch the persisted `sidebarCollapsed` state, so the main content

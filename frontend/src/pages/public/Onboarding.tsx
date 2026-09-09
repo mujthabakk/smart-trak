@@ -1,18 +1,25 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { isAxiosError } from 'axios'
 import {
-  Check, ArrowRight, ArrowLeft, Star, Building2, Mail, Phone, MapPin,
-  Users, Bus, AlertTriangle, Calculator, ChevronRight,
+  Check, ArrowRight, ArrowLeft, Star, Building2, Mail, Phone, MapPin, Globe,
+  Users, Bus, AlertTriangle, Calculator, ChevronRight, User, Clock,
 } from 'lucide-react'
 import PublicLayout from '@/components/layout/PublicLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { AddressFields } from '@/components/shared/AddressFields'
+import { LocationPicker } from '@/components/shared/LocationPicker'
+import { SchoolCodeField } from '@/components/shared/SchoolCodeField'
 import { PLANS } from '@/lib/siteContent'
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezones'
 import { cn } from '@/lib/utils'
+import { applyForSchool } from '@/lib/api/schools'
 
-const STEPS = ['Choose plan', 'School details', 'Confirm']
+const STEPS = ['Choose plan', 'Basic details', 'Location', 'Confirm']
 
 function formatUSD(n: number) {
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -27,25 +34,62 @@ export default function Onboarding() {
   const [studentFilter, setStudentFilter] = useState('')
 
   const [form, setForm] = useState({
-    schoolName: '', email: '', phone: '', address: '', city: '', students: '', buses: '',
+    schoolCode: '', schoolName: '', adminName: '', email: '', phone: '', website: '',
+    address: '', country: 'United Arab Emirates', postCode: '', city: '', state: '',
+    timezone: DEFAULT_TIMEZONE, latitude: '', longitude: '',
+    students: '', buses: '',
   })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   const plan = PLANS.find((p) => p.id === planId)!
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }))
+  const setField = (k: keyof typeof form) => (value: string) => setForm((f) => ({ ...f, [k]: value }))
 
   // Sync studentFilter → form.students when moving from step 0
-  function handleNext() {
+  async function handleNext() {
     if (step === 0) {
       // Pre-fill students from the filter input
       if (studentFilter && !form.students) {
         setForm((f) => ({ ...f, students: studentFilter }))
       }
       setStep(1)
-    } else if (step === 1) {
-      setStep(2)
+    } else if (step < STEPS.length - 1) {
+      setStep((s) => s + 1)
     } else {
-      navigate('/confirmation')
+      setSubmitError('')
+      setIsSubmitting(true)
+      try {
+        await applyForSchool({
+          school_code: form.schoolCode,
+          school_name: form.schoolName,
+          admin_name: form.adminName || undefined,
+          email: form.email,
+          phone: form.phone,
+          website: form.website || undefined,
+          address: form.address || undefined,
+          city: form.city || undefined,
+          state: form.state || undefined,
+          post_code: form.postCode || undefined,
+          country: form.country || undefined,
+          timezone: form.timezone || undefined,
+          latitude: form.latitude.trim() === '' ? undefined : Number(form.latitude),
+          longitude: form.longitude.trim() === '' ? undefined : Number(form.longitude),
+          students: form.students ? Number(form.students) : undefined,
+          buses: form.buses ? Number(form.buses) : undefined,
+          plan_name: planId as 'basic' | 'standard' | 'premium',
+        })
+        navigate('/confirmation')
+      } catch (err) {
+        setSubmitError(
+          isAxiosError(err)
+            ? (err.response?.data as { error?: string } | undefined)?.error ?? 'Failed to submit your application. Please try again.'
+            : 'Failed to submit your application. Please try again.'
+        )
+      } finally {
+        setIsSubmitting(false)
+      }
     }
   }
 
@@ -65,7 +109,7 @@ export default function Onboarding() {
     return fit?.id ?? null
   }, [filterCount])
 
-  // Cost calculation for step 1
+  // Cost calculation, shown from step 1 onward once a student count is known
   const costCalc = useMemo(() => {
     const n = parseInt(form.students) || 0
     if (!n || !plan) return null
@@ -77,7 +121,7 @@ export default function Onboarding() {
 
   const canNext =
     step === 0 ? !!planId :
-    step === 1 ? !!(form.schoolName && form.email && form.phone) :
+    step === 1 ? !!(form.schoolCode && form.schoolName && form.email && form.phone) :
     true
 
   return (
@@ -85,11 +129,11 @@ export default function Onboarding() {
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16">
         <div className="text-center mb-10">
           <h1 className="text-3xl sm:text-4xl font-extrabold text-[var(--foreground)]">Onboard your school</h1>
-          <p className="mt-2 text-[var(--muted-foreground)]">Three quick steps — credentials arrive by email &amp; WhatsApp.</p>
+          <p className="mt-2 text-[var(--muted-foreground)]">Four quick steps — credentials arrive by email &amp; WhatsApp.</p>
         </div>
 
         {/* Stepper */}
-        <div className="flex items-center justify-center gap-2 sm:gap-4 mb-10">
+        <div className="flex items-center justify-center gap-2 sm:gap-4 mb-10 flex-wrap">
           {STEPS.map((label, i) => (
             <div key={label} className="flex items-center gap-2 sm:gap-4">
               <div className="flex items-center gap-2">
@@ -232,7 +276,7 @@ export default function Onboarding() {
               </motion.div>
             )}
 
-            {/* ── Step 1 — School details ─────────────────────────────── */}
+            {/* ── Step 1 — Basic details ───────────────────────────────── */}
             {step === 1 && (
               <motion.div key="s1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
                 <h2 className="font-semibold text-[var(--foreground)] mb-1">Tell us about your school</h2>
@@ -243,6 +287,14 @@ export default function Onboarding() {
                     <div className="relative">
                       <Building2 size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
                       <Input id="o-school" className="pl-9" value={form.schoolName} onChange={set('schoolName')} placeholder="Greenfield Academy" />
+                    </div>
+                  </div>
+                  <SchoolCodeField idPrefix="o" value={form.schoolCode} onChange={setField('schoolCode')} />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="o-admin-name">Admin name</Label>
+                    <div className="relative">
+                      <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                      <Input id="o-admin-name" className="pl-9" value={form.adminName} onChange={set('adminName')} placeholder="Hassan Al-Rashid" />
                     </div>
                   </div>
                   <div className="space-y-1.5">
@@ -259,17 +311,67 @@ export default function Onboarding() {
                       <Input id="o-phone" className="pl-9" value={form.phone} onChange={set('phone')} placeholder="+971 50 000 0000" />
                     </div>
                   </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="o-addr">School address</Label>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="o-website">Website</Label>
                     <div className="relative">
-                      <MapPin size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-                      <Input id="o-addr" className="pl-9" value={form.address} onChange={set('address')} placeholder="Street, area" />
+                      <Globe size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                      <Input id="o-website" className="pl-9" value={form.website} onChange={set('website')} placeholder="www.school.ae" />
                     </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="o-city">City / State</Label>
-                    <Input id="o-city" value={form.city} onChange={set('city')} placeholder="Dubai" />
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── Step 2 — Location ────────────────────────────────────── */}
+            {step === 2 && (
+              <motion.div key="s2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
+                <h2 className="font-semibold text-[var(--foreground)] mb-1">Where is your school?</h2>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="o-addr">Street address</Label>
+                    <div className="relative">
+                      <MapPin size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                      <Input id="o-addr" className="pl-9" value={form.address} onChange={set('address')} placeholder="45 Sheikh Zayed Road" />
+                    </div>
                   </div>
+
+                  <AddressFields
+                    idPrefix="o"
+                    country={form.country}
+                    city={form.city}
+                    state={form.state}
+                    postCode={form.postCode}
+                    onCountryChange={setField('country')}
+                    onCityChange={setField('city')}
+                    onStateChange={setField('state')}
+                    onPostCodeChange={setField('postCode')}
+                  />
+
+                  <div className="space-y-1.5">
+                    <Label>Timezone</Label>
+                    <Select value={form.timezone} onValueChange={setField('timezone')}>
+                      <SelectTrigger><SelectValue placeholder="Select a timezone" /></SelectTrigger>
+                      <SelectContent>
+                        {TIMEZONE_OPTIONS.map((tz) => (
+                          <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="sm:col-span-2 space-y-1.5">
+                    <Label>School location (optional)</Label>
+                    <LocationPicker
+                      latitude={form.latitude.trim() === '' ? undefined : Number(form.latitude)}
+                      longitude={form.longitude.trim() === '' ? undefined : Number(form.longitude)}
+                      onChange={(lat, lng) => {
+                        setField('latitude')(String(lat))
+                        setField('longitude')(String(lng))
+                      }}
+                    />
+                  </div>
+
                   <div className="space-y-1.5">
                     <Label htmlFor="o-students">Estimated students</Label>
                     <div className="relative">
@@ -333,9 +435,9 @@ export default function Onboarding() {
               </motion.div>
             )}
 
-            {/* ── Step 2 — Confirm ────────────────────────────────────── */}
-            {step === 2 && (
-              <motion.div key="s2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {/* ── Step 3 — Confirm ────────────────────────────────────── */}
+            {step === 3 && (
+              <motion.div key="s3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                 <h2 className="font-semibold text-[var(--foreground)] mb-4">Review &amp; confirm</h2>
 
                 {/* Plan + cost summary */}
@@ -360,15 +462,25 @@ export default function Onboarding() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                   {[
                     ['School', form.schoolName || '—'],
+                    ['School code', form.schoolCode || '—'],
+                    ['Admin name', form.adminName || '—'],
                     ['Email', form.email || '—'],
                     ['Phone', form.phone || '—'],
+                    ['Website', form.website || '—'],
                     ['Address', form.address || '—'],
-                    ['City / State', form.city || '—'],
+                    ['City', form.city || '—'],
+                    ['State / Emirate', form.state || '—'],
+                    ['Post / ZIP code', form.postCode || '—'],
+                    ['Country', form.country || '—'],
+                    ['Timezone', TIMEZONE_OPTIONS.find((t) => t.value === form.timezone)?.label || form.timezone],
                     ['Est. students', form.students || '—'],
                     ['Est. buses', form.buses || '—'],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between border-b border-[var(--border)] py-2 text-sm">
-                      <span className="text-[var(--muted-foreground)]">{k}</span>
+                      <span className="text-[var(--muted-foreground)] flex items-center gap-1.5">
+                        {k === 'Timezone' && <Clock size={12} />}
+                        {k}
+                      </span>
                       <span className="font-medium text-[var(--foreground)] text-right max-w-[55%] truncate">{v}</span>
                     </div>
                   ))}
@@ -376,17 +488,23 @@ export default function Onboarding() {
                 <p className="text-xs text-[var(--muted-foreground)] mt-4">
                   By submitting, a pending school record is created for Super Admin review. On approval, your console URL and temporary credentials are sent by email and WhatsApp.
                 </p>
+                {submitError && (
+                  <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 dark:border-red-800/40 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-400">
+                    <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
+                    <span>{submitError}</span>
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* Nav */}
           <div className="flex items-center justify-between mt-8">
-            <Button variant="ghost" onClick={() => (step === 0 ? navigate('/pricing') : setStep((s) => s - 1))}>
+            <Button variant="ghost" onClick={() => (step === 0 ? navigate('/pricing') : setStep((s) => s - 1))} disabled={isSubmitting}>
               <ArrowLeft size={16} /> {step === 0 ? 'Plans' : 'Back'}
             </Button>
-            <Button onClick={handleNext} disabled={!canNext}>
-              {step === 2 ? 'Submit Application' : 'Continue'} <ArrowRight size={16} />
+            <Button onClick={handleNext} disabled={!canNext || isSubmitting} loading={isSubmitting}>
+              {step === STEPS.length - 1 ? 'Submit Application' : 'Continue'} <ArrowRight size={16} />
             </Button>
           </div>
         </div>

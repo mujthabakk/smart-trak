@@ -40,6 +40,16 @@ function getTenantPool(dbName) {
   return tenantPool;
 }
 
+// Closes and evicts a cached tenant pool — used before dropping that tenant's
+// database (schools.service.js's remove()), so no lingering pooled
+// connections are left pointing at a database that no longer exists.
+async function closeTenantPool(dbName) {
+  const pool = poolCache.get(dbName);
+  if (!pool) return;
+  poolCache.delete(dbName);
+  await pool.end();
+}
+
 // Get the active pool for the current context (defaults to master)
 function getActivePool() {
   const store = tenantContext.getStore();
@@ -74,4 +84,5 @@ module.exports = {
   withTransaction,
   tenantContext,
   getTenantPool,
+  closeTenantPool,
 };

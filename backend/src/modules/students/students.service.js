@@ -1,7 +1,10 @@
+const bcrypt = require('bcryptjs');
 const { query, withTransaction } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { parsePagination, paginationMeta } = require('../../utils/pagination');
 const { generateQrCode } = require('../../utils/qrcode');
+const { generateTempPassword } = require('../../utils/tempPassword');
+const { emailUserCredentials } = require('../../utils/userCredentialsEmail');
 
 // route_name is derived by following pickup_stop_id -> stops.route_id -> routes.name,
 // falling back to the drop stop's route when there's no pickup stop set. This is a
@@ -311,4 +314,50 @@ async function updateAlertStop(id, schoolId, field, stopId, parentUserId) {
   return getById(id, schoolId, parentUserId);
 }
 
-module.exports = { list, getById, create, update, remove, updateLocation, updateAlertStop };
+/**
+ * Sends (or resets) the login credentials for one of this student's parents,
+ * emailed to the parent contact's own address. A parent's login account is
+ * matched to their parent_details contact row purely by email (see
+ * parentChildCondition above) — there's no FK between them, and no account
+ * is ever created automatically when a parent contact is added to a
+ * student, so this both provisions the login (first time) and resets it
+ * (every time after) via the same upsert.
+ */
+async function sendParentCredentials(studentId, schoolId, parentEmail) {
+  const student = await getById(studentId, schoolId);
+  const parent = student.parents.find((p) => p.email && p.email.toLowerCase() === parentEmail.toLowerCase());
+  if (!parent) throw ApiError.badRequest('No parent with that email is on file for this student');
+
+  const tempPassword = generateTempPassword();
+  const passwordHash = await bcrypt.hash(tempPassword, 10);
+  const email = parent.email.trim().toLowerCase();
+
+  const { rows: existingRows } = await query(
+    `SELECT id FROM users WHERE lower(email) = lower($1) AND role = 'parent'`,
+    [email]
+  );
+
+  let userId;
+  if (existingRows[0]) {
+    userId = existingRows[0].id;
+    await query(
+      `UPDATE users SET password_hash = $1, name = $2, phone = COALESCE($3, phone), school_id = $4, updated_at = now() WHERE id = $5`,
+      [passwordHash, parent.parent_name, parent.phone || null, schoolId, userId]
+    );
+  } else {
+    const { rows } = await query(
+      `INSERT INTO users (name, email, password_hash, phone, role, school_id)
+       VALUES ($1,$2,$3,$4,'parent',$5) RETURNING id`,
+      [parent.parent_name, email, passwordHash, parent.phone || null, schoolId]
+    );
+    userId = rows[0].id;
+  }
+
+  return emailUserCredentials(
+    { id: userId, name: parent.parent_name, email, school_id: schoolId },
+    tempPassword,
+    { triggerType: 'user_credentials' }
+  );
+}
+
+module.exports = { list, getById, create, update, remove, updateLocation, updateAlertStop, sendParentCredentials };

@@ -85,3 +85,10 @@ export async function getExpiringDriverDocuments(days = 30, schoolId?: string): 
   })
   return data.drivers
 }
+
+/** Sends (or resets) this driver's own login credentials to their email —
+ * provisions the login on first send, resets the password every time after. */
+export async function sendDriverCredentials(id: string): Promise<{ emailStatus: string }> {
+  const { data } = await apiClient.post<{ emailStatus: string }>(`/drivers/${id}/credentials`)
+  return data
+}

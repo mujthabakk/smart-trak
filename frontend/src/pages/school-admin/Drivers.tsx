@@ -28,8 +28,9 @@ import { Label } from '@/components/ui/label'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
-import { getInitials, formatDate, daysUntil, downloadCSV, guestBudgetLabel } from '@/lib/utils'
+import { getInitials, formatDate, daysUntil, downloadCSV, guestBudgetLabel, parseCSVRow } from '@/lib/utils'
 import { listDrivers, createDriver, updateDriver, deleteDriver, type DriverInput } from '@/lib/api/drivers'
+import { listBuses } from '@/lib/api/buses'
 import type { Driver } from '@/types'
 
 function extractErrorMessage(err: unknown): string {
@@ -94,6 +95,15 @@ export default function Drivers() {
     queryKey: ['drivers'],
     queryFn: () => listDrivers(),
   })
+
+  // Only needed to resolve the bulk-import CSV's assigned_bus_number column
+  // against a real assigned_bus_id — no bus picker exists on the single
+  // Add/Edit Driver dialog.
+  const { data: busesData } = useQuery({
+    queryKey: ['buses'],
+    queryFn: () => listBuses(),
+  })
+  const buses = busesData?.buses ?? []
   const drivers = data?.drivers ?? []
 
   // Add dialog
@@ -104,6 +114,7 @@ export default function Drivers() {
   // Bulk import dialog
   const [importOpen, setImportOpen] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
+  const [unmatchedBusNumbers, setUnmatchedBusNumbers] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // View dialog
@@ -190,7 +201,11 @@ export default function Drivers() {
 
   function handleDownloadTemplate() {
     downloadCSV(
-      [{ name: 'John Doe', employee_id: 'EMP001', email: 'john@example.com', phone: '+1234567890', license_number: 'LIC123456', license_expiry: '2026-12-31' }],
+      [{
+        name: 'John Doe', employee_id: 'EMP001', email: 'john@example.com', phone: '+1234567890',
+        license_number: 'LIC123456', license_expiry: '2026-12-31',
+        whatsapp: '+1234567890', address: '12 Main St, Dubai', assigned_bus_number: 'BUS-001', is_active: 'true',
+      }],
       'drivers_template',
     )
   }
@@ -199,24 +214,50 @@ export default function Drivers() {
     const file = e.target.files?.[0]
     if (!file) return
     setImportError(null)
+    setUnmatchedBusNumbers([])
     const reader = new FileReader()
     reader.onload = (ev) => {
       const text = ev.target?.result as string
       const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-      // skip header
+      if (lines.length < 2) return
+      // Header-name lookup (not positional) — a reordered or partial column
+      // set (e.g. the older template without address/assigned_bus_number)
+      // still imports correctly, unlike a fixed-position split.
+      const headers = parseCSVRow(lines[0]).map((h) => h.toLowerCase())
       const dataLines = lines.slice(1)
+      const unmatched: string[] = []
       const imported: DriverInput[] = dataLines.map((line) => {
-        const [name, employee_id, email, phone, license_number, license_expiry] = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''))
+        const cols = parseCSVRow(line)
+        const row: Record<string, string> = {}
+        headers.forEach((h, i) => { row[h] = cols[i] ?? '' })
+
+        // assigned_bus_number is a human-readable identifier — resolved
+        // here against the buses already loaded for this school, same
+        // reasoning as Buses.tsx's driver_employee_id lookup.
+        const busNumber = (row['assigned_bus_number'] ?? '').trim()
+        let assignedBusId: string | undefined
+        if (busNumber) {
+          const match = buses.find((b) => b.bus_number.toLowerCase() === busNumber.toLowerCase())
+          if (match) assignedBusId = match.id
+          else unmatched.push(busNumber)
+        }
+
+        const isActiveRaw = (row['is_active'] ?? '').trim().toLowerCase()
+
         return {
-          name: name ?? '',
-          employee_id: employee_id ?? '',
-          email: email ?? '',
-          phone: phone ?? '',
-          whatsapp: phone ?? '',
-          license_number: license_number ?? '',
-          license_expiry: license_expiry ?? '',
+          name: row['name'] ?? '',
+          employee_id: row['employee_id'] ?? '',
+          email: row['email'] ?? '',
+          phone: row['phone'] ?? '',
+          whatsapp: row['whatsapp'] || row['phone'] || '',
+          license_number: row['license_number'] ?? '',
+          license_expiry: row['license_expiry'] ?? '',
+          address: row['address'] || undefined,
+          assigned_bus_id: assignedBusId,
+          is_active: isActiveRaw === 'true' || isActiveRaw === 'false' ? isActiveRaw === 'true' : undefined,
         }
       }).filter((d) => d.name)
+      setUnmatchedBusNumbers(unmatched)
       if (imported.length > 0) {
         bulkImportMutation.mutate(imported)
       }
@@ -545,6 +586,12 @@ export default function Drivers() {
           {importError && (
             <p className="flex items-start gap-2 p-3 rounded-xl text-sm bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40">
               <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {importError}
+            </p>
+          )}
+          {unmatchedBusNumbers.length > 0 && (
+            <p className="flex items-start gap-2 p-3 rounded-xl text-sm bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40">
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+              No bus found with bus_number: {unmatchedBusNumbers.join(', ')} — those drivers imported without a bus assigned.
             </p>
           )}
           <DialogFooter>

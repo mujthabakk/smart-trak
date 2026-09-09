@@ -1,4 +1,4 @@
-const { query } = require('../../config/db');
+const { query, masterPool, getTenantPool } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { paginationMeta } = require('../../utils/pagination');
 
@@ -24,19 +24,30 @@ function toResponse(row) {
   };
 }
 
+function tenantDbName(schoolId) {
+  return `smarttrack_${schoolId.replace('-', '_').toLowerCase()}`;
+}
+
 /** super_admin sees every log (optionally filtered by ?school_id=); school_admin
- * is pinned to their own school's log trail. */
+ * is pinned to their own school's log trail.
+ *
+ * A school_admin's own actions (student/bus/driver/route changes, etc.) are
+ * recorded via the ambient, request-context-routed `query()` — landing in
+ * their own tenant database, same as everything else they do. So a
+ * super_admin's plain ambient query (bound to master, since their own JWT
+ * carries no school_id) would only ever see super_admin-originated entries
+ * (e.g. impersonation) and miss every school's own trail entirely. Fanning
+ * out across master + every tenant DB — same pattern emailLogs.service.js
+ * uses — is what actually surfaces them. */
 async function list(user, { page, pageSize, offset }, filters) {
   const conditions = [];
   const params = [];
 
-  if (user.role === 'super_admin') {
-    if (filters.school_id) {
-      params.push(filters.school_id);
-      conditions.push(`a.school_id = $${params.length}`);
-    }
-  } else {
+  if (user.role !== 'super_admin') {
     params.push(user.school_id || null);
+    conditions.push(`a.school_id = $${params.length}`);
+  } else if (filters.school_id) {
+    params.push(filters.school_id);
     conditions.push(`a.school_id = $${params.length}`);
   }
 
@@ -59,16 +70,46 @@ async function list(user, { page, pageSize, offset }, filters) {
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const { rows: countRows } = await query(`SELECT COUNT(*)::int AS total FROM audit_logs a ${where}`, params);
-  const total = countRows[0].total;
+  if (user.role !== 'super_admin') {
+    const { rows: countRows } = await query(`SELECT COUNT(*)::int AS total FROM audit_logs a ${where}`, params);
+    const total = countRows[0].total;
 
-  params.push(pageSize, offset);
-  const { rows } = await query(
-    `${BASE_SELECT} ${where} ORDER BY a.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params
+    params.push(pageSize, offset);
+    const { rows } = await query(
+      `${BASE_SELECT} ${where} ORDER BY a.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+    return { logs: rows.map(toResponse), pagination: paginationMeta(page, pageSize, total) };
+  }
+
+  // super_admin: master, plus either the one filtered school's tenant DB or
+  // every school's tenant DB.
+  let pools;
+  if (filters.school_id) {
+    pools = [masterPool, getTenantPool(tenantDbName(filters.school_id))];
+  } else {
+    const { rows: schools } = await masterPool.query('SELECT id FROM schools');
+    pools = [masterPool, ...schools.map((s) => getTenantPool(tenantDbName(s.id)))];
+  }
+
+  const results = await Promise.all(
+    pools.map((pool) =>
+      pool.query(`${BASE_SELECT} ${where}`, params).then(
+        ({ rows }) => rows,
+        (err) => {
+          console.error('Failed to read audit_logs from a tenant database:', err.message);
+          return [];
+        }
+      )
+    )
   );
+  const allRows = results.flat();
+  allRows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-  return { logs: rows.map(toResponse), pagination: paginationMeta(page, pageSize, total) };
+  const total = allRows.length;
+  const pageRows = allRows.slice(offset, offset + pageSize);
+
+  return { logs: pageRows.map(toResponse), pagination: paginationMeta(page, pageSize, total) };
 }
 
 async function getById(id, user) {

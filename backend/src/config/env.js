@@ -25,4 +25,7 @@ module.exports = {
     from: process.env.SMTP_FROM || 'SmartTrack <no-reply@smarttrack.app>',
   },
   fcmCredentialsPath: process.env.FCM_CREDENTIALS_PATH || '',
+  // Optional — the AI Assistant chat widget degrades to a clear "not
+  // configured" message (rather than failing to boot) when this is unset.
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
 };

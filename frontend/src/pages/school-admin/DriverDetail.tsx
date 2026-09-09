@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft, Phone, Mail, MessageSquare, Bus as BusIcon,
   Navigation, BadgeCheck, Calendar, User, Hash, AlertTriangle,
-  CheckCircle2, XCircle, CalendarOff, Clock, AlertCircle,
+  CheckCircle2, XCircle, CalendarOff, Clock, AlertCircle, KeyRound, Send,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -20,7 +20,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { getInitials, formatDate, daysUntil } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { getDriver } from '@/lib/api/drivers'
+import { getDriver, sendDriverCredentials } from '@/lib/api/drivers'
+import { forgotPassword } from '@/lib/api/auth'
 import { listRoutes } from '@/lib/api/routes'
 import { listTrips } from '@/lib/api/trips'
 
@@ -30,6 +31,14 @@ function extractErrorMessage(err: unknown): string {
     return data?.message || 'Failed to load driver details.'
   }
   return 'Failed to load driver details.'
+}
+
+function extractCredentialsError(err: unknown, fallback: string): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { error?: string } | undefined
+    return data?.error || fallback
+  }
+  return fallback
 }
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.07 } } }
@@ -96,6 +105,21 @@ export default function DriverDetail() {
     queryKey: ['driver', id],
     queryFn: () => getDriver(id as string),
     enabled: !!id,
+  })
+
+  const [credentialsMessage, setCredentialsMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const sendCredentialsMutation = useMutation({
+    mutationFn: () => sendDriverCredentials(id as string),
+    onSuccess: () => setCredentialsMessage({ type: 'success', text: `Login credentials sent to ${driver?.email}.` }),
+    onError: (err) => setCredentialsMessage({ type: 'error', text: extractCredentialsError(err, 'Failed to send credentials.') }),
+  })
+  const sendResetLinkMutation = useMutation({
+    mutationFn: () => forgotPassword(driver!.email),
+    onSuccess: () => setCredentialsMessage({ type: 'success', text: `Password reset link sent to ${driver?.email}.` }),
+    onError: (err) => setCredentialsMessage({
+      type: 'error',
+      text: extractCredentialsError(err, 'Failed to send reset link — this driver may not have a login yet. Try "Regenerate & Send Password" first.'),
+    }),
   })
   const bus = useMemo(
     () => (driver?.assigned_bus_id ? { id: driver.assigned_bus_id, bus_number: driver.assigned_bus_number ?? '' } : undefined),
@@ -272,8 +296,24 @@ export default function DriverDetail() {
             {/* Details tab */}
             <TabsContent value="details" className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <Card>
-                <CardHeader className="pb-2">
+                <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Personal Information</CardTitle>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={() => { setCredentialsMessage(null); sendResetLinkMutation.mutate() }}
+                      loading={sendResetLinkMutation.isPending}
+                    >
+                      <Send size={13} /> Send Reset Link
+                    </Button>
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={() => { setCredentialsMessage(null); sendCredentialsMutation.mutate() }}
+                      loading={sendCredentialsMutation.isPending}
+                    >
+                      <KeyRound size={13} /> Regenerate &amp; Send Password
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <DetailRow label="Full Name" value={driver.name} />
@@ -285,6 +325,11 @@ export default function DriverDetail() {
                   <DetailRow label="Status">
                     <StatusBadge status={driver.is_active ? 'running' : 'offline'} size="sm" />
                   </DetailRow>
+                  {credentialsMessage && (
+                    <p className={`mt-3 text-xs ${credentialsMessage.type === 'success' ? 'text-green-600' : 'text-[var(--destructive)]'}`}>
+                      {credentialsMessage.text}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 

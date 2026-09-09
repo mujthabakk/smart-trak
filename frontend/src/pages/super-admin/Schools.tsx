@@ -11,6 +11,10 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { AddressFields } from '@/components/shared/AddressFields'
+import { SchoolCodeField } from '@/components/shared/SchoolCodeField'
+import { LocationPicker } from '@/components/shared/LocationPicker'
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezones'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -56,6 +60,9 @@ interface FormState {
   state: string
   post_code: string
   country: string
+  latitude: string
+  longitude: string
+  timezone: string
   student_count: string
   bus_count: string
   driver_count: string
@@ -63,7 +70,8 @@ interface FormState {
 }
 const EMPTY_FORM: FormState = {
   name: '', admin_name: '', admin_email: '', phone: '', website: '',
-  plan_name: 'standard', address: '', city: '', state: '', post_code: '', country: 'UAE',
+  plan_name: 'standard', address: '', city: '', state: '', post_code: '', country: 'United Arab Emirates',
+  latitude: '', longitude: '', timezone: DEFAULT_TIMEZONE,
   student_count: '', bus_count: '', driver_count: '', school_code: '',
 }
 
@@ -179,7 +187,10 @@ export default function Schools() {
       city: row.city ?? '',
       state: row.state ?? '',
       post_code: row.post_code ?? '',
-      country: row.country ?? 'UAE',
+      country: row.country ?? 'United Arab Emirates',
+      latitude: row.latitude != null ? String(row.latitude) : '',
+      longitude: row.longitude != null ? String(row.longitude) : '',
+      timezone: row.timezone || DEFAULT_TIMEZONE,
       student_count: String(row.student_count ?? ''),
       bus_count: String(row.bus_count ?? ''),
       driver_count: String(row.driver_count ?? ''),
@@ -216,7 +227,10 @@ export default function Schools() {
       city: form.city || '—',
       state: form.state || '—',
       post_code: form.post_code || undefined,
-      country: form.country || 'UAE',
+      country: form.country || 'United Arab Emirates',
+      latitude: form.latitude.trim() === '' ? undefined : Number(form.latitude),
+      longitude: form.longitude.trim() === '' ? undefined : Number(form.longitude),
+      timezone: form.timezone,
     }
     if (editingId) {
       updateMutation.mutate({ id: editingId, payload: commonFields })
@@ -281,7 +295,7 @@ export default function Schools() {
           city: city || '—',
           address: address || '—',
           state: city || '—',
-          country: 'UAE',
+          country: 'United Arab Emirates',
           subdomain: slugify(schoolName),
           status: 'pending',
         }
@@ -420,9 +434,8 @@ export default function Schools() {
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">School Information</p>
               <div className="grid grid-cols-2 gap-3">
                 {!editingId && (
-                  <div className="col-span-2 space-y-1.5">
-                    <Label htmlFor="sc-school-code">School Code *</Label>
-                    <Input id="sc-school-code" value={form.school_code} onChange={(e) => setForm((f) => ({ ...f, school_code: e.target.value }))} placeholder="SCH-001" required />
+                  <div className="col-span-2">
+                    <SchoolCodeField idPrefix="sc" value={form.school_code} onChange={(v) => setForm((f) => ({ ...f, school_code: v.toUpperCase() }))} />
                   </div>
                 )}
                 <div className="col-span-2 space-y-1.5">
@@ -467,21 +480,37 @@ export default function Schools() {
                   <Label htmlFor="sc-address">Street address</Label>
                   <Input id="sc-address" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} placeholder="45 Sheikh Zayed Road" />
                 </div>
+                <AddressFields
+                  idPrefix="sc"
+                  country={form.country}
+                  city={form.city}
+                  state={form.state}
+                  postCode={form.post_code}
+                  onCountryChange={(v) => setForm((f) => ({ ...f, country: v }))}
+                  onCityChange={(v) => setForm((f) => ({ ...f, city: v }))}
+                  onStateChange={(v) => setForm((f) => ({ ...f, state: v }))}
+                  onPostCodeChange={(v) => setForm((f) => ({ ...f, post_code: v }))}
+                />
                 <div className="space-y-1.5">
-                  <Label htmlFor="sc-city">City</Label>
-                  <Input id="sc-city" value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} placeholder="Dubai" />
+                  <Label>Timezone</Label>
+                  <Select value={form.timezone} onValueChange={(v) => setForm((f) => ({ ...f, timezone: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select a timezone" /></SelectTrigger>
+                    <SelectContent>
+                      {TIMEZONE_OPTIONS.map((tz) => (
+                        <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="sc-state">State / Emirate</Label>
-                  <Input id="sc-state" value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))} placeholder="Dubai" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="sc-postcode">Post / ZIP code</Label>
-                  <Input id="sc-postcode" value={form.post_code} onChange={(e) => setForm((f) => ({ ...f, post_code: e.target.value }))} placeholder="00000" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="sc-country">Country</Label>
-                  <Input id="sc-country" value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))} placeholder="UAE" />
+                <div className="col-span-2 space-y-1.5">
+                  <Label>School location</Label>
+                  <LocationPicker
+                    latitude={form.latitude.trim() === '' ? undefined : Number(form.latitude)}
+                    longitude={form.longitude.trim() === '' ? undefined : Number(form.longitude)}
+                    onChange={(lat, lng) => {
+                      setForm((f) => ({ ...f, latitude: String(lat), longitude: String(lng) }))
+                    }}
+                  />
                 </div>
               </div>
             </div>

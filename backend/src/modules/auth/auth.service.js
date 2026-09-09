@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { query } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { isGuestExpired } = require('../../utils/guestDriverExpiry');
+const { emailPasswordResetOtp } = require('../../utils/passwordResetEmail');
 
 const USER_SELECT = `
   SELECT u.id, u.name, u.email, u.phone, u.role, u.school_id,
@@ -88,7 +89,11 @@ async function createOtp(email) {
     'INSERT INTO password_resets (user_id, otp_code, expires_at) VALUES ($1, $2, $3)',
     [user.id, otp, expiresAt]
   );
-  return { userId: user.id, otp };
+  const { status: emailStatus } = await emailPasswordResetOtp(
+    { id: user.id, name: user.name, email: user.email, school_id: user.school_id },
+    otp
+  );
+  return { userId: user.id, otp, emailStatus };
 }
 
 async function verifyOtp(email, otp) {

@@ -23,6 +23,9 @@ const STATUS_META: Record<EmailLog['status'], { label: string; variant: 'success
 const TRIGGER_LABEL: Record<string, string> = {
   school_approval: 'School Approval',
   manual_regenerate: 'Manual Regenerate',
+  user_credentials: 'User Credentials',
+  guest_driver_credentials: 'Guest Driver Credentials',
+  password_reset: 'Password Reset',
 }
 
 export default function EmailLogs() {

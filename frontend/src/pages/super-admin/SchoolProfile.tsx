@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Pencil, Power, Mail, Phone, MapPin, Globe, Calendar, User,
   GraduationCap, Bus, UserCheck, Route as RouteIcon, CreditCard,
-  CheckCircle2, Building2, Receipt, TrendingUp, Save, ArrowLeft, AlertCircle,
+  CheckCircle2, Building2, Receipt, TrendingUp, Save, ArrowLeft, AlertCircle, LogIn,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -14,6 +14,7 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { LocationPicker } from '@/components/shared/LocationPicker'
+import { AddressFields } from '@/components/shared/AddressFields'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -22,10 +23,12 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { getInitials, formatDate, formatCurrency, formatNumber } from '@/lib/utils'
-import { getSchool, updateSchool } from '@/lib/api/schools'
+import { getSchool, updateSchool, impersonateSchoolAdmin } from '@/lib/api/schools'
 import { listPlans } from '@/lib/api/plans'
 import { listSubscriptions } from '@/lib/api/subscriptions'
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezones'
+import { useAppDispatch } from '@/store/hooks'
+import { startImpersonation } from '@/store/slices/authSlice'
 import type { School, Subscription } from '@/types'
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -108,7 +111,7 @@ interface EditForm {
 
 const EMPTY_EDIT_FORM: EditForm = {
   name: '', admin_name: '', admin_email: '', phone: '', website: '',
-  plan_name: 'standard', address: '', city: '', state: '', post_code: '', country: 'UAE',
+  plan_name: 'standard', address: '', city: '', state: '', post_code: '', country: 'United Arab Emirates',
   latitude: '', longitude: '',
   student_count: '', bus_count: '', driver_count: '',
   timezone: DEFAULT_TIMEZONE, supervisor_name: '', supervisor_phone: '',
@@ -126,7 +129,7 @@ function schoolToForm(s: School): EditForm {
     city: s.city ?? '',
     state: s.state ?? '',
     post_code: s.post_code ?? '',
-    country: s.country ?? 'UAE',
+    country: s.country ?? 'United Arab Emirates',
     latitude: s.latitude != null ? String(s.latitude) : '',
     longitude: s.longitude != null ? String(s.longitude) : '',
     student_count: String(s.student_count ?? ''),
@@ -149,9 +152,11 @@ export default function SchoolProfile() {
   const { id } = useParams()
   const location = useLocation()
   const queryClient = useQueryClient()
+  const dispatch = useAppDispatch()
 
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [impersonateError, setImpersonateError] = useState('')
   const [activeTab, setActiveTab] = useState(() => (location.state as { tab?: string } | null)?.tab ?? 'overview')
 
   const { data: school, isLoading, isError } = useQuery({
@@ -201,6 +206,18 @@ export default function SchoolProfile() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school', id] })
       queryClient.invalidateQueries({ queryKey: ['schools'] })
+    },
+  })
+
+  const impersonateMutation = useMutation({
+    mutationFn: () => impersonateSchoolAdmin(id as string),
+    onSuccess: ({ user, token }) => {
+      dispatch(startImpersonation({ user, token }))
+      navigate('/school-admin/dashboard')
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+      setImpersonateError(message || 'Failed to log in as this school\'s admin.')
     },
   })
 
@@ -327,12 +344,30 @@ export default function SchoolProfile() {
                 {school.status === 'suspended' ? 'Reactivate' : 'Suspend'}
               </Button>
             )}
+            {school.status === 'active' && (
+              <Button
+                variant="outline"
+                onClick={() => impersonateMutation.mutate()}
+                loading={impersonateMutation.isPending}
+              >
+                <LogIn size={15} /> Login as Admin
+              </Button>
+            )}
             <Button onClick={() => setActiveTab('edit')}>
               <Pencil size={15} /> Edit School
             </Button>
           </>
         }
       />
+
+      {impersonateError && (
+        <div
+          className="flex items-start gap-2 p-3 rounded-xl text-sm mb-4"
+          style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+        >
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {impersonateError}
+        </div>
+      )}
 
       <div className="space-y-6">
         {/* Profile header card */}
@@ -572,22 +607,17 @@ export default function SchoolProfile() {
                         <Label htmlFor="e-address">Street address</Label>
                         <Input id="e-address" value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="45 Sheikh Zayed Road" />
                       </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="e-city">City</Label>
-                        <Input id="e-city" value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="Dubai" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="e-state">State / Emirate</Label>
-                        <Input id="e-state" value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="Dubai" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="e-postcode">Post / ZIP code</Label>
-                        <Input id="e-postcode" value={form.post_code} onChange={(e) => set('post_code', e.target.value)} placeholder="00000" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="e-country">Country</Label>
-                        <Input id="e-country" value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="UAE" />
-                      </div>
+                      <AddressFields
+                        idPrefix="e"
+                        country={form.country}
+                        city={form.city}
+                        state={form.state}
+                        postCode={form.post_code}
+                        onCountryChange={(v) => set('country', v)}
+                        onCityChange={(v) => set('city', v)}
+                        onStateChange={(v) => set('state', v)}
+                        onPostCodeChange={(v) => set('post_code', v)}
+                      />
                       <div className="sm:col-span-2 space-y-1.5">
                         <Label>School location</Label>
                         <LocationPicker

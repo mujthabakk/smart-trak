@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
   Pencil, QrCode, Phone, Mail, MessageCircle, User, MapPin, Bus,
   Route as RouteIcon, ShieldAlert, CalendarCheck, CheckCircle2,
-  XCircle, CalendarOff, Clock, Hash, Users, AlertCircle,
+  XCircle, CalendarOff, Clock, Hash, Users, AlertCircle, KeyRound, Send,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -17,11 +18,20 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { getInitials, formatDate } from '@/lib/utils'
-import { getStudent } from '@/lib/api/students'
+import { getStudent, sendParentCredentials } from '@/lib/api/students'
+import { forgotPassword } from '@/lib/api/auth'
 import { listRoutes } from '@/lib/api/routes'
 import { listBuses } from '@/lib/api/buses'
 import { listAttendance } from '@/lib/api/attendance'
 import type { AttendanceStatus } from '@/types'
+
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { error?: string } | undefined
+    return data?.error || fallback
+  }
+  return fallback
+}
 
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
@@ -67,6 +77,21 @@ export default function StudentProfile() {
   })
 
   const guardian = student?.parents[0]
+
+  const [credentialsMessage, setCredentialsMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const sendCredentialsMutation = useMutation({
+    mutationFn: () => sendParentCredentials(id!, guardian!.email!),
+    onSuccess: () => setCredentialsMessage({ type: 'success', text: `Login credentials sent to ${guardian?.email}.` }),
+    onError: (err) => setCredentialsMessage({ type: 'error', text: extractErrorMessage(err, 'Failed to send credentials.') }),
+  })
+  const sendResetLinkMutation = useMutation({
+    mutationFn: () => forgotPassword(guardian!.email!),
+    onSuccess: () => setCredentialsMessage({ type: 'success', text: `Password reset link sent to ${guardian?.email}.` }),
+    onError: (err) => setCredentialsMessage({
+      type: 'error',
+      text: extractErrorMessage(err, 'Failed to send reset link — this guardian may not have a login yet. Try "Regenerate & Send Password" first.'),
+    }),
+  })
 
   const routesQuery = useQuery({
     queryKey: ['routes'],
@@ -212,7 +237,27 @@ export default function StudentProfile() {
               {/* Overview */}
               <TabsContent value="overview" className="space-y-6">
                 <Card>
-                  <CardHeader><CardTitle>Guardian Contact</CardTitle></CardHeader>
+                  <CardHeader className="flex-row items-center justify-between space-y-0">
+                    <CardTitle>Guardian Contact</CardTitle>
+                    {guardian?.email && (
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="outline" size="sm"
+                          onClick={() => { setCredentialsMessage(null); sendResetLinkMutation.mutate() }}
+                          loading={sendResetLinkMutation.isPending}
+                        >
+                          <Send size={13} /> Send Reset Link
+                        </Button>
+                        <Button
+                          variant="outline" size="sm"
+                          onClick={() => { setCredentialsMessage(null); sendCredentialsMutation.mutate() }}
+                          loading={sendCredentialsMutation.isPending}
+                        >
+                          <KeyRound size={13} /> Regenerate &amp; Send Password
+                        </Button>
+                      </div>
+                    )}
+                  </CardHeader>
                   <CardContent>
                     {guardian ? (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
@@ -232,6 +277,11 @@ export default function StudentProfile() {
                       </div>
                     ) : (
                       <p className="text-sm text-[var(--muted-foreground)]">No guardian on file.</p>
+                    )}
+                    {credentialsMessage && (
+                      <p className={`mt-4 text-xs ${credentialsMessage.type === 'success' ? 'text-green-600' : 'text-[var(--destructive)]'}`}>
+                        {credentialsMessage.text}
+                      </p>
                     )}
                   </CardContent>
                 </Card>

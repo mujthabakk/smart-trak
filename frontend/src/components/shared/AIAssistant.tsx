@@ -1,15 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useQuery } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { Sparkles, X, Send, RotateCcw, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { listStudents } from '@/lib/api/students'
-import { listBuses } from '@/lib/api/buses'
-import { listDrivers } from '@/lib/api/drivers'
-import { listAttendance } from '@/lib/api/attendance'
-import { listLeave } from '@/lib/api/leave'
-import type { Student, Leave } from '@/types'
+import { askAssistant } from '@/lib/api/assistant'
 
 interface Message {
   id: string
@@ -30,73 +25,17 @@ function getLocalTime() {
   return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 }
 
-function todayKey() {
-  return new Date().toISOString().split('T')[0]
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { error?: string } | undefined
+    return data?.error || 'Something went wrong answering that — please try again.'
+  }
+  return 'Something went wrong answering that — please try again.'
 }
 
-interface AssistantData {
-  students: Student[]
-  buses: Awaited<ReturnType<typeof listBuses>>['buses']
-  drivers: Awaited<ReturnType<typeof listDrivers>>['drivers']
-  attendance: Awaited<ReturnType<typeof listAttendance>>['records']
-  leaves: Leave[]
-}
-
-function generateResponse(query: string, { students, buses, drivers, attendance, leaves }: AssistantData): string {
-  const q = query.toLowerCase()
-
-  const totalStudents = students.length
-  const activeStudents = students.filter((s) => s.is_active).length
-  const presentToday = attendance.filter((a) => a.status === 'present').length
-  const absentToday = attendance.filter((a) => a.status === 'absent').length
-  const onLeave = attendance.filter((a) => a.status === 'leave').length
-  const attendancePct = attendance.length
-    ? Math.round((presentToday / attendance.length) * 100)
-    : 0
-
-  const runningBuses = buses.filter((b) => b.status === 'running')
-  const idleBuses = buses.filter((b) => b.status === 'idle')
-  const offlineBuses = buses.filter((b) => !b.status || b.status === 'offline')
-  const pendingLeaves = leaves.filter((l) => l.status === 'pending')
-  const activeDrivers = drivers.filter((d) => d.is_active)
-
-  if (q.includes('present') || q.includes('attendance')) {
-    return `📊 **Today's Attendance Summary**\n\n• Present: **${presentToday}** students\n• Absent: **${absentToday}** students\n• On Leave: **${onLeave}** students\n• Attendance Rate: **${attendancePct}%**\n\nTotal enrolled students: ${totalStudents} (${activeStudents} active)`
-  }
-
-  if (q.includes('bus') && (q.includes('running') || q.includes('active') || q.includes('now'))) {
-    const names = runningBuses.map((b) => `  • ${b.bus_number} — ${b.driver_name ?? 'No driver'}`).join('\n')
-    return `🚌 **Currently Running Buses (${runningBuses.length})**\n\n${names || '  No buses currently running'}\n\n⏸ Idle: ${idleBuses.length} | 📵 Offline: ${offlineBuses.length}`
-  }
-
-  if (q.includes('bus')) {
-    return `🚌 **Fleet Overview**\n\n• Total buses: **${buses.length}**\n• Running: **${runningBuses.length}**\n• Idle: **${idleBuses.length}**\n• Offline: **${offlineBuses.length}**`
-  }
-
-  if (q.includes('leave') || q.includes('absent') || q.includes('pending')) {
-    const names = pendingLeaves.slice(0, 3).map((l) => `  • ${l.student_name} — ${l.from_date} to ${l.to_date}`).join('\n')
-    return `📋 **Leave Requests**\n\n• Pending: **${pendingLeaves.length}** requests\n• Approved this month: ${leaves.filter((l) => l.status === 'approved').length}\n\nPending requests:\n${names || '  None pending'}`
-  }
-
-  if (q.includes('driver')) {
-    return `👤 **Drivers Summary**\n\n• Total drivers: **${drivers.length}**\n• Active: **${activeDrivers.length}**\n• Inactive: **${drivers.length - activeDrivers.length}**`
-  }
-
-  if (q.includes('student')) {
-    return `🎒 **Students Summary**\n\n• Total students: **${totalStudents}**\n• Active: **${activeStudents}**\n• Present today: **${presentToday}**\n• Absent today: **${absentToday}**`
-  }
-
-  if (q.includes('rate') || q.includes('percent') || q.includes('%')) {
-    return `📈 **Attendance Rate**\n\nToday's rate: **${attendancePct}%**\n\n${presentToday} out of ${attendance.length} students scanned are present.`
-  }
-
-  if (q.includes('hello') || q.includes('hi') || q.includes('hey')) {
-    return `👋 Hello! I'm your SmartTrack assistant. I can help you with:\n\n• Attendance summaries\n• Bus & fleet status\n• Student information\n• Leave requests\n• Driver details\n\nWhat would you like to know?`
-  }
-
-  return `I can help you with attendance, buses, students, drivers, and leave requests. Try asking:\n\n• "How many students are present today?"\n• "Which buses are running?"\n• "How many leaves are pending?"\n• "What is the attendance rate?"`
-}
-
+// Bold markdown (**text**) and bullet lines (• ...) render specially;
+// everything else is a plain paragraph. Matches the plain-text style Gemini
+// is instructed to reply in (see assistant.service.js's system instruction).
 function formatContent(content: string) {
   return content.split('\n').map((line, i) => {
     if (line.startsWith('**') && line.endsWith('**')) {
@@ -110,7 +49,7 @@ function formatContent(content: string) {
         </p>
       )
     }
-    if (line.startsWith('•')) {
+    if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
       return <p key={i} className="text-sm text-[var(--muted-foreground)] ml-2 leading-relaxed">{line}</p>
     }
     if (line === '') return <div key={i} className="h-1" />
@@ -129,38 +68,28 @@ export function AIAssistant() {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([WELCOME])
   const [input, setInput] = useState('')
-  const bottomRef = useRef<HTMLDivElement>(null)
-
-  const studentsQuery = useQuery({ queryKey: ['students', {}], queryFn: () => listStudents(), enabled: open })
-  const busesQuery = useQuery({ queryKey: ['buses', {}], queryFn: () => listBuses(), enabled: open })
-  const driversQuery = useQuery({ queryKey: ['drivers', {}], queryFn: () => listDrivers(), enabled: open })
-  const attendanceQuery = useQuery({ queryKey: ['attendance', { date: todayKey() }], queryFn: () => listAttendance({ date: todayKey() }), enabled: open })
-  const leaveQuery = useQuery({ queryKey: ['leave', {}], queryFn: () => listLeave(), enabled: open })
-
   const [loading, setLoading] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, open])
 
-  function send(text?: string) {
+  async function send(text?: string) {
     const q = (text ?? input).trim()
-    if (!q) return
+    if (!q || loading) return
     setInput('')
     const userMsg: Message = { id: `u_${Date.now()}`, role: 'user', content: q, time: getLocalTime() }
     setMessages((prev) => [...prev, userMsg])
     setLoading(true)
-    setTimeout(() => {
-      const reply = generateResponse(q, {
-        students: studentsQuery.data?.students ?? [],
-        buses: busesQuery.data?.buses ?? [],
-        drivers: driversQuery.data?.drivers ?? [],
-        attendance: attendanceQuery.data?.records ?? [],
-        leaves: leaveQuery.data?.leaves ?? [],
-      })
-      setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: 'assistant', content: reply, time: getLocalTime() }])
+    try {
+      const answer = await askAssistant(q)
+      setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: 'assistant', content: answer, time: getLocalTime() }])
+    } catch (err) {
+      setMessages((prev) => [...prev, { id: `e_${Date.now()}`, role: 'assistant', content: extractErrorMessage(err), time: getLocalTime() }])
+    } finally {
       setLoading(false)
-    }, 600)
+    }
   }
 
   function reset() {
@@ -252,13 +181,14 @@ export function AIAssistant() {
             {/* Quick prompts */}
             <div className="px-4 py-2 border-t border-[var(--border)] flex gap-2 overflow-x-auto scrollbar-none">
               {QUICK_PROMPTS.slice(0, 3).map((p) => (
-                <button key={p} onClick={() => send(p)}
-                  className="text-[11px] whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-1 text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)] hover:border-[var(--primary)]/30 transition-colors flex-shrink-0">
+                <button key={p} onClick={() => send(p)} disabled={loading}
+                  className="text-[11px] whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-1 text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)] hover:border-[var(--primary)]/30 transition-colors flex-shrink-0 disabled:opacity-50">
                   {p}
                 </button>
               ))}
               <button
-                className="text-[11px] whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-1 text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors flex-shrink-0 flex items-center gap-1"
+                disabled={loading}
+                className="text-[11px] whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-1 text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors flex-shrink-0 flex items-center gap-1 disabled:opacity-50"
                 onClick={() => {
                   const next = QUICK_PROMPTS.slice(3)
                   if (next.length > 0) send(next[Math.floor(Math.random() * next.length)])
@@ -275,6 +205,7 @@ export function AIAssistant() {
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
                 placeholder="Ask about buses, students…"
                 className="flex-1 text-sm h-9"
+                disabled={loading}
               />
               <Button size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => send()} disabled={!input.trim() || loading}>
                 <Send size={14} />

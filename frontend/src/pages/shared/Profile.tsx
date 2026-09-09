@@ -1,23 +1,20 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
 import {
   Mail, Phone, Building2, Shield, Calendar, MapPin, Pencil,
-  CheckCircle2, LogIn, Bus, Bell, Settings as SettingsIcon,
+  History, Clock, Settings as SettingsIcon,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { useAppSelector } from '@/store/hooks'
 import { getInitials, getRoleLabel, formatDate } from '@/lib/utils'
-
-const ACTIVITY = [
-  { icon: LogIn, color: 'text-blue-600 bg-blue-50 dark:bg-blue-900/20', text: 'Signed in from Dubai, UAE', time: '2026-06-23T08:02:00Z' },
-  { icon: Bus, color: 'text-green-600 bg-green-50 dark:bg-green-900/20', text: 'Approved bus transfer for Route 4', time: '2026-06-22T15:20:00Z' },
-  { icon: Bell, color: 'text-purple-600 bg-purple-50 dark:bg-purple-900/20', text: 'Sent broadcast to all parents', time: '2026-06-22T11:05:00Z' },
-  { icon: CheckCircle2, color: 'text-green-600 bg-green-50 dark:bg-green-900/20', text: 'Updated notification preferences', time: '2026-06-21T09:40:00Z' },
-]
+import { getSchool } from '@/lib/api/schools'
+import { listAuditLogs, humanizeAuditAction } from '@/lib/api/auditLogs'
 
 export default function Profile() {
   const navigate = useNavigate()
@@ -26,13 +23,29 @@ export default function Profile() {
   const settingsPath = role === 'super_admin' ? '/super-admin/settings' : '/school-admin/settings'
   const name = user?.name ?? 'User'
 
+  const { data: school } = useQuery({
+    queryKey: ['school', user?.school_id],
+    queryFn: () => getSchool(user!.school_id as string),
+    enabled: role === 'school_admin' && !!user?.school_id,
+  })
+
+  const { data: activityData } = useQuery({
+    queryKey: ['audit-logs', 'my-activity', user?.id],
+    queryFn: () => listAuditLogs({ user_id: user!.id, pageSize: 5 }),
+    enabled: !!user?.id,
+  })
+  const activity = activityData?.logs ?? []
+  const actionCount = activityData?.pagination.total ?? 0
+
   const info = [
     { icon: Mail, label: 'Email', value: user?.email ?? '—' },
-    { icon: Phone, label: 'Phone', value: user?.phone ?? '+971 50 123 4567' },
+    { icon: Phone, label: 'Phone', value: user?.phone || '—' },
     { icon: Shield, label: 'Role', value: getRoleLabel(role ?? 'school_admin') },
     { icon: Building2, label: 'Organization', value: user?.school_name ?? 'SmartTrack HQ' },
-    { icon: MapPin, label: 'Location', value: 'Dubai, United Arab Emirates' },
-    { icon: Calendar, label: 'Member since', value: 'January 2026' },
+    ...(school
+      ? [{ icon: MapPin, label: 'Location', value: [school.city, school.state, school.country].filter(Boolean).join(', ') || '—' }]
+      : []),
+    { icon: Calendar, label: 'Member since', value: user?.created_at ? formatDate(user.created_at, 'MMMM yyyy') : '—' },
   ]
 
   return (
@@ -59,12 +72,14 @@ export default function Profile() {
 
                 <div className="mt-5 grid grid-cols-2 gap-3 w-full">
                   <div className="rounded-xl bg-[var(--muted)]/50 p-3">
-                    <p className="text-xl font-bold text-[var(--foreground)]">128</p>
-                    <p className="text-xs text-[var(--muted-foreground)]">Actions</p>
+                    <p className="text-xl font-bold text-[var(--foreground)]">{actionCount}</p>
+                    <p className="text-xs text-[var(--muted-foreground)]">Actions logged</p>
                   </div>
                   <div className="rounded-xl bg-[var(--muted)]/50 p-3">
-                    <p className="text-xl font-bold text-[var(--foreground)]">98%</p>
-                    <p className="text-xs text-[var(--muted-foreground)]">Uptime</p>
+                    <p className="text-xl font-bold text-[var(--foreground)]">
+                      {user?.last_login ? formatDate(user.last_login, 'relative') : 'Never'}
+                    </p>
+                    <p className="text-xs text-[var(--muted-foreground)]">Last active</p>
                   </div>
                 </div>
 
@@ -104,24 +119,34 @@ export default function Profile() {
 
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <Card>
-              <CardHeader><CardTitle>Recent Activity</CardTitle></CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Recent Activity</CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => navigate(`${role === 'super_admin' ? '/super-admin' : '/school-admin'}/audit-logs`)}>
+                  View all
+                </Button>
+              </CardHeader>
               <CardContent className="p-0">
-                <div className="divide-y divide-[var(--border)]">
-                  {ACTIVITY.map((a, i) => {
-                    const Icon = a.icon
-                    return (
-                      <div key={i} className="flex items-start gap-3 px-6 py-3.5">
-                        <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${a.color}`}>
-                          <Icon size={14} />
+                {activity.length === 0 ? (
+                  <EmptyState
+                    icon={Clock}
+                    title="No activity logged yet"
+                    description="Actions you take that get audit-logged (like admin logins) will show up here."
+                  />
+                ) : (
+                  <div className="divide-y divide-[var(--border)]">
+                    {activity.map((a) => (
+                      <div key={a.id} className="flex items-start gap-3 px-6 py-3.5">
+                        <div className="h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 text-blue-600 bg-blue-50 dark:bg-blue-900/20">
+                          <History size={14} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-[var(--foreground)]">{a.text}</p>
-                          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{formatDate(a.time, 'relative')}</p>
+                          <p className="text-sm text-[var(--foreground)]">{humanizeAuditAction(a.action)}</p>
+                          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{formatDate(a.created_at, 'relative')}</p>
                         </div>
                       </div>
-                    )
-                  })}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>

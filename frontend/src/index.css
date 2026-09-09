@@ -589,3 +589,16 @@ body {
 .gm-style-iw-c {
   max-height: none !important;
 }
+
+/* ============================================================
+   Google Places Autocomplete inside a Radix Dialog (LocationPicker)
+   Google appends its suggestion list (.pac-container) directly onto
+   <body>, outside the dialog's own DOM subtree. While a Radix Dialog is
+   open (modal) it sets `pointer-events: none` on <body> and only
+   re-enables it on the dialog's own content — so without this override,
+   .pac-container inherits `none` and every suggestion becomes unclickable
+   even though it's fully visible.
+   ============================================================ */
+.pac-container {
+  pointer-events: auto !important;
+}

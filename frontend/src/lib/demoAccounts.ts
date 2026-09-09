@@ -21,7 +21,7 @@ export interface DemoAccount {
 export const DEMO_ACCOUNTS: DemoAccount[] = [
   {
     role: 'super_admin',
-    email: 'superadmin@smarttrack.ae',
+    email: 'ashiklawrence12@gmail.com',
     password: 'Super@123',
     name: 'Khalid Al Maktoum',
     phone: '+971 50 100 1000',

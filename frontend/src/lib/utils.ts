@@ -7,16 +7,22 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(date: string | Date, fmt = 'MMM dd, yyyy'): string {
+// Site-wide date convention: day before month, numeric (dd/MM/yyyy) — never
+// MM/dd, which reads ambiguously against the dd-first format used elsewhere
+// (e.g. DriverDetail/BusDetail's en-GB toLocaleDateString calls).
+const DEFAULT_DATE_FORMAT = 'dd/MM/yyyy'
+
+export function formatDate(date: string | Date, fmt = DEFAULT_DATE_FORMAT): string {
   try {
     const d = typeof date === 'string' ? parseISO(date) : date
     if (!isValid(d)) return '—'
     // Accept preset aliases for convenience
     const presets: Record<string, string> = {
-      short: 'MMM dd, yyyy',
-      long: 'EEEE, MMMM dd, yyyy',
+      short: DEFAULT_DATE_FORMAT,
+      date: DEFAULT_DATE_FORMAT,
+      long: 'EEEE, dd MMMM yyyy',
       time: 'hh:mm a',
-      datetime: 'MMM dd, yyyy hh:mm a',
+      datetime: `${DEFAULT_DATE_FORMAT} hh:mm a`,
       relative: '',
     }
     const resolvedFmt = presets[fmt] !== undefined ? presets[fmt] : fmt
@@ -30,9 +36,9 @@ export function formatDate(date: string | Date, fmt = 'MMM dd, yyyy'): string {
       if (minutes < 60) return `${minutes}m ago`
       if (hours < 24) return `${hours}h ago`
       if (days < 7) return `${days}d ago`
-      return format(d, 'MMM dd')
+      return format(d, DEFAULT_DATE_FORMAT)
     }
-    return format(d, resolvedFmt || 'MMM dd, yyyy')
+    return format(d, resolvedFmt || DEFAULT_DATE_FORMAT)
   } catch {
     return '—'
   }
@@ -160,6 +166,40 @@ export function downloadCSV(data: Record<string, unknown>[], filename: string): 
   a.download = `${filename}.csv`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/**
+ * Splits one CSV line into fields, honoring RFC4180 double-quoted fields —
+ * needed both for a value someone types with a comma in it (an address like
+ * "12 Main St, Dubai") and to correctly round-trip downloadCSV's own output
+ * above, which wraps every string field in JSON.stringify-style quotes
+ * (so re-uploading an unmodified downloaded template must strip them, not
+ * treat them as literal characters or split on a comma inside them).
+ */
+export function parseCSVRow(line: string): string[] {
+  const fields: string[] = []
+  let field = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[i + 1] === '"') { field += '"'; i++ }
+        else inQuotes = false
+      } else {
+        field += char
+      }
+    } else if (char === '"') {
+      inQuotes = true
+    } else if (char === ',') {
+      fields.push(field)
+      field = ''
+    } else {
+      field += char
+    }
+  }
+  fields.push(field)
+  return fields.map((f) => f.trim())
 }
 
 export async function copyToClipboard(text: string): Promise<void> {

@@ -60,4 +60,8 @@ const updateLocation = z.object({
   stop_id: z.string().min(1)
 });
 
-module.exports = { createStudent, updateStudent, idParam, listQuery, updateLocation };
+const sendParentCredentials = z.object({
+  email: z.string().email(),
+});
+
+module.exports = { createStudent, updateStudent, idParam, listQuery, updateLocation, sendParentCredentials };

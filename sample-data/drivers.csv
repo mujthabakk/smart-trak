@@ -1,0 +1,4 @@
+name,employee_id,email,phone,license_number,license_expiry,whatsapp,address,assigned_bus_number,is_active
+Rajesh Kumar,EMP-101,rajesh.kumar@example.com,+971501112201,DL-778001,2027-05-31,+971501112201,"14 Al Quoz, Dubai",,true
+Fatima Noor,EMP-102,fatima.noor@example.com,+971501112202,DL-778002,2026-12-31,+971501112202,"7 Jumeirah Rd, Dubai",,true
+Suresh Nair,EMP-103,suresh.nair@example.com,+971501112203,DL-778003,2027-02-28,+971501112203,"22 Deira St, Dubai",,true

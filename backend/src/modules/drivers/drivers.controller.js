@@ -2,6 +2,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { parsePagination } = require('../../utils/pagination');
 const { resolveSchoolId } = require('../../middleware/auth');
 const ApiError = require('../../utils/ApiError');
+const { recordAudit } = require('../auditLogs/auditLogs.service');
 const service = require('./drivers.service');
 
 const list = asyncHandler(async (req, res) => {
@@ -38,6 +39,10 @@ const create = asyncHandler(async (req, res) => {
   const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.user.school_id;
   if (!schoolId) throw ApiError.badRequest('school_id is required');
   const driver = await service.create(schoolId, req.body);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'driver.create',
+    entity_type: 'driver', entity_id: driver.id, details: { name: driver.name },
+  });
   res.status(201).json({ driver });
 });
 
@@ -45,17 +50,30 @@ const createGuestDriver = asyncHandler(async (req, res) => {
   const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.user.school_id;
   if (!schoolId) throw ApiError.badRequest('school_id is required');
   const result = await service.createGuestDriver(req.user.role, schoolId, req.body);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'driver.create',
+    entity_type: 'driver', entity_id: result.driver.id, details: { name: result.driver.name, guest: true },
+  });
   res.status(201).json(result);
 });
 
 const update = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
-  res.json({ driver: await service.update(req.params.id, schoolId, req.body) });
+  const driver = await service.update(req.params.id, schoolId, req.body);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'driver.update',
+    entity_type: 'driver', entity_id: driver.id, details: { name: driver.name },
+  });
+  res.json({ driver });
 });
 
 const remove = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   await service.remove(req.params.id, schoolId);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'driver.delete',
+    entity_type: 'driver', entity_id: req.params.id,
+  });
   res.status(204).send();
 });
 
@@ -70,4 +88,14 @@ const getRouteStudents = asyncHandler(async (req, res) => {
   res.json(await service.getRouteStudents(req.user.id, schoolId));
 });
 
-module.exports = { list, listGuestDrivers, getOne, create, createGuestDriver, update, remove, expiringDocuments, getRouteStudents };
+const sendCredentials = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  const result = await service.sendCredentials(req.params.id, schoolId);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'driver.send_credentials',
+    entity_type: 'driver', entity_id: req.params.id,
+  });
+  res.json({ emailStatus: result.status });
+});
+
+module.exports = { list, listGuestDrivers, getOne, create, createGuestDriver, update, remove, expiringDocuments, getRouteStudents, sendCredentials };

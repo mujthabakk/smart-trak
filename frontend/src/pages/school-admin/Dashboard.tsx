@@ -9,20 +9,32 @@ import {
   Users, Bus as BusIcon, Navigation, CalendarCheck, UserCheck,
   CalendarClock, MapPin, ArrowRight, Gauge,
   AlertTriangle, BadgeCheck, Radio, CheckCircle2,
+  ScrollText, GraduationCap, Route as RouteIcon, Clock,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { StatsCard } from '@/components/shared/StatsCard'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { daysUntil } from '@/lib/utils'
+import { daysUntil, formatDate } from '@/lib/utils'
 import { getAttendanceTrend, getFleetSummary } from '@/lib/api/reports'
 import { listBuses } from '@/lib/api/buses'
 import { listDrivers } from '@/lib/api/drivers'
 import { listRoutes } from '@/lib/api/routes'
 import { listLeave } from '@/lib/api/leave'
+import { listAuditLogs, humanizeAuditAction } from '@/lib/api/auditLogs'
 import { useAppSelector } from '@/store/hooks'
 import { cn } from '@/lib/utils'
+
+// Icon per audit-log entity type — falls back to a generic clock icon for
+// anything not explicitly mapped.
+const LOG_ENTITY_ICON: Record<string, typeof Clock> = {
+  student: GraduationCap,
+  bus: BusIcon,
+  driver: UserCheck,
+  route: RouteIcon,
+}
 
 const container = {
   hidden: { opacity: 0 },
@@ -111,6 +123,12 @@ export default function SchoolAdminDashboard() {
     queryFn: () => listLeave({ status: 'pending', pageSize: 1000 }),
   })
   const allLeaves = useMemo(() => leavesData?.leaves ?? [], [leavesData])
+
+  const { data: auditData, isLoading: auditLoading } = useQuery({
+    queryKey: ['audit-logs', 'recent'],
+    queryFn: () => listAuditLogs({ pageSize: 6 }),
+  })
+  const recentLogs = auditData?.logs ?? []
 
   const stats = useMemo(() => {
     const activeBuses = allBuses.filter((b) => b.is_active).length
@@ -333,14 +351,14 @@ export default function SchoolAdminDashboard() {
               <Tabs value={liveBusTab} onValueChange={(v) => setLiveBusTab(v as 'morning' | 'afternoon')}>
                 <div className="px-6 pt-3 pb-2">
                   <TabsList className="w-full">
-                    <TabsTrigger value="morning" className="flex-1">Morning</TabsTrigger>
-                    <TabsTrigger value="afternoon" className="flex-1">Afternoon</TabsTrigger>
+                    <TabsTrigger value="morning" className="flex-1">Pickup</TabsTrigger>
+                    <TabsTrigger value="afternoon" className="flex-1">Drop</TabsTrigger>
                   </TabsList>
                 </div>
 
                 <TabsContent value="morning" className="mt-0">
                   {morningBuses.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-[var(--muted-foreground)]">No morning buses running.</p>
+                    <p className="py-6 text-center text-sm text-[var(--muted-foreground)]">No pickup buses running.</p>
                   ) : (
                     <div className="divide-y divide-[var(--border)]">
                       {morningBuses.map(({ bus, route, studentCount }) => (
@@ -371,7 +389,7 @@ export default function SchoolAdminDashboard() {
 
                 <TabsContent value="afternoon" className="mt-0">
                   {afternoonBuses.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-[var(--muted-foreground)]">No afternoon buses scheduled.</p>
+                    <p className="py-6 text-center text-sm text-[var(--muted-foreground)]">No drop buses scheduled.</p>
                   ) : (
                     <div className="divide-y divide-[var(--border)]">
                       {afternoonBuses.map(({ bus, route, studentCount }) => (
@@ -552,6 +570,49 @@ export default function SchoolAdminDashboard() {
                       </span>
                     </button>
                   ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Recent Logs */}
+        <motion.div variants={item}>
+          <Card>
+            <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
+              <CardTitle className="flex items-center gap-2">
+                <ScrollText size={18} className="text-[var(--primary)]" />
+                Recent Logs
+              </CardTitle>
+              <Link to="/school-admin/audit-logs" className="text-xs font-medium text-[var(--primary)] hover:underline inline-flex items-center gap-1">
+                View all <ArrowRight size={12} />
+              </Link>
+            </CardHeader>
+            <CardContent className="p-0">
+              {auditLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <LoadingSpinner />
+                </div>
+              ) : recentLogs.length === 0 ? (
+                <p className="px-6 py-8 text-sm text-[var(--muted-foreground)] text-center">No changes logged yet.</p>
+              ) : (
+                <div className="divide-y divide-[var(--border)]">
+                  {recentLogs.map((log) => {
+                    const Icon = LOG_ENTITY_ICON[log.entity_type] ?? ScrollText
+                    return (
+                      <div key={log.id} className="flex items-start gap-3 px-6 py-3">
+                        <div className="h-9 w-9 rounded-lg bg-[var(--muted)] flex items-center justify-center flex-shrink-0">
+                          <Icon size={15} className="text-[var(--muted-foreground)]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-[var(--foreground)] leading-snug">
+                            <span className="font-semibold">{log.user_name ?? 'System'}</span> {humanizeAuditAction(log.action).toLowerCase()}
+                          </p>
+                          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{formatDate(log.created_at, 'relative')}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </CardContent>

@@ -1,0 +1,4 @@
+bus_number,make_model,year,seat_capacity,insurance_expiry,fitness_cert_expiry,assistant_name,assistant_phone
+BUS-101,Toyota Coaster,2023,30,2027-03-31,2027-01-31,Ali Rahman,+971501234500
+BUS-102,Nissan Civilian,2022,25,2026-11-30,2026-09-30,,
+BUS-103,Mitsubishi Rosa,2021,35,2026-08-31,2026-07-31,,

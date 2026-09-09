@@ -1,6 +1,7 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const { parsePagination } = require('../../utils/pagination');
 const ApiError = require('../../utils/ApiError');
+const { recordAudit } = require('../auditLogs/auditLogs.service');
 const service = require('./schools.service');
 
 // Contact/location details a school_admin may self-serve. Plan, status,
@@ -49,4 +50,29 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getOne, create, update, remove };
+const impersonate = asyncHandler(async (req, res) => {
+  const { user, token } = await service.impersonateAdmin(req.params.id);
+  await recordAudit({
+    user_id: req.user.id,
+    school_id: req.params.id,
+    action: 'school.impersonate_admin',
+    entity_type: 'school',
+    entity_id: req.params.id,
+    details: { target_user_id: user.id, target_email: user.email },
+  });
+  res.json({ user, token });
+});
+
+const apply = asyncHandler(async (req, res) => {
+  const school = await service.apply(req.body);
+  res.status(201).json({ school: { id: school.id, name: school.name, status: school.status } });
+});
+
+/** Live "is this code available" check for the Add School form's School
+ * Code field — GET /schools/check-code?code=SCH-001. */
+const checkCode = asyncHandler(async (req, res) => {
+  const exists = await service.codeExists(req.query.code);
+  res.json({ available: !exists });
+});
+
+module.exports = { list, getOne, create, update, remove, impersonate, apply, checkCode };

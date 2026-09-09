@@ -10,6 +10,8 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { LocationPicker } from '@/components/shared/LocationPicker'
+import { AddressFields } from '@/components/shared/AddressFields'
+import { SchoolCodeField } from '@/components/shared/SchoolCodeField'
 import { listPlans } from '@/lib/api/plans'
 import { createSchool } from '@/lib/api/schools'
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezones'
@@ -51,7 +53,7 @@ interface FormState {
 
 const EMPTY_FORM: FormState = {
   name: '', subdomain: '', subdomainTouched: false, phone: '', email: '', website: '',
-  admin_name: '', admin_email: '', address: '', city: '', state: '', post_code: '', country: 'UAE',
+  admin_name: '', admin_email: '', address: '', city: '', state: '', post_code: '', country: 'United Arab Emirates',
   latitude: '', longitude: '',
   plan_id: '', school_code: '',
   timezone: DEFAULT_TIMEZONE, supervisor_name: '', supervisor_phone: '',
@@ -89,6 +91,12 @@ export default function AddSchool() {
         next.subdomain = slugify(value)
         next.subdomainTouched = true
       }
+      if (field === 'school_code') {
+        // Login.tsx always uppercases what a school_admin types for their
+        // school code — storing anything but uppercase here would make the
+        // school permanently unable to log in.
+        next.school_code = value.toUpperCase()
+      }
       return next
     })
   }
@@ -97,7 +105,7 @@ export default function AddSchool() {
     e.preventDefault()
     setError('')
     if (!form.name.trim() || !form.school_code.trim() || !form.email.trim() || !form.phone.trim() || !form.address.trim() ||
-        !form.city.trim() || !form.state.trim() || !form.plan_id || !form.subdomain.trim()) {
+        !form.city.trim() || !form.state.trim() || !form.plan_id || !form.subdomain.trim() || !form.admin_email.trim()) {
       setError('Please fill in all required fields.')
       return
     }
@@ -108,7 +116,7 @@ export default function AddSchool() {
       city: form.city,
       state: form.state,
       post_code: form.post_code || undefined,
-      country: form.country || 'UAE',
+      country: form.country || 'United Arab Emirates',
       latitude: form.latitude.trim() === '' ? undefined : Number(form.latitude),
       longitude: form.longitude.trim() === '' ? undefined : Number(form.longitude),
       phone: form.phone,
@@ -169,9 +177,8 @@ export default function AddSchool() {
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 space-y-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">School Information</p>
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2 space-y-1.5">
-                <Label htmlFor="as-school-code">School Code *</Label>
-                <Input id="as-school-code" value={form.school_code} onChange={(e) => set('school_code', e.target.value)} placeholder="SCH-001" required />
+              <div className="col-span-2">
+                <SchoolCodeField idPrefix="as" value={form.school_code} onChange={(v) => set('school_code', v)} />
               </div>
               <div className="col-span-2 space-y-1.5">
                 <Label htmlFor="as-name">School name *</Label>
@@ -207,10 +214,13 @@ export default function AddSchool() {
                 <Input id="as-admin-name" value={form.admin_name} onChange={(e) => set('admin_name', e.target.value)} placeholder="Hassan Al-Rashid" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="as-admin-email">Admin email</Label>
-                <Input id="as-admin-email" type="email" value={form.admin_email} onChange={(e) => set('admin_email', e.target.value)} placeholder="admin@school.ae" />
+                <Label htmlFor="as-admin-email">Admin email *</Label>
+                <Input id="as-admin-email" type="email" value={form.admin_email} onChange={(e) => set('admin_email', e.target.value)} placeholder="admin@school.ae" required />
               </div>
             </div>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              A login and temporary password are created for this email as soon as the school is added.
+            </p>
           </div>
 
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 space-y-4">
@@ -220,22 +230,18 @@ export default function AddSchool() {
                 <Label htmlFor="as-address">Street address *</Label>
                 <Input id="as-address" value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="45 Sheikh Zayed Road" required />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="as-city">City *</Label>
-                <Input id="as-city" value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="Dubai" required />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="as-state">State / Emirate *</Label>
-                <Input id="as-state" value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="Dubai" required />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="as-postcode">Post / ZIP code</Label>
-                <Input id="as-postcode" value={form.post_code} onChange={(e) => set('post_code', e.target.value)} placeholder="00000" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="as-country">Country</Label>
-                <Input id="as-country" value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="UAE" />
-              </div>
+              <AddressFields
+                idPrefix="as"
+                country={form.country}
+                city={form.city}
+                state={form.state}
+                postCode={form.post_code}
+                onCountryChange={(v) => set('country', v)}
+                onCityChange={(v) => set('city', v)}
+                onStateChange={(v) => set('state', v)}
+                onPostCodeChange={(v) => set('post_code', v)}
+                cityStateRequired
+              />
               <div className="col-span-2 space-y-1.5">
                 <Label>School location (optional)</Label>
                 <LocationPicker

@@ -226,11 +226,14 @@ export default function SuperAdminDashboard() {
 
           {/* Recent Activity */}
           <Card className="lg:col-span-2">
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Clock size={18} className="text-[var(--primary)]" />
                 Recent Activity
               </CardTitle>
+              <Link to="/super-admin/audit-logs" className="text-xs font-medium text-[var(--primary)] hover:underline">
+                View all
+              </Link>
             </CardHeader>
             <CardContent className="p-0">
               {activityQuery.isLoading ? (

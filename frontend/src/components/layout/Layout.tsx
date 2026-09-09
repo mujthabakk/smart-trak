@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react'
 import { useEffect } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useNavigate } from 'react-router-dom'
+import { LogOut } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { AIAssistant } from '@/components/shared/AIAssistant'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
-import { updateUser } from '@/store/slices/authSlice'
+import { updateUser, stopImpersonation } from '@/store/slices/authSlice'
 import { fetchMe } from '@/lib/api/auth'
 import { cn } from '@/lib/utils'
 
@@ -15,8 +16,16 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const isAuthenticated = useAppSelector((s) => s.auth.isAuthenticated)
+  const impersonatorUser = useAppSelector((s) => s.auth.impersonatorUser)
+  const impersonatedSchoolId = useAppSelector((s) => s.auth.user?.school_id)
   const sidebarCollapsed = useAppSelector((s) => s.app.sidebarCollapsed)
   const dispatch = useAppDispatch()
+  const navigate = useNavigate()
+
+  function returnToSuperAdmin() {
+    dispatch(stopImpersonation())
+    navigate(impersonatedSchoolId ? `/super-admin/schools/${impersonatedSchoolId}` : '/super-admin/schools')
+  }
 
   // The cached user in localStorage is only as fresh as the last login — it
   // never picks up server-side additions (e.g. plan_type) on its own. One
@@ -46,6 +55,19 @@ export function Layout({ children }: LayoutProps) {
           sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60',
         )}
       >
+        {impersonatorUser && (
+          <div className="flex items-center justify-center gap-3 bg-[var(--primary)] px-4 py-2 text-sm text-[var(--primary-foreground)]">
+            <span>
+              Logged in as this school&apos;s admin, on behalf of <strong>{impersonatorUser.name}</strong>.
+            </span>
+            <button
+              onClick={returnToSuperAdmin}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1 font-medium hover:bg-white/25 transition-colors"
+            >
+              <LogOut size={13} /> Return to Super Admin
+            </button>
+          </div>
+        )}
         <Header />
         <main className="flex-1 p-4 sm:p-6 max-w-[1600px] w-full mx-auto">
           {children ?? <Outlet />}

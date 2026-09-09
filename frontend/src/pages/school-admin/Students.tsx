@@ -2,10 +2,11 @@ import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { jsPDF } from 'jspdf'
+import { isAxiosError } from 'axios'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Download, Users, UserCheck, UserX, MoreVertical,
-  Eye, Pencil, QrCode, Ban, Upload, FileDown, AlertCircle,
+  Eye, Pencil, QrCode, Ban, Upload, FileDown, AlertCircle, GraduationCap,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import PageHeader from '@/components/shared/PageHeader'
@@ -25,10 +26,19 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getInitials, downloadCSV } from '@/lib/utils'
+import { getInitials, downloadCSV, parseCSVRow } from '@/lib/utils'
 import { CLASSES } from '@/lib/constants'
-import { listStudents, updateStudent } from '@/lib/api/students'
+import { listStudents, updateStudent, createStudent } from '@/lib/api/students'
+import { listRoutes } from '@/lib/api/routes'
 import type { Student } from '@/types'
+
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { error?: string; message?: string } | undefined
+    return data?.error || data?.message || 'Something went wrong. Please try again.'
+  }
+  return 'Something went wrong. Please try again.'
+}
 
 const container = {
   hidden: { opacity: 0 },
@@ -113,16 +123,22 @@ interface ImportedRow {
   division: string
   roll_number: string
   dob: string
+  gender: string
+  address: string
   parent_name: string
+  parent_relationship: string
   parent_phone: string
+  parent_email: string
+  pickup_stop_name: string
+  drop_stop_name: string
 }
 
 function parseCSV(text: string): ImportedRow[] {
   const lines = text.trim().split('\n')
   if (lines.length < 2) return []
-  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase())
+  const headers = parseCSVRow(lines[0]).map((h) => h.toLowerCase())
   return lines.slice(1).map((line) => {
-    const cols = line.split(',').map((c) => c.trim())
+    const cols = parseCSVRow(line)
     const row: Record<string, string> = {}
     headers.forEach((h, i) => { row[h] = cols[i] ?? '' })
     return {
@@ -131,8 +147,14 @@ function parseCSV(text: string): ImportedRow[] {
       division: row['division'] ?? '',
       roll_number: row['roll_number'] ?? '',
       dob: row['dob'] ?? '',
+      gender: row['gender'] ?? '',
+      address: row['address'] ?? '',
       parent_name: row['parent_name'] ?? '',
+      parent_relationship: row['parent_relationship'] ?? '',
       parent_phone: row['parent_phone'] ?? '',
+      parent_email: row['parent_email'] ?? '',
+      pickup_stop_name: row['pickup_stop_name'] ?? '',
+      drop_stop_name: row['drop_stop_name'] ?? '',
     }
   })
 }
@@ -144,9 +166,17 @@ function parseCSV(text: string): ImportedRow[] {
 function BulkImportDialog({
   open,
   onClose,
+  onImport,
+  isImporting,
+  importError,
+  unmatchedStopNames,
 }: {
   open: boolean
   onClose: () => void
+  onImport: (rows: ImportedRow[]) => void
+  isImporting: boolean
+  importError: string | null
+  unmatchedStopNames: string[]
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState<ImportedRow[]>([])
@@ -161,8 +191,14 @@ function BulkImportDialog({
         division: 'A',
         roll_number: '101',
         dob: '2015-04-12',
+        gender: 'male',
+        address: '12 Main St, Dubai',
         parent_name: 'Hassan Ali',
+        parent_relationship: 'Father',
         parent_phone: '+971501234567',
+        parent_email: 'hassan.ali@example.com',
+        pickup_stop_name: 'Al Barsha Mall',
+        drop_stop_name: 'Al Barsha Mall',
       },
     ] as Record<string, unknown>[]
     downloadCSV(rows, 'student-import-template')
@@ -193,9 +229,7 @@ function BulkImportDialog({
   }
 
   function handleImport() {
-    // TODO: wire up bulk creation via createStudent per row once a bulk endpoint
-    // or per-row import flow is designed. For now this just closes the dialog.
-    onClose()
+    onImport(preview)
   }
 
   return (
@@ -214,7 +248,8 @@ function BulkImportDialog({
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-[var(--foreground)]">Step 1 — Download template</p>
               <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                CSV with headers: <code className="font-mono">name, class, division, roll_number, dob, parent_name, parent_phone</code>
+                Required: <code className="font-mono">name, class, division, roll_number, dob</code>. Optional:{' '}
+                <code className="font-mono">gender, address, parent_name, parent_relationship, parent_phone, parent_email, pickup_stop_name, drop_stop_name</code>
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
@@ -250,25 +285,31 @@ function BulkImportDialog({
               <p className="text-sm font-medium text-[var(--foreground)]">
                 Preview — {preview.length} student{preview.length !== 1 ? 's' : ''} found
               </p>
-              <div className="max-h-48 overflow-y-auto rounded-lg border border-[var(--border)]">
+              <div className="max-h-48 overflow-auto rounded-lg border border-[var(--border)]">
                 <table className="w-full text-xs">
                   <thead className="bg-[var(--muted)]/50 sticky top-0">
                     <tr>
-                      {['Name', 'Class', 'Div', 'Roll', 'DOB', 'Parent', 'Phone'].map((h) => (
-                        <th key={h} className="px-3 py-2 text-left font-medium text-[var(--muted-foreground)]">{h}</th>
+                      {['Name', 'Class', 'Div', 'Roll', 'DOB', 'Gender', 'Address', 'Parent', 'Relation', 'Phone', 'Email', 'Pickup', 'Drop'].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left font-medium text-[var(--muted-foreground)] whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {preview.map((r, i) => (
                       <tr key={i} className="border-t border-[var(--border)]">
-                        <td className="px-3 py-1.5">{r.name}</td>
-                        <td className="px-3 py-1.5">{r.class}</td>
-                        <td className="px-3 py-1.5">{r.division}</td>
-                        <td className="px-3 py-1.5">{r.roll_number}</td>
-                        <td className="px-3 py-1.5">{r.dob}</td>
-                        <td className="px-3 py-1.5">{r.parent_name}</td>
-                        <td className="px-3 py-1.5">{r.parent_phone}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.name}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.class}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.division}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.roll_number}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.dob}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.gender}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.address}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.parent_name}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.parent_relationship}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.parent_phone}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.parent_email}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.pickup_stop_name}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap">{r.drop_stop_name}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -277,12 +318,20 @@ function BulkImportDialog({
             </div>
           )}
 
+          {importError && <p className="text-xs text-[var(--destructive)]">{importError}</p>}
+          {unmatchedStopNames.length > 0 && (
+            <p className="text-xs text-amber-600">
+              No stop found named: {unmatchedStopNames.join(', ')} — those students imported without that pickup/drop assignment.
+            </p>
+          )}
+
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button variant="outline" onClick={onClose} disabled={isImporting}>Cancel</Button>
             <Button
               onClick={handleImport}
-              disabled={preview.length === 0}
+              disabled={preview.length === 0 || isImporting}
+              loading={isImporting}
             >
               Import {preview.length > 0 ? `${preview.length} Students` : 'Students'}
             </Button>
@@ -310,6 +359,61 @@ export default function Students() {
   })
 
   const allStudents = useMemo(() => data?.students ?? [], [data])
+
+  // Only needed to resolve the bulk-import CSV's pickup_stop_name/
+  // drop_stop_name columns against real stop ids — stops live nested under
+  // routes (no dedicated stops endpoint), so this flattens every route's
+  // stops into one lookup list.
+  const { data: routesData } = useQuery({
+    queryKey: ['routes'],
+    queryFn: () => listRoutes(),
+  })
+  const allStops = useMemo(
+    () => (routesData?.routes ?? []).flatMap((r) => r.stops),
+    [routesData]
+  )
+  function findStopId(stopName: string): string | undefined {
+    const name = stopName.trim().toLowerCase()
+    if (!name) return undefined
+    return allStops.find((s) => s.name.toLowerCase() === name)?.id
+  }
+
+  const [bulkImportError, setBulkImportError] = useState<string | null>(null)
+  const [unmatchedStopNames, setUnmatchedStopNames] = useState<string[]>([])
+  const bulkImportMutation = useMutation({
+    mutationFn: (rows: ImportedRow[]) =>
+      Promise.all(rows.map((r) =>
+        createStudent({
+          name: r.name,
+          class: r.class,
+          division: r.division,
+          roll_number: r.roll_number,
+          dob: r.dob,
+          gender: r.gender || undefined,
+          address: r.address || undefined,
+          pickup_stop_id: findStopId(r.pickup_stop_name),
+          drop_stop_id: findStopId(r.drop_stop_name),
+          // No separate guardian-whatsapp field — the single Add Student
+          // form always reuses the guardian's phone for whatsapp too
+          // (`whatsapp: form.phone`), never a distinct value.
+          parents: r.parent_name
+            ? [{
+                parent_name: r.parent_name,
+                relationship: r.parent_relationship || 'Guardian',
+                phone: r.parent_phone,
+                email: r.parent_email || undefined,
+                whatsapp: r.parent_phone || undefined,
+              }]
+            : undefined,
+        })
+      )),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      setBulkImportOpen(false)
+      setBulkImportError(null)
+    },
+    onError: (err) => setBulkImportError(extractErrorMessage(err)),
+  })
 
   const toggleActiveMutation = useMutation({
     mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
@@ -446,6 +550,9 @@ export default function Students() {
           subtitle="Manage enrolled students, routes and guardians"
           actions={
             <>
+              <Button variant="outline" onClick={() => navigate('/school-admin/classes')}>
+                <GraduationCap size={16} /> Manage Classes
+              </Button>
               <Button variant="outline" onClick={() => setBulkImportOpen(true)}>
                 <Upload size={16} /> Bulk Import
               </Button>
@@ -529,7 +636,21 @@ export default function Students() {
         </motion.div>
       </motion.div>
 
-      <BulkImportDialog open={bulkImportOpen} onClose={() => setBulkImportOpen(false)} />
+      <BulkImportDialog
+        open={bulkImportOpen}
+        onClose={() => { setBulkImportOpen(false); setBulkImportError(null); setUnmatchedStopNames([]) }}
+        onImport={(rows) => {
+          const unmatched = Array.from(new Set(
+            rows.flatMap((r) => [r.pickup_stop_name, r.drop_stop_name])
+              .filter((name) => name.trim() && !findStopId(name))
+          ))
+          setUnmatchedStopNames(unmatched)
+          bulkImportMutation.mutate(rows)
+        }}
+        isImporting={bulkImportMutation.isPending}
+        importError={bulkImportError}
+        unmatchedStopNames={unmatchedStopNames}
+      />
     </Layout>
   )
 }

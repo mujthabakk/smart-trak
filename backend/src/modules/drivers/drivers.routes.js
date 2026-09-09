@@ -43,5 +43,11 @@ router.delete(
   validate({ params: schema.idParam }),
   controller.remove
 );
+router.post(
+  '/:id/credentials',
+  requireRole('super_admin', 'school_admin'),
+  validate({ params: schema.idParam }),
+  controller.sendCredentials
+);
 
 module.exports = router;

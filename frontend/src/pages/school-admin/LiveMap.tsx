@@ -111,7 +111,7 @@ export default function LiveMap() {
   const focusBusId = searchParams.get('busId')
   const [selectedBusId, setSelectedBusId] = useState<string | null>(focusBusId)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<StatusFilter>('all')
+  const [filter, setFilter] = useState<StatusFilter>('running')
   const [selectedDate, setSelectedDate] = useState(TODAY)
   const [now, setNow] = useState(new Date())
   const [liveLocations, setLiveLocations] = useState<Record<string, BusLocationEvent>>({})

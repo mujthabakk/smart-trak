@@ -34,6 +34,7 @@ import SuperAdminSettings from '@/pages/super-admin/Settings'
 // School Admin
 import SchoolAdminDashboard from '@/pages/school-admin/Dashboard'
 import Students from '@/pages/school-admin/Students'
+import Classes from '@/pages/school-admin/Classes'
 import AddEditStudent from '@/pages/school-admin/AddEditStudent'
 import StudentProfile from '@/pages/school-admin/StudentProfile'
 import Drivers from '@/pages/school-admin/Drivers'
@@ -101,6 +102,7 @@ export const router = createHashRouter([
   { path: '/school-admin', element: <Navigate to="/school-admin/dashboard" replace /> },
   { path: '/school-admin/dashboard', element: <SchoolAdminDashboard /> },
   { path: '/school-admin/students', element: <Students /> },
+  { path: '/school-admin/classes', element: <Classes /> },
   { path: '/school-admin/students/add', element: <AddEditStudent /> },
   { path: '/school-admin/students/:id/edit', element: <AddEditStudent /> },
   { path: '/school-admin/students/:id', element: <StudentProfile /> },
@@ -124,6 +126,7 @@ export const router = createHashRouter([
   { path: '/school-admin/reports', element: <SchoolReports /> },
   { path: '/school-admin/settings', element: <SchoolAdminSettings /> },
   { path: '/school-admin/profile', element: <Profile /> },
+  { path: '/school-admin/audit-logs', element: <AuditLogs /> },
   { path: '/school-admin/help', element: <HelpCenter /> },
 
   // 404

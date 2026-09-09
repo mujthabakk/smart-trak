@@ -26,11 +26,20 @@ function buildEmailHtml({ schoolName, name, email, password }) {
  * the attempt to email_logs regardless of whether SMTP is configured.
  * `password` must be the plaintext — callers already have it at the moment
  * they set it, since only the bcrypt hash is ever persisted afterwards.
+ *
+ * `pool` lets a caller target a specific tenant database explicitly instead
+ * of relying on the ambient, request-context-routed `query()` — needed when
+ * the user being emailed lives in a school's tenant DB but the current
+ * request's own tenant context is master (e.g. a super_admin creating a
+ * school has no school_id in their own JWT, so ambient `query()` would
+ * silently hit master instead).
  */
-async function emailUserCredentials({ id, name, email, school_id }, password, { triggerType }) {
+async function emailUserCredentials({ id, name, email, school_id }, password, { triggerType, pool }) {
+  const runQuery = pool ? (text, params) => pool.query(text, params) : query;
+
   let schoolName = null;
   if (school_id) {
-    const { rows } = await query('SELECT name FROM schools WHERE id = $1', [school_id]);
+    const { rows } = await runQuery('SELECT name FROM schools WHERE id = $1', [school_id]);
     schoolName = rows[0]?.name || null;
   }
 
@@ -40,7 +49,7 @@ async function emailUserCredentials({ id, name, email, school_id }, password, { 
   const mailResult = await mailer.sendMail({ to: email, subject, html });
   const status = mailResult.delivered ? 'sent' : mailer.isConfigured() ? 'failed' : 'logged_only';
 
-  const { rows: logRows } = await query(
+  const { rows: logRows } = await runQuery(
     `INSERT INTO email_logs (school_id, user_id, recipient_email, subject, body, trigger_type, status, error_message)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
     [school_id || null, id, email, subject, html, triggerType, status, mailResult.reason || null]

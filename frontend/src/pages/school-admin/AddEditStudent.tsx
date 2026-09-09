@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
   User, Users, Camera, QrCode, Save, X, Hash,
   GraduationCap, Phone, Mail, Sparkles, MapPin, AlertCircle,
@@ -16,8 +17,12 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
-import { CLASSES, DIVISIONS, RELATIONSHIPS } from '@/lib/constants'
+import { RELATIONSHIPS } from '@/lib/constants'
 import { getStudent, createStudent, updateStudent, type StudentInput } from '@/lib/api/students'
+import { listClasses } from '@/lib/api/classes'
+import { uploadImage } from '@/lib/api/upload'
+
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024
 
 const container = {
   hidden: { opacity: 0 },
@@ -31,6 +36,7 @@ interface StudentForm {
   division: string
   dob: string
   gender: string
+  photoUrl: string
   guardianName: string
   relationship: string
   phone: string
@@ -106,12 +112,16 @@ export default function AddEditStudent() {
     [existing],
   )
 
+  const { data: classesData } = useQuery({ queryKey: ['classes'], queryFn: listClasses })
+  const classes = classesData?.classes ?? []
+
   const [form, setForm] = useState<StudentForm>(() => ({
     fullName: '',
     className: '',
     division: '',
     dob: '',
     gender: '',
+    photoUrl: '',
     guardianName: '',
     relationship: '',
     phone: '',
@@ -120,6 +130,8 @@ export default function AddEditStudent() {
     pickupLocation: '',
     dropLocation: '',
   }))
+
+  const availableDivisions = classes.find((c) => c.name === form.className)?.divisions ?? []
 
   // Populate the form once the existing student loads (edit mode).
   useEffect(() => {
@@ -131,6 +143,7 @@ export default function AddEditStudent() {
       division: existing.division ?? '',
       dob: existing.dob ?? '',
       gender: '',
+      photoUrl: existing.photo_url ?? '',
       guardianName: guardian?.parent_name ?? '',
       relationship: guardian?.relationship ?? '',
       phone: guardian?.phone ?? '',
@@ -143,6 +156,41 @@ export default function AddEditStudent() {
 
   const set = <K extends keyof StudentForm>(key: K, value: StudentForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
+
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoError, setPhotoError] = useState('')
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Please choose an image file (PNG or JPG).')
+      return
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      setPhotoError('Image is too large — please choose one under 2MB.')
+      return
+    }
+    setPhotoError('')
+    setPhotoUploading(true)
+    try {
+      const url = await uploadImage(file)
+      set('photoUrl', url)
+    } catch (err) {
+      setPhotoError(isAxiosError(err) ? (err.response?.data as { error?: string } | undefined)?.error ?? 'Failed to upload photo.' : 'Failed to upload photo.')
+    } finally {
+      setPhotoUploading(false)
+    }
+  }
+
+  // Divisions are scoped to a class — switching class invalidates whatever
+  // division was previously picked, so it's cleared rather than left as a
+  // stale value that doesn't belong to the newly selected class.
+  function handleClassChange(className: string) {
+    setForm((f) => ({ ...f, className, division: '' }))
+  }
 
   const createMutation = useMutation({
     mutationFn: (payload: StudentInput) => createStudent(payload),
@@ -174,6 +222,7 @@ export default function AddEditStudent() {
       roll_number: studentId.replace(/^STD-/, ''),
       dob: form.dob,
       gender: form.gender || undefined,
+      photo_url: form.photoUrl || undefined,
       address: form.address || undefined,
       parents: form.guardianName.trim()
         ? [
@@ -255,15 +304,15 @@ export default function AddEditStudent() {
                 </Field>
               </div>
 
-              <Field label="Class">
-                <Select value={form.className} onValueChange={(v) => set('className', v)}>
+              <Field label="Class" hint={classes.length === 0 ? 'No classes configured yet — set them up under Manage Classes.' : undefined}>
+                <Select value={form.className} onValueChange={handleClassChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select class" />
                   </SelectTrigger>
                   <SelectContent>
-                    {CLASSES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        Class {c}
+                    {classes.map((c) => (
+                      <SelectItem key={c.id} value={c.name}>
+                        Class {c.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -271,14 +320,14 @@ export default function AddEditStudent() {
               </Field>
 
               <Field label="Division">
-                <Select value={form.division} onValueChange={(v) => set('division', v)}>
+                <Select value={form.division} onValueChange={(v) => set('division', v)} disabled={!form.className}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select division" />
+                    <SelectValue placeholder={form.className ? 'Select division' : 'Select a class first'} />
                   </SelectTrigger>
                   <SelectContent>
-                    {DIVISIONS.map((d) => (
-                      <SelectItem key={d} value={d}>
-                        Division {d}
+                    {availableDivisions.map((d) => (
+                      <SelectItem key={d.id} value={d.name}>
+                        Division {d.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -308,20 +357,38 @@ export default function AddEditStudent() {
 
               {/* Photo upload + auto ID */}
               <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pt-1">
-                <Field label="Student Photo" hint="PNG or JPG, up to 2MB">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 rounded-lg border border-dashed border-[var(--border)] bg-[var(--muted)]/40 px-4 py-3 text-left hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 transition-colors"
-                  >
-                    <span className="h-10 w-10 rounded-lg bg-[var(--card)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)] flex-shrink-0">
-                      <Camera size={18} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-[var(--foreground)]">Upload photo</span>
-                      <span className="block text-xs text-[var(--muted-foreground)]">Drag & drop or browse</span>
-                    </span>
-                  </button>
-                </Field>
+                <div>
+                  <Field label="Student Photo" hint="PNG or JPG, up to 2MB">
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      className="hidden"
+                      onChange={handlePhotoChange}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => photoInputRef.current?.click()}
+                      disabled={photoUploading}
+                      className="flex w-full items-center gap-3 rounded-lg border border-dashed border-[var(--border)] bg-[var(--muted)]/40 px-4 py-3 text-left hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 transition-colors disabled:opacity-60"
+                    >
+                      {form.photoUrl ? (
+                        <img src={form.photoUrl} alt="" className="h-10 w-10 rounded-lg object-cover flex-shrink-0" />
+                      ) : (
+                        <span className="h-10 w-10 rounded-lg bg-[var(--card)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)] flex-shrink-0">
+                          {photoUploading ? <LoadingSpinner size="sm" /> : <Camera size={18} />}
+                        </span>
+                      )}
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-[var(--foreground)]">
+                          {photoUploading ? 'Uploading…' : form.photoUrl ? 'Replace photo' : 'Upload photo'}
+                        </span>
+                        <span className="block text-xs text-[var(--muted-foreground)]">Drag & drop or browse</span>
+                      </span>
+                    </button>
+                  </Field>
+                  {photoError && <p className="text-xs text-[var(--destructive)] mt-1.5">{photoError}</p>}
+                </div>
 
                 <Field label="Student ID" hint="Auto-generated on enrolment">
                   <div className="flex h-9 w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--muted)]/50 px-3 text-sm">

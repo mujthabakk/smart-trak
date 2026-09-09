@@ -101,6 +101,13 @@ function buildStopGroups(route: Route | undefined, type: 'pickup' | 'drop', allS
     // Find the correct stop group for this student based on trip type
     const targetStopId = type === 'pickup' ? student.pickup_stop_id : student.drop_stop_id
     const group = groups.find(g => g.stop_id === targetStopId) || groups[0] // fallback if not found
+    // stops only ever carry one `estimated_time` (the pickup schedule) — reusing
+    // it for the drop group as well would show a student's drop time as
+    // identical to their pickup time. The actual logged time (once the bus
+    // has really picked up/dropped them) is what's accurate for both
+    // directions; before that happens there's no reliable drop estimate to
+    // fall back to, so we simply show nothing rather than a wrong time.
+    const record = attendance.find((a) => a.student_id === student.id)
 
     if (group) {
       group.students.push({
@@ -108,8 +115,11 @@ function buildStopGroups(route: Route | undefined, type: 'pickup' | 'drop', allS
         name: student.name,
         class: `Class ${student.class} - ${student.division}`,
         location: group.stop,
-        pickupTime: type === 'pickup' ? group.estimatedTime : undefined,
-        dropTime: type === 'drop' ? group.estimatedTime : undefined,
+        // record.pickup_time/drop_time are real TIMESTAMPTZ values (need
+        // formatting); estimated_time is already a plain display string
+        // (e.g. "7:25 AM") typed in when the stop was created.
+        pickupTime: type === 'pickup' ? (record?.pickup_time ? formatDate(record.pickup_time, 'time') : group.estimatedTime) : undefined,
+        dropTime: type === 'drop' && record?.drop_time ? formatDate(record.drop_time, 'time') : undefined,
         status: attendanceStatusForStudent(student.id, attendance),
       })
     }
@@ -313,6 +323,7 @@ export default function BusDetail() {
   const [callDialogOpen, setCallDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState(TODAY)
+  const [stopFilter, setStopFilter] = useState<'all' | 'pickup' | 'drop'>('all')
   const queryClient = useQueryClient()
 
   // Live attendance updates via WebSockets
@@ -408,10 +419,8 @@ export default function BusDetail() {
   const busAttendance = useMemo(() => countAttendance(allBusStudents, attendance), [allBusStudents, attendance])
   const tripDuration = useMemo(() => (id ? getBusTripDurationDisplay(id, trips) : null), [id, trips])
 
-  const stopGroups = useMemo(
-    () => [...buildStopGroups(route, 'pickup', students, attendance), ...buildStopGroups(route, 'drop', students, attendance)],
-    [route, students, attendance],
-  )
+  const pickupGroups = useMemo(() => buildStopGroups(route, 'pickup', students, attendance), [route, students, attendance])
+  const dropGroups = useMemo(() => buildStopGroups(route, 'drop', students, attendance), [route, students, attendance])
 
   const busStudentIds = useMemo(() => new Set(allBusStudents.map((s) => s.id)), [allBusStudents])
   const dayMeta = useMemo(() => {
@@ -424,12 +433,6 @@ export default function BusDetail() {
 
   const schedule = useMemo(() => buildSchedule(trips), [trips])
 
-  function occupancyFor(): number {
-    if (!bus) return 0
-    if (bus.status === 'offline' || !bus.status) return 0
-    const seed = bus.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
-    return Math.min(bus.seat_capacity, 18 + (seed % Math.max(1, bus.seat_capacity - 18)))
-  }
 
   if (isLoading) {
     return (
@@ -469,7 +472,9 @@ export default function BusDetail() {
     )
   }
 
-  const occupancy = occupancyFor()
+  // Real assigned-student count for this bus's route — not a stand-in value.
+  const occupancy = allBusStudents.length
+  const available = Math.max(0, bus.seat_capacity - occupancy)
   const status = bus.status ?? 'offline'
 
   return (
@@ -511,9 +516,10 @@ export default function BusDetail() {
         </motion.div>
 
         {/* Stats row */}
-        <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
           <StatCard icon={Users} label="Seat Capacity" value={bus.seat_capacity} />
           <StatCard icon={Users} label="Occupancy" value={`${occupancy} / ${bus.seat_capacity}`} />
+          <StatCard icon={CheckCircle2} label="Available" value={available} />
           <StatCard
             icon={Clock}
             label={tripDuration?.isLive ? 'Trip Time (Live)' : 'Last Trip'}
@@ -587,22 +593,78 @@ export default function BusDetail() {
                   {' · '}{busAttendance.notYet} not yet · {busAttendance.absent} absent
                 </p>
               </div>
-              {stopGroups.length === 0 ? (
+
+              <div className="flex items-center gap-1.5 px-1">
+                {(['all', 'pickup', 'drop'] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setStopFilter(f)}
+                    className={cn(
+                      'px-3 py-1 rounded-full text-xs font-medium capitalize transition-colors',
+                      stopFilter === f
+                        ? 'bg-[var(--primary)] text-[var(--primary-foreground)]'
+                        : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]',
+                    )}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+
+              {pickupGroups.length === 0 && dropGroups.length === 0 ? (
                 <Card>
                   <CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">
                     No route stops assigned to this bus yet.
                   </CardContent>
                 </Card>
               ) : (
-                stopGroups.map((group) => (
-                  <StopAccordion
-                    key={`${group.type}-${group.stop}`}
-                    stop={group.stop}
-                    type={group.type}
-                    students={group.students}
-                    onStudentClick={(sid) => navigate(`/school-admin/students/${sid}`)}
-                  />
-                ))
+                <>
+                  {stopFilter !== 'drop' && (
+                    pickupGroups.length > 0 ? (
+                      <div className="flex flex-col gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400 px-1">Pickup</p>
+                        {pickupGroups.map((group) => (
+                          <StopAccordion
+                            key={`pickup-${group.stop}`}
+                            stop={group.stop}
+                            type={group.type}
+                            students={group.students}
+                            onStudentClick={(sid) => navigate(`/school-admin/students/${sid}`)}
+                          />
+                        ))}
+                      </div>
+                    ) : stopFilter === 'pickup' && (
+                      <Card>
+                        <CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">
+                          No pickup stops for this bus.
+                        </CardContent>
+                      </Card>
+                    )
+                  )}
+                  {stopFilter !== 'pickup' && (
+                    dropGroups.length > 0 ? (
+                      <div className="flex flex-col gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-purple-600 dark:text-purple-400 px-1">Drop</p>
+                        {dropGroups.map((group) => (
+                          <StopAccordion
+                            key={`drop-${group.stop}`}
+                            stop={group.stop}
+                            type={group.type}
+                            students={group.students}
+                            onStudentClick={(sid) => navigate(`/school-admin/students/${sid}`)}
+                          />
+                        ))}
+                      </div>
+                    ) : stopFilter === 'drop' && (
+                      <Card>
+                        <CardContent className="py-10 text-center text-sm text-[var(--muted-foreground)]">
+                          No drop stops for this bus.
+                        </CardContent>
+                      </Card>
+                    )
+                  )}
+                </>
               )}
             </TabsContent>
 

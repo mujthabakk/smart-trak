@@ -124,11 +124,13 @@ export const SIDEBAR_NAV: Record<
     { label: 'Users', path: '/super-admin/users', icon: 'Users' },
     { label: 'Training Centre', path: '/super-admin/training', icon: 'BookOpen' },
     { label: 'Reports', path: '/super-admin/reports', icon: 'BarChart3' },
+    { label: 'Audit Logs', path: '/super-admin/audit-logs', icon: 'ScrollText' },
     { label: 'Settings', path: '/super-admin/settings', icon: 'Settings' },
   ],
   school_admin: [
     { label: 'Dashboard', path: '/school-admin/dashboard', icon: 'LayoutDashboard' },
     { label: 'Students', path: '/school-admin/students', icon: 'GraduationCap' },
+    { label: 'Classes', path: '/school-admin/classes', icon: 'BookOpen' },
     { label: 'Drivers', path: '/school-admin/drivers', icon: 'UserCheck' },
     { label: 'Buses', path: '/school-admin/buses', icon: 'Bus' },
     { label: 'Routes', path: '/school-admin/routes', icon: 'Route' },
@@ -142,6 +144,7 @@ export const SIDEBAR_NAV: Record<
     { label: 'Guest Drivers', path: '/school-admin/guest-drivers', icon: 'UserPlus' },
     { label: 'Support', path: '/school-admin/support', icon: 'LifeBuoy' },
     { label: 'Reports', path: '/school-admin/reports', icon: 'BarChart3' },
+    { label: 'Audit Logs', path: '/school-admin/audit-logs', icon: 'ScrollText' },
     { label: 'Settings', path: '/school-admin/settings', icon: 'Settings' },
   ],
 }

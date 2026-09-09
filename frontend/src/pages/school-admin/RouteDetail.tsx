@@ -1256,8 +1256,8 @@ export default function RouteDetail() {
         <TabsContent value="schedule">
           <motion.div variants={container} initial="hidden" animate="show" className="grid gap-6 md:grid-cols-2">
             {[
-              { title: 'Morning Schedule', start: MORNING_START, end: MORNING_END, times: morningTimes, color: 'amber' },
-              { title: 'Evening Schedule', start: EVENING_START, end: EVENING_END, times: eveningTimes, color: 'indigo' },
+              { title: 'Pickup Schedule', start: MORNING_START, end: MORNING_END, times: morningTimes, color: 'amber' },
+              { title: 'Drop Schedule', start: EVENING_START, end: EVENING_END, times: eveningTimes, color: 'indigo' },
             ].map(({ title, start, end, times, color }) => (
               <motion.div key={title} variants={fadeUp}>
                 <Card>

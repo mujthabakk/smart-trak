@@ -1,5 +1,5 @@
-const { query } = require('../../config/db');
-const { parsePagination, paginationMeta } = require('../../utils/pagination');
+const { masterPool, getTenantPool } = require('../../config/db');
+const { paginationMeta } = require('../../utils/pagination');
 
 function toResponse(row) {
   return {
@@ -17,20 +17,47 @@ function toResponse(row) {
   };
 }
 
-async function list({ page, pageSize, offset }) {
-  const { rows: countRows } = await query('SELECT COUNT(*)::int AS total FROM email_logs');
-  const total = countRows[0].total;
+const SELECT_LOGS = `
+  SELECT e.*, s.name AS school_name
+  FROM email_logs e
+  LEFT JOIN schools s ON s.id = e.school_id
+`;
 
-  const { rows } = await query(
-    `SELECT e.*, s.name AS school_name
-     FROM email_logs e
-     LEFT JOIN schools s ON s.id = e.school_id
-     ORDER BY e.sent_at DESC
-     LIMIT $1 OFFSET $2`,
-    [pageSize, offset]
+/** email_logs is written wherever the sending request's tenant context
+ * happened to point (a school_admin's own tenant DB, or master for a
+ * super_admin/school-less request) — so a super_admin listing needs to fan
+ * out across master + every school's tenant DB, the same way schools.service
+ * treats master as authoritative but reaches into tenant DBs explicitly when
+ * it needs tenant-local data. */
+async function fetchAllRows() {
+  const { rows: schools } = await masterPool.query('SELECT id FROM schools');
+  const pools = [
+    masterPool,
+    ...schools.map((s) => getTenantPool(`smarttrack_${s.id.replace('-', '_').toLowerCase()}`)),
+  ];
+
+  const results = await Promise.all(
+    pools.map((pool) =>
+      pool.query(SELECT_LOGS).then(
+        ({ rows }) => rows,
+        (err) => {
+          console.error('Failed to read email_logs from a tenant database:', err.message);
+          return [];
+        }
+      )
+    )
   );
+  return results.flat();
+}
 
-  return { emailLogs: rows.map(toResponse), pagination: paginationMeta(page, pageSize, total) };
+async function list({ page, pageSize, offset }) {
+  const allRows = await fetchAllRows();
+  allRows.sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
+
+  const total = allRows.length;
+  const pageRows = allRows.slice(offset, offset + pageSize);
+
+  return { emailLogs: pageRows.map(toResponse), pagination: paginationMeta(page, pageSize, total) };
 }
 
 module.exports = { list };
