@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   Plus, Bus as BusIcon, MapPin, Navigation, QrCode, Trash2, Pencil, Search, RefreshCw, X, Download, Filter, DownloadCloud, AlertTriangle,
   MoreVertical, List, User, Clock, Users, Upload, Phone,
-  AlertCircle, Eye, Ban, LayoutGrid,
+  AlertCircle, Eye, Ban, LayoutGrid, UserCog,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import QRCode from 'qrcode'
@@ -15,6 +15,8 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import DataTable, { type Column } from '@/components/shared/DataTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { AutoAssignBusesButton } from '@/components/shared/AutoAssignBusesButton'
+import { AssignDriverDialog } from '@/components/shared/AssignDriverDialog'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
@@ -451,12 +453,20 @@ export default function Buses() {
     return trips.find((t) => t.bus_id === busId && t.status === 'in_progress')
   }
 
+  // A bus can be statically assigned to a route (routes.bus_id, set from the
+  // Routes page or the Auto-Assign wand) well before any trip ever starts —
+  // an idle bus has no in-progress trip yet, so falling back to that static
+  // assignment is what keeps this column from going blank for it.
+  function assignedRouteForBus(busId: string) {
+    return routes.find((r) => r.bus_id === busId)
+  }
+
   function routeForBus(busId: string): string | undefined {
-    return activeTripForBus(busId)?.route_name
+    return activeTripForBus(busId)?.route_name ?? assignedRouteForBus(busId)?.name
   }
 
   function primaryRouteIdForBus(busId: string): string | undefined {
-    return activeTripForBus(busId)?.route_id
+    return activeTripForBus(busId)?.route_id ?? assignedRouteForBus(busId)?.id
   }
 
   function routeTypeForBus(busId: string): 'pickup' | 'drop' | null {
@@ -469,9 +479,9 @@ export default function Buses() {
   }
 
   function studentsForBus(busId: string) {
-    const trip = activeTripForBus(busId)
-    if (!trip) return []
-    return students.filter((s) => s.route_name === trip.route_name)
+    const routeName = activeTripForBus(busId)?.route_name ?? assignedRouteForBus(busId)?.name
+    if (!routeName) return []
+    return students.filter((s) => s.route_name === routeName)
   }
 
   function busStudentAttendance(busId: string) {
@@ -491,6 +501,7 @@ export default function Buses() {
   // Dialog state
   const [addOpen, setAddOpen] = useState(false)
   const [editBus, setEditBus] = useState<Bus | null>(null)
+  const [assignDriverBus, setAssignDriverBus] = useState<Bus | null>(null)
   const [bulkOpen, setBulkOpen] = useState(false)
 
   const createMutation = useMutation({
@@ -608,6 +619,9 @@ export default function Buses() {
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setEditBus(bus)}>
             <Pencil size={14} /> Edit
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setAssignDriverBus(bus)}>
+            <UserCog size={14} /> Assign Driver
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => downloadSafetyQR(bus)}>
             <QrCode size={14} /> Safety QR Code
@@ -821,6 +835,7 @@ export default function Buses() {
           actions={
             <>
               {viewToggle}
+              <AutoAssignBusesButton routes={routes} buses={buses} />
               <Button variant="outline" onClick={() => setBulkOpen(true)}>
                 <Upload size={16} /> Bulk Import
               </Button>
@@ -933,6 +948,9 @@ export default function Buses() {
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditBus(bus) }}>
                             <Pencil size={14} /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setAssignDriverBus(bus) }}>
+                            <UserCog size={14} /> Assign Driver
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); downloadSafetyQR(bus) }}>
                             <QrCode size={14} /> Download QR
@@ -1086,6 +1104,15 @@ export default function Buses() {
         onOpenChange={setBulkOpen}
         onImport={handleBulkImport}
       />
+
+      {/* Assign Driver Dialog */}
+      {assignDriverBus && (
+        <AssignDriverDialog
+          bus={assignDriverBus}
+          open={assignDriverBus !== null}
+          onOpenChange={(v) => { if (!v) setAssignDriverBus(null) }}
+        />
+      )}
     </Layout>
   )
 }

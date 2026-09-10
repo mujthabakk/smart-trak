@@ -6,13 +6,14 @@ import { motion } from 'framer-motion'
 import {
   ArrowLeft, Phone, Pencil, ChevronDown, ChevronUp,
   Bus as BusIcon, Clock, Users, Navigation, User, MapPin,
-  CheckCircle2, CalendarCheck, AlertCircle,
+  CheckCircle2, CalendarCheck, AlertCircle, UserCog,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { AssignDriverDialog } from '@/components/shared/AssignDriverDialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -386,6 +387,8 @@ export default function BusDetail() {
   })
   const attendance = useMemo(() => attendanceData?.records ?? [], [attendanceData])
 
+  const [assignDriverOpen, setAssignDriverOpen] = useState(false)
+
   const { data: driversData } = useQuery({ queryKey: ['drivers'], queryFn: () => listDrivers() })
   const driver = useMemo(
     () => driversData?.drivers.find((d) => d.id === bus?.driver_id),
@@ -753,8 +756,11 @@ export default function BusDetail() {
                 </Card>
 
                 <Card>
-                  <CardHeader className="pb-2">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2 space-y-0">
                     <CardTitle className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Driver &amp; Assignment</CardTitle>
+                    <Button variant="outline" size="sm" onClick={() => setAssignDriverOpen(true)}>
+                      <UserCog size={14} /> {bus.driver_id ? 'Change' : 'Assign'} Driver
+                    </Button>
                   </CardHeader>
                   <CardContent>
                     <DetailRow label="Driver Assigned">
@@ -868,6 +874,9 @@ export default function BusDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Assign Driver Dialog */}
+      <AssignDriverDialog bus={bus} open={assignDriverOpen} onOpenChange={setAssignDriverOpen} />
     </Layout>
   )
 }
