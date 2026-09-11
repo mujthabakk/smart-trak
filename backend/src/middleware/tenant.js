@@ -4,9 +4,15 @@ const { verifyToken } = require('../utils/jwt');
 async function tenantMiddleware(req, res, next) {
   let schoolId = null;
 
-  // 1. Try to get school_id from Authorization header
+  // 1. Try to get school_id from Authorization header — except on /auth/login
+  // itself, where a leftover token from an earlier (possibly now-invalid,
+  // different-school) session must never be allowed to override the
+  // school_id the caller is actively trying to log into. A client that
+  // blindly attaches a stored token to every request (including login)
+  // would otherwise get a confusing "Invalid school_id" no matter what
+  // they send in the body, since this branch runs before body is checked.
   const header = req.headers.authorization || '';
-  if (header.startsWith('Bearer ')) {
+  if (req.path !== '/auth/login' && header.startsWith('Bearer ')) {
     try {
       const payload = verifyToken(header.split(' ')[1]);
       schoolId = payload.school_id;

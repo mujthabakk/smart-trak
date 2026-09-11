@@ -51,6 +51,7 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
+  const [schoolIdError, setSchoolIdError] = useState(false)
 
   async function authenticate(loginEmail: string, loginPassword: string, loginSchoolId?: string) {
     setIsLoading(true)
@@ -71,7 +72,17 @@ export default function Login() {
       })
     } catch (err) {
       setIsLoading(false)
-      if (isAxiosError(err) && err.response?.status === 401) {
+      // The School Code field is sent on every attempt, super admin included
+      // (see the label below — it's optional for that role, but still gets
+      // sent whenever non-empty) — the backend validates it before password/
+      // role are even checked, so a stale or mistyped value here blocks
+      // login entirely and needs its own clear message, not the generic
+      // "invalid credentials" one.
+      const backendError = isAxiosError(err) ? (err.response?.data as { error?: string } | undefined)?.error : undefined
+      if (backendError === 'Invalid school_id') {
+        setSchoolIdError(true)
+        setError('That school code doesn’t match any school. Clear this field if you’re signing in as a super admin, or double-check your school’s code.')
+      } else if (isAxiosError(err) && err.response?.status === 401) {
         setError('Invalid credentials. Use one of the demo accounts below.')
       } else {
         setError('Unable to sign in right now. Please try again.')
@@ -82,6 +93,7 @@ export default function Login() {
   async function quickLogin(acct: DemoAccount) {
     setError('')
     setInfo('')
+    setSchoolIdError(false)
     setEmail(acct.email)
     setPassword(acct.password)
     setSchoolId(acct.school_id || '')
@@ -96,6 +108,7 @@ export default function Login() {
     e.preventDefault()
     setError('')
     setInfo('')
+    setSchoolIdError(false)
     if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) {
       setError('Please enter a valid email address')
       return
@@ -104,7 +117,8 @@ export default function Login() {
       setError('Please enter your password')
       return
     }
-    await authenticate(email, password, schoolId || undefined)
+    const trimmedSchoolId = schoolId.trim()
+    await authenticate(email, password, trimmedSchoolId || undefined)
   }
 
   return (
@@ -218,10 +232,29 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>School Code <span className="text-[var(--muted-foreground)] font-normal">(Optional for Super Admin)</span></label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>School Code <span className="text-[var(--muted-foreground)] font-normal">(Optional for Super Admin)</span></label>
+                {schoolId && (
+                  <button
+                    type="button"
+                    className="text-xs font-medium"
+                    style={{ color: 'var(--primary)' }}
+                    onClick={() => { setSchoolId(''); setSchoolIdError(false) }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <School size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted-foreground)' }} />
-                <Input type="text" placeholder="GREENFIELD" value={schoolId} onChange={(e) => setSchoolId(e.target.value.toUpperCase())} className="pl-9" />
+                <Input
+                  type="text"
+                  placeholder="GREENFIELD"
+                  value={schoolId}
+                  onChange={(e) => { setSchoolId(e.target.value.toUpperCase()); setSchoolIdError(false) }}
+                  className="pl-9"
+                  style={schoolIdError ? { borderColor: 'var(--destructive)' } : undefined}
+                />
               </div>
             </div>
 

@@ -64,9 +64,13 @@ async function getOwnedById(id, userId) {
 }
 
 /** Resolves push tokens for a batch of users — prefers each user's registered
- * fcm_tokens (multi-device); falls back to the legacy users.fcm_token column
- * only for a user with zero rows in fcm_tokens, so accounts that haven't
- * moved to the per-device registration flow yet still receive pushes. */
+ * fcm_tokens row (one per user — see auth.service.js's registerDeviceToken,
+ * which now replaces rather than accumulates); falls back to the legacy
+ * users.fcm_token column only for a user with zero rows in fcm_tokens, so
+ * accounts that haven't moved to the per-device registration flow yet still
+ * receive pushes. Still selects every row a user happens to have (rather
+ * than LIMIT 1) so any pre-existing accumulated rows from before this
+ * change don't silently stop receiving pushes until they age out. */
 async function resolvePushTokens(userIds) {
   if (!userIds.length) return [];
   const { rows: deviceRows } = await query(
