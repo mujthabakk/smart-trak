@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ComponentType } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -203,7 +203,7 @@ function LeaveDetailDialog({ leave, students, onClose, onDecide }: DetailDialogP
 interface TintedCardProps {
   title: string
   value: number | string
-  icon: React.ElementType
+  icon: ComponentType<{ size?: number; className?: string }>
   color: 'warning' | 'success' | 'danger' | 'primary'
   subtitle?: string
   tintClass: string
