@@ -15,7 +15,7 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import DataTable, { type Column } from '@/components/shared/DataTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { AutoAssignBusesButton } from '@/components/shared/AutoAssignBusesButton'
+// import { AutoAssignBusesButton } from '@/components/shared/AutoAssignBusesButton'
 import { AssignDriverDialog } from '@/components/shared/AssignDriverDialog'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -835,7 +835,7 @@ export default function Buses() {
           actions={
             <>
               {viewToggle}
-              <AutoAssignBusesButton routes={routes} buses={buses} />
+              {/* <AutoAssignBusesButton routes={routes} buses={buses} /> */}
               <Button variant="outline" onClick={() => setBulkOpen(true)}>
                 <Upload size={16} /> Bulk Import
               </Button>

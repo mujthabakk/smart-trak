@@ -16,7 +16,7 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { AutoAssignBusesButton } from '@/components/shared/AutoAssignBusesButton'
+// import { AutoAssignBusesButton } from '@/components/shared/AutoAssignBusesButton'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -32,7 +32,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { downloadCSV, parseCSVRow } from '@/lib/utils'
 import { listRoutes, createRoute, updateRoute, deleteRoute, type RouteInput } from '@/lib/api/routes'
-import { listBuses } from '@/lib/api/buses'
+// import { listBuses } from '@/lib/api/buses'
 import { listStudents, updateStudent } from '@/lib/api/students'
 import type { Route as RouteType, Student, Stop } from '@/types'
 
@@ -1287,11 +1287,12 @@ export default function Routes() {
   })
   const routes = useMemo(() => routesQuery.data?.routes ?? [], [routesQuery.data])
 
-  const busesQuery = useQuery({
-    queryKey: ['buses'],
-    queryFn: () => listBuses(),
-  })
-  const buses = useMemo(() => busesQuery.data?.buses ?? [], [busesQuery.data])
+  // Only used by the commented-out AutoAssignBusesButton below.
+  // const busesQuery = useQuery({
+  //   queryKey: ['buses'],
+  //   queryFn: () => listBuses(),
+  // })
+  // const buses = busesQuery.data?.buses ?? []
 
   const studentsQuery = useQuery({
     queryKey: ['students'],
@@ -1449,7 +1450,7 @@ export default function Routes() {
         subtitle="Manage bus routes and stops"
         actions={
           <div className="flex items-center gap-2">
-            <AutoAssignBusesButton routes={routes} buses={buses} />
+            {/* <AutoAssignBusesButton routes={routes} buses={buses} /> */}
             {view === 'list' ? (
               <>
                 <Button
