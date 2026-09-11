@@ -106,6 +106,9 @@ const getPath = asyncHandler(async (req, res) => {
 const create = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
   const trip = await service.create(schoolId, req.body);
+  if (trip.status === 'in_progress') {
+    emitTripStatus(req, { schoolId, tripId: trip.id, busId: trip.bus_id, status: 'in_progress', routeId: trip.route_id });
+  }
   res.status(201).json({ trip });
 });
 

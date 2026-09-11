@@ -1,6 +1,7 @@
+import { lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight, CheckCircle2, Sparkles, Star, Users, Shield, UserCheck, GraduationCap } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Sparkles, Star, Users, Shield, UserCheck, GraduationCap, Bus } from 'lucide-react'
 import PublicLayout from '@/components/layout/PublicLayout'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -9,6 +10,9 @@ import {
   PARENT_BENEFITS, ADMIN_BENEFITS, ASSISTANT_BENEFITS, HOW_STEPS,
 } from '@/lib/siteContent'
 import type { Benefit } from '@/lib/siteContent'
+
+const HeroBusScene = lazy(() => import('@/components/landing/HeroBusScene'))
+const LiveMapPreview = lazy(() => import('@/components/landing/LiveMapPreview'))
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -73,9 +77,17 @@ export default function Landing() {
             <p className="mt-4 text-sm text-[var(--muted-foreground)] flex items-center gap-1.5"><CheckCircle2 size={15} className="text-green-500" /> {HERO.demoNote}</p>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1 }} className="relative flex justify-center">
+          <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1 }} className="relative flex flex-col items-center">
             <div className="absolute -inset-6 rounded-full bg-gradient-to-br from-[var(--primary)]/20 to-[var(--secondary)]/20 blur-3xl" />
-            <img src={`${import.meta.env.BASE_URL}app/login.png`} alt="SmartTrack app" className="relative w-64 sm:w-72 drop-shadow-2xl" />
+            <Suspense
+              fallback={
+                <div className="relative w-64 sm:w-80 h-64 sm:h-80 flex items-center justify-center">
+                  <Bus size={64} className="text-[var(--primary)]/40 animate-pulse" />
+                </div>
+              }
+            >
+              <HeroBusScene />
+            </Suspense>
           </motion.div>
         </div>
       </section>
@@ -162,6 +174,18 @@ export default function Landing() {
             </TabsContent>
           ))}
         </Tabs>
+      </section>
+
+      {/* ───────── LIVE MAP PREVIEW ───────── */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 pb-20">
+        <SectionHeading
+          tag="Live Tracking"
+          title="Watch your whole fleet, then zoom to one bus"
+          subtitle="Every bus reports its position in real time. Keep scrolling to see the map zoom in on a single route."
+        />
+        <Suspense fallback={<div className="h-[60vh] rounded-3xl border border-[var(--border)] bg-[var(--card)] animate-pulse" />}>
+          <LiveMapPreview />
+        </Suspense>
       </section>
 
       {/* ───────── BENEFITS: PARENT ───────── */}

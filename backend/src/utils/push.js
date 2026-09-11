@@ -79,7 +79,10 @@ async function sendPush({ token, title, body, data }) {
       priority: 'high',
       // Stops a stale ring from being delivered long after it stopped being
       // relevant, the way a missed call shouldn't ring an hour later.
-      ...(isRinging ? { ttl: '45s' } : {}),
+      // The firebase-admin SDK wants milliseconds (a number) here — the
+      // "45s" duration-string format is only valid on the raw FCM REST API,
+      // not this SDK wrapper, and the SDK rejects it outright.
+      ...(isRinging ? { ttl: 45000 } : {}),
     },
     apns: {
       headers: {
