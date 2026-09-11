@@ -195,7 +195,18 @@ async function provisionTenant(school) {
   try {
     await masterPool.query(`CREATE DATABASE "${dbName}"`);
   } catch (err) {
-    console.error(`Warning: Failed to create database ${dbName} (might already exist):`, err.message);
+    // 42P04 = duplicate_database — genuinely safe to ignore, this is what
+    // makes provisionTenant re-callable for a school re-activated after
+    // being suspended. Any other error (most commonly 42501 insufficient
+    // privilege — the DB role running this doesn't have CREATEDB) must not
+    // be swallowed the same way: silently continuing straight to running
+    // migrations against a database that was never actually created just
+    // trades this error for a much more confusing "database ... does not
+    // exist" one from that step instead.
+    if (err.code !== '42P04') {
+      console.error(`Failed to create database ${dbName}:`, err.message);
+      throw ApiError.badRequest(`School approved, but database creation failed: ${err.message}`);
+    }
   }
 
   // 2. Run migrations on the new database
