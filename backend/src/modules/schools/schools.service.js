@@ -339,7 +339,20 @@ async function update(id, data) {
   // school re-approved from 'suspended' already has a DB from its first
   // approval; provisionTenant is idempotent so calling it again is safe.
   if (data.status === 'active' && existing.status !== 'active') {
-    await provisionTenant(updated);
+    try {
+      await provisionTenant(updated);
+    } catch (err) {
+      // The status write above already committed — without this, a
+      // provisioning failure (e.g. the DB role lacking CREATEDB) leaves the
+      // school stuck showing 'active' with no tenant DB behind it at all,
+      // and nothing re-attempts provisioning until someone notices logins
+      // are failing. Roll the status back to what it was so the school
+      // honestly reflects "not actually provisioned" and can be re-approved
+      // (retriggering this same path) once the underlying issue is fixed.
+      await masterPool.query('UPDATE schools SET status = $1, updated_at = now() WHERE id = $2', [existing.status, id]);
+      await syncTenantMirror(id, ['status = $1'], [existing.status, id]);
+      throw err;
+    }
   }
 
   return updated;
