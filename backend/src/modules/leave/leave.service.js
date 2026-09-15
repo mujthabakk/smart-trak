@@ -139,12 +139,18 @@ async function getById(id, schoolId, parentUserId) {
   return toResponse(rows[0]);
 }
 
+/**
+ * Creates a leave request. There is no approval queue — applying for leave
+ * grants it immediately, whether the caller is a parent or an admin. An
+ * admin can still reject/revoke it afterward via update().
+ */
 async function create(schoolId, data, parentUserId) {
   await assertStudentInScope(data.student_id, schoolId);
   if (parentUserId) await assertStudentBelongsToParent(data.student_id, parentUserId);
+
   const { rows } = await query(
     `INSERT INTO leaves (student_id, school_id, from_date, to_date, shift, reason, status)
-     VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+     VALUES ($1, $2, $3, $4, $5, $6, 'approved')
      RETURNING id`,
     [data.student_id, schoolId, data.from_date, data.to_date, data.shift || null, data.reason || null]
   );

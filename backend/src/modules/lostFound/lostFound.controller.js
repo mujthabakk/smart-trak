@@ -28,12 +28,19 @@ const create = asyncHandler(async (req, res) => {
   const data = { ...req.body };
 
   // Always forcefully assign driver_id and bus_id from the authenticated user's driver profile
-  // This prevents foreign key errors if the frontend sends a user_id instead of a driver_id
-  const { rows: drivers } = await query('SELECT id, assigned_bus_id FROM drivers WHERE user_id = $1', [req.user.id]);
+  // This prevents foreign key errors if the frontend sends a user_id instead of a driver_id.
+  // Buses/drivers have no persisted assignment — the bus is whichever one this
+  // driver's current (or most recent) trip is on.
+  const { rows: drivers } = await query('SELECT id FROM drivers WHERE user_id = $1', [req.user.id]);
   if (drivers[0]) {
     data.driver_id = drivers[0].id;
-    if (!data.bus_id) data.bus_id = drivers[0].assigned_bus_id; // Only override bus_id if not explicitly provided, or maybe force it too?
-    data.bus_id = data.bus_id || drivers[0].assigned_bus_id;
+    if (!data.bus_id) {
+      const { rows: trips } = await query(
+        `SELECT bus_id FROM trips WHERE driver_id = $1 ORDER BY (status = 'in_progress') DESC, started_at DESC LIMIT 1`,
+        [drivers[0].id]
+      );
+      data.bus_id = trips[0]?.bus_id;
+    }
   }
 
   const item = await service.create(schoolId, data);

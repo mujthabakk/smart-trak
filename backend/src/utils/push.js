@@ -34,14 +34,16 @@ function getMessaging() {
   return messaging;
 }
 
-// data.type picks the sound channel — the only three sound files bundled in
-// the iOS app. Matched case-insensitively; anything unrecognised (including
-// a missing type) falls back to 'normal', same as the mobile app's own rule.
+// data.type picks the sound — the only three sound files bundled in the
+// app. Matched case-insensitively; anything unrecognised (including a
+// missing type) falls back to 'normal'. Android needs no sound/channel
+// field at all — since Android 8 the sound comes from the notification
+// channel, which the app itself configures and picks based on `data.type`.
 const SOUND_BY_TYPE = {
-  normal: { file: 'normal_notfication_sound.aiff', apnsPriority: '5' },
-  alert: { file: 'alert_warning.aiff', apnsPriority: '10' },
-  warning: { file: 'alert_warning.aiff', apnsPriority: '10' },
-  ringing: { file: 'ring.aiff', apnsPriority: '10' },
+  normal: { iosSound: 'normal_notfication_sound.aiff', apnsPriority: '5' },
+  alert: { iosSound: 'alert_warning.aiff', apnsPriority: '10' },
+  warning: { iosSound: 'alert_warning.aiff', apnsPriority: '10' },
+  ringing: { iosSound: 'ring.aiff', apnsPriority: '10' },
 };
 
 function soundFor(type) {
@@ -60,12 +62,15 @@ async function sendPush({ token, title, body, data }) {
   const isRinging = String(data?.type || '').toLowerCase() === 'ringing';
   const sound = soundFor(data?.type);
 
-  // No top-level `notification` block — if present, Android's FCM SDK draws
-  // its own banner before the app runs, always with the default channel's
-  // sound and never as a full-screen ring. title/body live only here (for
-  // Android, which has no notification block to read) and in apns.alert
-  // below (for iOS); the two copies must stay identical or the same event
-  // can dedupe as two different notifications across platforms.
+  // Rule 1: never send a top-level `notification` block, for ANY type — if
+  // present, Android's FCM SDK draws its own banner before the app's code
+  // runs, always with the default channel's sound, and (for ringing) never
+  // as a full-screen ring. title/body live only in `data` (Android reads
+  // that, having no notification block to read) and in apns.alert (iOS).
+  // The two copies must stay identical, or the same event can show as two
+  // different notifications across platforms — and the app also
+  // de-duplicates on (title, body, type) within a 45s window, so repeated
+  // test pushes with identical text look "lost" rather than re-delivered.
   const stringData = {
     ...(data ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) : {}),
     title,
@@ -77,11 +82,14 @@ async function sendPush({ token, title, body, data }) {
     data: stringData,
     android: {
       priority: 'high',
-      // Stops a stale ring from being delivered long after it stopped being
-      // relevant, the way a missed call shouldn't ring an hour later.
-      // The firebase-admin SDK wants milliseconds (a number) here — the
-      // "45s" duration-string format is only valid on the raw FCM REST API,
-      // not this SDK wrapper, and the SDK rejects it outright.
+      // Rule 2: ringing must stay data-only on Android — the full-screen
+      // ring only exists if the app builds it itself, and it deliberately
+      // won't when the OS already drew a banner. ttl stops a stale ring
+      // from arriving long after it stopped being relevant, the way a
+      // missed call shouldn't ring an hour later. The firebase-admin SDK
+      // wants milliseconds (a number) here — the "45s" duration-string
+      // format is only valid on the raw FCM REST API, not this SDK
+      // wrapper, which rejects it.
       ...(isRinging ? { ttl: 45000 } : {}),
     },
     apns: {
@@ -92,8 +100,11 @@ async function sendPush({ token, title, body, data }) {
       payload: {
         aps: {
           alert: { title, body },
-          sound: sound.file,
-          // 'critical' requires an Apple entitlement this app does not have.
+          sound: sound.iosSound,
+          // badge has no meaning for a ringing call screen.
+          ...(isRinging ? {} : { badge: 1 }),
+          // interruption-level lives inside aps, not the headers. 'critical'
+          // requires an Apple entitlement this app does not have.
           ...(isRinging ? { 'interruption-level': 'time-sensitive' } : {}),
         },
       },

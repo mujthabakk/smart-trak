@@ -56,6 +56,7 @@ import Support from '@/pages/school-admin/Support'
 import SchoolReports from '@/pages/school-admin/Reports'
 import SchoolAdminSettings from '@/pages/school-admin/Settings'
 import DocumentExpiry from '@/pages/school-admin/DocumentExpiry'
+import SchoolAdminTraining from '@/pages/school-admin/Training'
 
 // Shared
 import Profile from '@/pages/shared/Profile'
@@ -122,6 +123,7 @@ export const router = createHashRouter([
   { path: '/school-admin/lost-found', element: <LostFound /> },
   { path: '/school-admin/bus-transfer', element: <BusTransfer /> },
   { path: '/school-admin/guest-drivers', element: <GuestDrivers /> },
+  { path: '/school-admin/training', element: <SchoolAdminTraining /> },
   { path: '/school-admin/support', element: <Support /> },
   { path: '/school-admin/reports', element: <SchoolReports /> },
   { path: '/school-admin/settings', element: <SchoolAdminSettings /> },

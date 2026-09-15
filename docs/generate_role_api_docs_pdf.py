@@ -50,6 +50,7 @@ ROLE_ASSIGNMENTS = {
         "Create Trip (school_admin)": "school_admin",
         "List Trips (driver - scoped to own trips)": "driver",
         "Update Trip Status (driver - own trip)": "driver",
+        "Take Over Trip after Breakdown (driver) [NEW]": "driver",
     },
     "5. Attendance": {
         "Mark Attendance (driver)": "driver",
@@ -95,6 +96,17 @@ ROLES = [
             "Parent-facing slice of the SmartTrack API: everything a parent/guardian "
             "mobile or web client needs to log in, track their child's trips and "
             "attendance, request leave, and manage lost & found and notifications.\n\n"
+            "Recent API changes (read before integrating):\n"
+            "- Leave requests are pre-approved. Create Leave Request now comes back "
+            "with status \"approved\" immediately -- there is no more pending/review "
+            "stage for anyone. Nothing changes in how you call it, just don't build a "
+            "\"waiting for approval\" state around it anymore.\n"
+            "- A child's route may show no bus/driver between runs. bus_number / "
+            "driver_name (wherever a route is looked up) are now populated only while "
+            "a trip is actually in progress on that route -- there's no persistent "
+            "assignment to fall back on.\n"
+            "- Trips, attendance, notifications, and lost & found/claims below are "
+            "unaffected.\n\n"
             "How to use:\n"
             "1. Run \"Login - Parent\" first -- it saves `parent_token` as a collection "
             "variable that every other request in this doc authenticates with.\n"
@@ -130,6 +142,24 @@ ROLES = [
             "and guest drivers: login, trip status updates, attendance marking/QR scan, "
             "lost & found reporting, and the guest-driver-only guest-trip and ticket "
             "endpoints.\n\n"
+            "Recent API changes (read before integrating):\n"
+            "- No more \"your assigned bus.\" Get Me and any driver lookup no longer "
+            "return assigned_bus_id / assigned_bus_number; buses no longer return "
+            "driver_id / driver_name either. A driver only has a bus for as long as a "
+            "trip is actually running -- read it from List Trips / Take Over Trip, not "
+            "from your own profile.\n"
+            "- QR scans return less. Scanning a bus's safety QR no longer includes "
+            "driver_id; scanning a route's QR no longer includes bus_id / driver_id. "
+            "Don't pre-check \"is this my bus\" from the scan itself -- start the trip "
+            "and let the server enforce it.\n"
+            "- Bus-breakdown handover, now documented below. See \"Take Over Trip after "
+            "Breakdown\" -- scan the ORIGINAL (breakdown) bus's safety QR, not the "
+            "replacement bus's, and only after a school admin has named you as the "
+            "standby driver.\n"
+            "- Lost & Found auto-fill changed source. Report Lost Item without an "
+            "explicit bus_id now falls back to your current/most recent trip's bus "
+            "instead of a persistent assignment. Send bus_id explicitly when you "
+            "already have it on screen.\n\n"
             "How to use:\n"
             "1. Run \"Login - Driver\" (or \"Login - Guest Driver\" for the guest-trip / "
             "ticket endpoints) first -- it saves the matching `driver_token` / "

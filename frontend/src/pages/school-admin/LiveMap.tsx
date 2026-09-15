@@ -281,14 +281,14 @@ export default function LiveMap() {
         const matchesSearch =
           !q ||
           b.bus_number.toLowerCase().includes(q) ||
-          (b.driver_name ?? '').toLowerCase().includes(q)
+          (initialLocations[b.id]?.driver_name ?? '').toLowerCase().includes(q)
         return matchesFilter && matchesSearch
       })
       // Running buses first, then idle, then offline — whoever's actually
       // on the road belongs at the top of the fleet list, not wherever the
       // API happened to return them from.
       .sort((a, b) => STATUS_RANK[getEffectiveStatus(a)] - STATUS_RANK[getEffectiveStatus(b)])
-  }, [schoolBuses, search, filter, liveLocations, statusOverrides])
+  }, [schoolBuses, search, filter, liveLocations, statusOverrides, initialLocations])
 
   const selectedBus = useMemo(
     () => schoolBuses.find((b) => b.id === selectedBusId) ?? null,
@@ -538,7 +538,7 @@ export default function LiveMap() {
                 >
                   <div className="min-w-[160px] p-1 text-sm">
                     <p className="font-bold text-gray-800">{selectedBus.bus_number}</p>
-                    <p className="text-gray-600">{selectedBus.driver_name ?? 'No driver'}</p>
+                    <p className="text-gray-600">{initialLocations[selectedBus.id]?.driver_name ?? 'No driver'}</p>
                     <p className="mt-1 text-xs font-medium capitalize text-gray-700">
                       Status: {getEffectiveStatus(selectedBus)}
                     </p>
@@ -608,7 +608,7 @@ export default function LiveMap() {
                           <span className={cn('h-2.5 w-2.5 flex-shrink-0 rounded-full', STATUS_DOT[status] ?? 'bg-gray-400', status === 'running' && 'animate-pulse')} />
                           <div className="min-w-0">
                             <p className="truncate text-sm font-bold text-[var(--foreground)]">{bus.bus_number}</p>
-                            <p className="truncate text-xs text-[var(--muted-foreground)]">{bus.driver_name ?? 'No driver'}</p>
+                            <p className="truncate text-xs text-[var(--muted-foreground)]">{initialLocations[bus.id]?.driver_name ?? 'No driver'}</p>
                           </div>
                         </div>
                         <StatusBadge status={status} size="sm" />

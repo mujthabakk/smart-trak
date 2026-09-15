@@ -11,8 +11,6 @@ const stopInput = z.object({
 
 const routeInput = z.object({
   school_id: z.string().min(1).optional(),
-  bus_id: z.string().min(1).optional(),
-  driver_id: z.string().min(1).optional(),
   name: z.string().min(1),
   start_point: z.string().min(1),
   end_point: z.string().min(1),
@@ -32,7 +30,6 @@ const listQuery = z.object({
   pageSize: z.string().optional(),
   search: z.string().optional(),
   type: z.enum(['pickup', 'drop']).optional(),
-  bus_id: z.string().optional(),
   is_active: z.string().optional(),
 });
 const safetyManifestBody = z.object({

@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
   LifeBuoy, Plus, Inbox, Loader2, CheckCircle2, Tag, User, Clock, AlertCircle,
+  Send, AlertTriangle, MessageCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -17,6 +19,8 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Separator } from '@/components/ui/separator'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter, DialogClose,
@@ -25,10 +29,18 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { listTickets, createTicket, updateTicket } from '@/lib/api/tickets'
+import { listTickets, createTicket, updateTicket, replyToTicket } from '@/lib/api/tickets'
 import { SUPPORT_CATEGORIES, SUPPORT_PRIORITIES } from '@/lib/constants'
-import { formatDate } from '@/lib/utils'
-import type { TicketPriority } from '@/types'
+import { formatDate, getInitials, getRoleLabel } from '@/lib/utils'
+import type { SupportTicket, TicketPriority, TicketStatus } from '@/types'
+
+function extractErrorMessage(err: unknown): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined
+    return data?.message || 'Something went wrong. Please try again.'
+  }
+  return 'Something went wrong. Please try again.'
+}
 
 const PRIORITY_VARIANT: Record<TicketPriority, 'success' | 'warning' | 'destructive' | 'info'> = {
   low: 'success',
@@ -75,6 +87,11 @@ export default function Support() {
   const [priority, setPriority] = useState<TicketPriority>('medium')
   const [description, setDescription] = useState('')
 
+  // ticket detail / reply dialog state
+  const [selected, setSelected] = useState<SupportTicket | null>(null)
+  const [reply, setReply] = useState('')
+  const [actionError, setActionError] = useState('')
+
   const createMutation = useMutation({
     mutationFn: (payload: { type: string; priority: TicketPriority; description: string }) => createTicket(payload),
     onSuccess: () => {
@@ -85,11 +102,36 @@ export default function Support() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: any }) => updateTicket(id, { status }),
-    onSuccess: () => {
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<SupportTicket, 'status'>> }) => updateTicket(id, patch),
+    onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      setSelected((prev) => (prev && prev.id === updated.id ? updated : prev))
+      setActionError('')
     },
+    onError: (err) => setActionError(extractErrorMessage(err)),
   })
+
+  const replyMutation = useMutation({
+    mutationFn: ({ id, content }: { id: string; content: string }) => replyToTicket(id, content),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      setSelected(updated)
+      setReply('')
+      setActionError('')
+    },
+    onError: (err) => setActionError(extractErrorMessage(err)),
+  })
+
+  function openTicket(t: SupportTicket) {
+    setSelected(t)
+    setReply('')
+    setActionError('')
+  }
+
+  function sendReply() {
+    if (!selected || !reply.trim()) return
+    replyMutation.mutate({ id: selected.id, content: reply.trim() })
+  }
 
   const stats = useMemo(() => ({
     open: tickets.filter((t) => t.status === 'open').length,
@@ -208,7 +250,8 @@ export default function Support() {
                     key={t.id}
                     variants={item}
                     layout
-                    className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm"
+                    onClick={() => openTicket(t)}
+                    className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm cursor-pointer hover:border-[var(--primary)]/40 transition-colors"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
@@ -218,13 +261,12 @@ export default function Support() {
                           <Badge variant={PRIORITY_VARIANT[t.priority]} className="capitalize text-xs">
                             {t.priority}
                           </Badge>
-                          
-                          <div className="ml-auto">
-                            <Select 
-                              value={t.status} 
+
+                          <div className="ml-auto" onClick={(e) => e.stopPropagation()}>
+                            <Select
+                              value={t.status}
                               onValueChange={(newStatus) => {
-                                // Add optimistic update or API call here
-                                updateMutation.mutate({ id: t.id, status: newStatus as any })
+                                updateMutation.mutate({ id: t.id, patch: { status: newStatus as TicketStatus } })
                               }}
                             >
                               <SelectTrigger className="h-6 w-[120px] text-xs">
@@ -253,11 +295,10 @@ export default function Support() {
                       <span className="flex items-center gap-1.5">
                         <Clock size={11} className="text-[var(--primary)]" /> {formatDate(t.created_at, 'datetime')}
                       </span>
-                      {t.replies.length > 0 && (
-                        <span className="ml-auto rounded-full bg-[var(--muted)] px-2 py-0.5 text-[10px] font-medium">
-                          {t.replies.length} repl{t.replies.length === 1 ? 'y' : 'ies'}
-                        </span>
-                      )}
+                      <span className="ml-auto flex items-center gap-1.5 rounded-full bg-[var(--muted)] px-2 py-0.5 text-[10px] font-medium">
+                        <MessageCircle size={11} />
+                        {t.replies.length > 0 ? `${t.replies.length} repl${t.replies.length === 1 ? 'y' : 'ies'}` : 'Reply'}
+                      </span>
                     </div>
                   </motion.div>
                 )
@@ -346,6 +387,126 @@ export default function Support() {
               {createMutation.isPending ? 'Submitting…' : 'Submit Ticket'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ticket detail / reply dialog */}
+      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+        <DialogContent className="max-w-2xl">
+          {selected && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <DialogTitle>{selected.id}</DialogTitle>
+                  <Badge variant={PRIORITY_VARIANT[selected.priority]} className="capitalize">{selected.priority}</Badge>
+                  <StatusBadge status={selected.status} />
+                </div>
+                <DialogDescription>{selected.type}</DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {actionError && (
+                  <div
+                    className="flex items-start gap-2 p-3 rounded-xl text-sm"
+                    style={{ background: 'rgba(220,38,38,0.08)', color: 'var(--destructive)', border: '1px solid rgba(220,38,38,0.2)' }}
+                  >
+                    <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" /> {actionError}
+                  </div>
+                )}
+
+                {/* Reporter */}
+                <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] p-3">
+                  <Avatar className="h-9 w-9 flex-shrink-0">
+                    <AvatarFallback className="bg-[var(--primary)]/10 text-[var(--primary)] text-xs font-semibold">
+                      {getInitials(selected.reporter_name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-[var(--foreground)] truncate">{selected.reporter_name}</p>
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      {getRoleLabel(selected.reporter_role)} · {formatDate(selected.created_at, 'datetime')}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div className="rounded-xl bg-[var(--muted)]/40 p-4">
+                  <p className="text-xs font-semibold text-[var(--muted-foreground)] mb-1.5">Description</p>
+                  <p className="text-sm text-[var(--foreground)] leading-relaxed">{selected.description}</p>
+                </div>
+
+                {/* Reply thread */}
+                <div>
+                  <p className="text-xs font-semibold text-[var(--muted-foreground)] mb-2">Conversation</p>
+                  <div className="space-y-3 max-h-52 overflow-y-auto pr-1">
+                    {selected.replies.length === 0 ? (
+                      <p className="text-sm text-[var(--muted-foreground)] text-center py-4">No replies yet.</p>
+                    ) : (
+                      selected.replies.map((r) => {
+                        const mine = r.user_role === 'school_admin'
+                        return (
+                          <div key={r.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                            <div
+                              className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${
+                                mine
+                                  ? 'bg-[var(--primary)] text-[var(--primary-foreground)]'
+                                  : 'bg-[var(--muted)] text-[var(--foreground)]'
+                              }`}
+                            >
+                              <p className="text-[11px] font-medium opacity-80 mb-0.5">{r.user_name}</p>
+                              <p className="leading-relaxed">{r.content}</p>
+                              <p className="text-[10px] opacity-70 mt-1">{formatDate(r.created_at, 'time')}</p>
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Status control */}
+                <div className="space-y-1.5">
+                  <Label>Status</Label>
+                  <Select
+                    value={selected.status}
+                    onValueChange={(v) => updateMutation.mutate({ id: selected.id, patch: { status: v as TicketStatus } })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_FILTERS.filter((f) => f.value !== 'all').map((f) => (
+                        <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Reply box */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="school-reply">Reply</Label>
+                  <Textarea
+                    id="school-reply"
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    placeholder="Type your reply…"
+                    rows={3}
+                  />
+                </div>
+              </div>
+
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="outline">Close</Button>
+                </DialogClose>
+                <Button onClick={sendReply} disabled={!reply.trim()} loading={replyMutation.isPending}>
+                  <Send size={14} /> Send Reply
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </Layout>

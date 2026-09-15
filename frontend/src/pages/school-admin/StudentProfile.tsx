@@ -14,6 +14,7 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -182,7 +183,7 @@ export default function StudentProfile() {
             <Button variant="outline">
               <QrCode size={15} /> QR Code
             </Button>
-            <Button onClick={() => navigate('/school-admin/students/add')}>
+            <Button onClick={() => navigate(`/school-admin/students/${student.id}/edit`)}>
               <Pencil size={15} /> Edit
             </Button>
           </>
@@ -198,9 +199,12 @@ export default function StudentProfile() {
               <div className="h-28 bg-gradient-to-br from-[var(--primary)] to-[var(--secondary)]" />
               <CardContent className="pt-0">
                 <div className="flex flex-col sm:flex-row sm:items-end gap-4 -mt-12">
-                  <div className="h-24 w-24 rounded-2xl bg-[var(--primary)] flex items-center justify-center text-white text-3xl font-bold ring-4 ring-[var(--card)] shadow-lg flex-shrink-0">
-                    {getInitials(student.name)}
-                  </div>
+                  <Avatar className="h-24 w-24 rounded-2xl ring-4 ring-[var(--card)] shadow-lg flex-shrink-0">
+                    {student.photo_url && <AvatarImage src={student.photo_url} alt={student.name} className="object-cover" />}
+                    <AvatarFallback className="rounded-2xl bg-[var(--primary)] text-white text-3xl font-bold">
+                      {getInitials(student.name)}
+                    </AvatarFallback>
+                  </Avatar>
                   <div className="min-w-0 flex-1 pb-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-xl font-bold text-[var(--foreground)]">{student.name}</h2>
@@ -295,7 +299,7 @@ export default function StudentProfile() {
                         <InfoRow icon={Bus} label="Bus" value={bus ? `${bus.bus_number} · ${bus.make_model ?? ''}`.trim() : route?.bus_number ?? '—'} />
                         <InfoRow icon={MapPin} label="Pickup Stop" value={route?.stops[0]?.name ?? '—'} />
                         <InfoRow icon={MapPin} label="Drop Stop" value={route?.stops[route.stops.length - 1]?.name ?? '—'} />
-                        <InfoRow icon={User} label="Driver" value={route?.driver_name ?? bus?.driver_name ?? 'Unassigned'} />
+                        <InfoRow icon={User} label="Driver" value={route?.driver_name ?? '—'} />
                         <InfoRow icon={Clock} label="First Pickup" value={route?.stops[0]?.estimated_time ?? '—'} />
                       </div>
                     ) : (

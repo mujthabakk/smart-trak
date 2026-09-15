@@ -53,7 +53,8 @@ const remove = asyncHandler(async (req, res) => {
 
 const getLocation = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
-  const location = await service.getLatestLocation(req.params.id, schoolId);
+  const parentUserId = req.user.role === 'parent' ? req.user.id : undefined;
+  const location = await service.getLatestLocation(req.params.id, schoolId, parentUserId);
   res.json({ location });
 });
 

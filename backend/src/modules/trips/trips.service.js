@@ -16,7 +16,7 @@ async function notifyRouteParents(schoolId, routeId, title, body) {
     SELECT DISTINCT u.id AS user_id
     FROM students s
     JOIN parent_details p ON p.student_id = s.id
-    JOIN users u ON u.email = p.email
+    JOIN users u ON lower(u.email) = lower(p.email)
     WHERE s.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
        OR s.drop_stop_id IN (SELECT id FROM stops WHERE route_id = $1)
   `, [routeId]);
@@ -82,6 +82,24 @@ function toResponse(row) {
   };
 }
 
+/** A trip is visible to a parent only when one of their own children actually
+ * rides this trip's route — matched the same way getBoardingStudents/
+ * getLocationsForTrip resolve "who's on this trip" (pickup/drop stop, with
+ * this specific trip's student overrides taking priority). */
+function parentTripCondition(paramIndex) {
+  return `EXISTS (
+    SELECT 1 FROM students s
+    JOIN parent_details pd ON pd.student_id = s.id
+    JOIN users u ON lower(u.email) = lower(pd.email)
+    LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = t.id
+    WHERE u.id = $${paramIndex}
+      AND (
+        COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) IN (SELECT id FROM stops WHERE route_id = t.route_id)
+        OR COALESCE(tso.override_drop_stop_id, s.drop_stop_id) IN (SELECT id FROM stops WHERE route_id = t.route_id)
+      )
+  )`;
+}
+
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -117,6 +135,10 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
     params.push(filters.status);
     conditions.push(`t.status = $${params.length}`);
   }
+  if (filters.parentUserId) {
+    params.push(filters.parentUserId);
+    conditions.push(parentTripCondition(params.length));
+  }
   // "Current trips" is the default view most pages need, so default to today
   // when no explicit date filter is supplied — EXCEPT when the caller is
   // asking for in_progress trips specifically: a trip that started before
@@ -147,10 +169,18 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   return { trips: rows.map(toResponse), pagination: paginationMeta(page, pageSize, total) };
 }
 
-async function getById(id, schoolId) {
-  const params = schoolId ? [id, schoolId] : [id];
-  const where = schoolId ? 'WHERE t.id = $1 AND r.school_id = $2' : 'WHERE t.id = $1';
-  const { rows } = await query(`${BASE_SELECT} ${where}`, params);
+async function getById(id, schoolId, parentUserId) {
+  const conditions = ['t.id = $1'];
+  const params = [id];
+  if (schoolId) {
+    params.push(schoolId);
+    conditions.push(`r.school_id = $${params.length}`);
+  }
+  if (parentUserId) {
+    params.push(parentUserId);
+    conditions.push(parentTripCondition(params.length));
+  }
+  const { rows } = await query(`${BASE_SELECT} WHERE ${conditions.join(' AND ')}`, params);
   if (!rows[0]) throw ApiError.notFound('Trip not found');
   return toResponse(rows[0]);
 }

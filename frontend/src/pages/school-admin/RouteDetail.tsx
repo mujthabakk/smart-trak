@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -140,6 +140,7 @@ function DraggableStudentRow({
         className="flex flex-1 items-center gap-2 min-w-0 text-left cursor-pointer"
       >
         <Avatar className="h-8 w-8 flex-shrink-0">
+          {student.photo_url && <AvatarImage src={student.photo_url} alt={student.name} />}
           <AvatarFallback className="text-[11px] font-bold bg-[var(--primary)]/10 text-[var(--primary)]">
             {getInitials(student.name)}
           </AvatarFallback>
@@ -516,6 +517,7 @@ function RouteTransferPanel({
                     onCheckedChange={() => toggleStudent(s.id)}
                   />
                   <Avatar className="h-9 w-9">
+                    {s.photo_url && <AvatarImage src={s.photo_url} alt={s.name} />}
                     <AvatarFallback className="text-xs bg-[var(--primary)]/10 text-[var(--primary)]">
                       {getInitials(s.name)}
                     </AvatarFallback>
@@ -1359,6 +1361,7 @@ export default function RouteDetail() {
                   className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-[var(--muted)] transition-colors"
                 >
                   <Avatar className="h-8 w-8">
+                    {s.photo_url && <AvatarImage src={s.photo_url} alt={s.name} />}
                     <AvatarFallback className="text-xs bg-[var(--primary)]/10 text-[var(--primary)]">{getInitials(s.name)}</AvatarFallback>
                   </Avatar>
                   <div>

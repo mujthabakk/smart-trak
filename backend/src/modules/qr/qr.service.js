@@ -21,7 +21,7 @@ async function resolve(code, schoolId) {
   const busWhere = schoolId ? 'safety_qr_code = $1 AND school_id = $2' : 'safety_qr_code = $1';
   const busParams = schoolId ? [code, schoolId] : [code];
   const { rows: busRows } = await query(
-    `SELECT id, school_id, bus_number, driver_id, current_trip_id, status
+    `SELECT id, school_id, bus_number, current_trip_id, status
      FROM buses WHERE ${busWhere}`,
     busParams
   );
@@ -30,7 +30,7 @@ async function resolve(code, schoolId) {
   const routeWhere = schoolId ? 'route_qr_code = $1 AND school_id = $2' : 'route_qr_code = $1';
   const routeParams = schoolId ? [code, schoolId] : [code];
   const { rows: routeRows } = await query(
-    `SELECT id, school_id, name, type, bus_id, driver_id
+    `SELECT id, school_id, name, type
      FROM routes WHERE ${routeWhere}`,
     routeParams
   );

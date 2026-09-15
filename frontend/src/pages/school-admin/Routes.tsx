@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import {
-  Route as RouteIcon, Plus, Bus, MapPin, Clock, Users, Map as MapIcon,
+  Route as RouteIcon, Plus, MapPin, Clock, Users, Map as MapIcon,
   Pencil, ArrowRight, CircleDot, Navigation, X, Download, Upload, QrCode,
   LayoutGrid, List, UserPlus, PlusCircle, ChevronDown, ChevronUp, Trash2,
   Eye, AlertCircle,
@@ -16,7 +16,6 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-// import { AutoAssignBusesButton } from '@/components/shared/AutoAssignBusesButton'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -779,23 +778,6 @@ function RouteCard({
             <StatusBadge status={route.is_active ? 'active' : 'inactive'} size="sm" />
           </div>
         </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="flex items-center gap-2 rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2">
-            <Bus size={15} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Bus</p>
-              <p className="truncate text-xs font-semibold text-[var(--foreground)]">{route.bus_number ?? 'Unassigned'}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2">
-            <Users size={15} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Driver</p>
-              <p className="truncate text-xs font-semibold text-[var(--foreground)]">{route.driver_name ?? 'Unassigned'}</p>
-            </div>
-          </div>
-        </div>
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col pt-4">
@@ -1287,13 +1269,6 @@ export default function Routes() {
   })
   const routes = useMemo(() => routesQuery.data?.routes ?? [], [routesQuery.data])
 
-  // Only used by the commented-out AutoAssignBusesButton below.
-  // const busesQuery = useQuery({
-  //   queryKey: ['buses'],
-  //   queryFn: () => listBuses(),
-  // })
-  // const buses = busesQuery.data?.buses ?? []
-
   const studentsQuery = useQuery({
     queryKey: ['students'],
     queryFn: () => listStudents({ pageSize: 1000 }),
@@ -1450,7 +1425,6 @@ export default function Routes() {
         subtitle="Manage bus routes and stops"
         actions={
           <div className="flex items-center gap-2">
-            {/* <AutoAssignBusesButton routes={routes} buses={buses} /> */}
             {view === 'list' ? (
               <>
                 <Button

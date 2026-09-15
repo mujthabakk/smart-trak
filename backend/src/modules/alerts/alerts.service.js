@@ -104,6 +104,7 @@ async function checkAlertsForStop({ schoolId, tripId, stopId, tripType }) {
         title: 'Bus approaching',
         body: `${c.student_name}: ${message}`,
         type: 'info', // notifications.type has no 'stop_alert' value
+        push_type: 'ringing', // the bus is arriving now — ring, don't just ping
       }).catch((err) => console.error('Failed to send stop alert notification', err));
     }
   }

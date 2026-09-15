@@ -11,7 +11,6 @@ const list = asyncHandler(async (req, res) => {
   const result = await service.list(schoolId, pagination, {
     search: req.query.search,
     type: req.query.type,
-    bus_id: req.query.bus_id,
     is_active: req.query.is_active,
   });
   res.json(result);

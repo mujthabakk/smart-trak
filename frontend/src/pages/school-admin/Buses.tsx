@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import {
   Plus, Bus as BusIcon, MapPin, Navigation, QrCode, Trash2, Pencil, Search, RefreshCw, X, Download, Filter, DownloadCloud, AlertTriangle,
   MoreVertical, List, User, Clock, Users, Upload, Phone,
-  AlertCircle, Eye, Ban, LayoutGrid, UserCog,
+  AlertCircle, Eye, Ban, LayoutGrid,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import QRCode from 'qrcode'
@@ -15,8 +15,6 @@ import { StatsCard } from '@/components/shared/StatsCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import DataTable, { type Column } from '@/components/shared/DataTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-// import { AutoAssignBusesButton } from '@/components/shared/AutoAssignBusesButton'
-import { AssignDriverDialog } from '@/components/shared/AssignDriverDialog'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
@@ -453,16 +451,23 @@ export default function Buses() {
     return trips.find((t) => t.bus_id === busId && t.status === 'in_progress')
   }
 
-  // A bus can be statically assigned to a route (routes.bus_id, set from the
-  // Routes page or the Auto-Assign wand) well before any trip ever starts —
-  // an idle bus has no in-progress trip yet, so falling back to that static
-  // assignment is what keeps this column from going blank for it.
+  // Buses/routes have no persistent assignment to each other — a route's
+  // bus_id (from the routes API) is itself derived from whichever trip is
+  // currently in progress on it, same source as activeTripForBus. This is
+  // just a fallback in case the routes list is fresher than the local trips
+  // list at the moment of render.
   function assignedRouteForBus(busId: string) {
     return routes.find((r) => r.bus_id === busId)
   }
 
   function routeForBus(busId: string): string | undefined {
     return activeTripForBus(busId)?.route_name ?? assignedRouteForBus(busId)?.name
+  }
+
+  // Buses have no persisted driver — "driver" only exists for the duration
+  // of a live trip.
+  function driverNameForBus(busId: string): string | undefined {
+    return activeTripForBus(busId)?.driver_name ?? assignedRouteForBus(busId)?.driver_name
   }
 
   function primaryRouteIdForBus(busId: string): string | undefined {
@@ -501,7 +506,6 @@ export default function Buses() {
   // Dialog state
   const [addOpen, setAddOpen] = useState(false)
   const [editBus, setEditBus] = useState<Bus | null>(null)
-  const [assignDriverBus, setAssignDriverBus] = useState<Bus | null>(null)
   const [bulkOpen, setBulkOpen] = useState(false)
 
   const createMutation = useMutation({
@@ -562,7 +566,7 @@ export default function Buses() {
         (b) =>
           b.bus_number.toLowerCase().includes(q) ||
           (b.make_model ?? '').toLowerCase().includes(q) ||
-          (b.driver_name ?? '').toLowerCase().includes(q),
+          (driverNameForBus(b.id) ?? '').toLowerCase().includes(q),
       )
     }
     return result
@@ -620,9 +624,6 @@ export default function Buses() {
           <DropdownMenuItem onClick={() => setEditBus(bus)}>
             <Pencil size={14} /> Edit
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setAssignDriverBus(bus)}>
-            <UserCog size={14} /> Assign Driver
-          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => downloadSafetyQR(bus)}>
             <QrCode size={14} /> Safety QR Code
           </DropdownMenuItem>
@@ -662,82 +663,6 @@ export default function Buses() {
               </div>
               <p className="text-xs text-[var(--muted-foreground)]">{b.make_model ?? '—'}</p>
             </div>
-          </div>
-        )
-      },
-    },
-    {
-      key: 'driver_name',
-      header: 'Driver',
-      render: (b) => (
-        <span className="text-sm text-[var(--foreground)]">
-          {b.driver_name ?? <span className="text-[var(--muted-foreground)]">Unassigned</span>}
-        </span>
-      ),
-    },
-    {
-      key: 'route',
-      header: 'Route',
-      render: (b) => {
-        const route = routeForBus(b.id)
-        const { onboarded, notYet, absent, total } = busStudentAttendance(b.id)
-        if (!route) return <span className="text-sm text-[var(--muted-foreground)]">—</span>
-        return (
-          <div className="min-w-[120px]">
-            <span className="text-sm text-[var(--foreground)] block">{route}</span>
-            {total > 0 && (
-              <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
-                <span className="text-green-600 dark:text-green-400">{onboarded} on</span>
-                {' · '}
-                <span className="text-amber-600 dark:text-amber-400">{notYet} wait</span>
-                {' · '}
-                <span className="text-red-600 dark:text-red-400">{absent} abs</span>
-              </span>
-            )}
-          </div>
-        )
-      },
-    },
-    {
-      key: 'type',
-      header: 'Type',
-      render: (b) => {
-        const type = routeTypeForBus(b.id)
-        if (!type) return <span className="text-sm text-[var(--muted-foreground)]">—</span>
-        return (
-          <span className={cn(
-            'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold',
-            type === 'pickup'
-              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-              : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-          )}>
-            {type === 'pickup' ? 'Pickup' : 'Drop'}
-          </span>
-        )
-      },
-    },
-    {
-      key: 'students',
-      header: 'Students',
-      render: (b) => {
-        const { onboarded, notYet, absent, total } = busStudentAttendance(b.id)
-        if (total === 0) {
-          return <span className="text-sm text-[var(--muted-foreground)]">—</span>
-        }
-        return (
-          <div className="flex flex-col gap-1 min-w-[140px]">
-            <div className="flex flex-wrap items-center gap-1">
-              <span className="inline-flex items-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 text-[10px] font-semibold tabular-nums" title="Onboarded">
-                {onboarded} on
-              </span>
-              <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 text-[10px] font-semibold tabular-nums" title="Not yet">
-                {notYet} wait
-              </span>
-              <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 text-[10px] font-semibold tabular-nums" title="Absent">
-                {absent} abs
-              </span>
-            </div>
-            <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">{onboarded}/{total} onboarded</span>
           </div>
         )
       },
@@ -835,7 +760,6 @@ export default function Buses() {
           actions={
             <>
               {viewToggle}
-              {/* <AutoAssignBusesButton routes={routes} buses={buses} /> */}
               <Button variant="outline" onClick={() => setBulkOpen(true)}>
                 <Upload size={16} /> Bulk Import
               </Button>
@@ -949,9 +873,6 @@ export default function Buses() {
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditBus(bus) }}>
                             <Pencil size={14} /> Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setAssignDriverBus(bus) }}>
-                            <UserCog size={14} /> Assign Driver
-                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); downloadSafetyQR(bus) }}>
                             <QrCode size={14} /> Download QR
                           </DropdownMenuItem>
@@ -985,7 +906,7 @@ export default function Buses() {
                   <div className="p-5 flex flex-col gap-3 flex-1">
                     <div className="flex items-center gap-2 text-sm">
                       <User size={15} className="text-[var(--muted-foreground)] flex-shrink-0" />
-                      <span className="text-[var(--foreground)] truncate">{bus.driver_name ?? 'Unassigned'}</span>
+                      <span className="text-[var(--foreground)] truncate">{driverNameForBus(bus.id) ?? '—'}</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
                       <MapPin size={15} className="text-[var(--muted-foreground)] flex-shrink-0" />
@@ -1034,7 +955,7 @@ export default function Buses() {
 
                     <div className="mt-auto pt-3 flex items-center justify-between gap-2 border-t border-[var(--border)]">
                       <span className="text-[11px] text-[var(--muted-foreground)] truncate">
-                        {route ?? 'Unassigned route'}
+                        {route ?? 'No active route'}
                       </span>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <Button
@@ -1072,7 +993,7 @@ export default function Buses() {
               data={filteredBuses}
               keyField="id"
               searchable
-              searchKeys={['bus_number', 'make_model', 'driver_name']}
+              searchKeys={['bus_number', 'make_model']}
               searchPlaceholder="Search buses…"
               emptyTitle="No buses found"
               emptyDescription="Add a bus to start building your fleet."
@@ -1105,14 +1026,6 @@ export default function Buses() {
         onImport={handleBulkImport}
       />
 
-      {/* Assign Driver Dialog */}
-      {assignDriverBus && (
-        <AssignDriverDialog
-          bus={assignDriverBus}
-          open={assignDriverBus !== null}
-          onOpenChange={(v) => { if (!v) setAssignDriverBus(null) }}
-        />
-      )}
     </Layout>
   )
 }

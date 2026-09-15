@@ -75,13 +75,17 @@ const list = asyncHandler(async (req, res) => {
     driver_id: driverId,
     status: req.query.status,
     date: req.query.date,
+    // A parent only ever sees live/past trips one of their own children
+    // actually rides — never the whole school's trip list.
+    parentUserId: req.user.role === 'parent' ? req.user.id : undefined,
   });
   res.json(result);
 });
 
 const getOne = asyncHandler(async (req, res) => {
   const schoolId = resolveSchoolId(req);
-  res.json({ trip: await service.getById(req.params.id, schoolId) });
+  const parentUserId = req.user.role === 'parent' ? req.user.id : undefined;
+  res.json({ trip: await service.getById(req.params.id, schoolId, parentUserId) });
 });
 
 const getBoardingStudents = asyncHandler(async (req, res) => {

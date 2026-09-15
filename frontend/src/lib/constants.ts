@@ -142,6 +142,7 @@ export const SIDEBAR_NAV: Record<
     { label: 'Lost & Found', path: '/school-admin/lost-found', icon: 'Package' },
     { label: 'Bus Transfer', path: '/school-admin/bus-transfer', icon: 'ArrowLeftRight' },
     { label: 'Guest Drivers', path: '/school-admin/guest-drivers', icon: 'UserPlus' },
+    { label: 'Training', path: '/school-admin/training', icon: 'BookOpen' },
     { label: 'Support', path: '/school-admin/support', icon: 'LifeBuoy' },
     { label: 'Reports', path: '/school-admin/reports', icon: 'BarChart3' },
     { label: 'Audit Logs', path: '/school-admin/audit-logs', icon: 'ScrollText' },

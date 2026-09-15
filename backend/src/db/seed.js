@@ -182,38 +182,34 @@ async function seedFleetAndRoutes(driverUserId) {
   const client = await tenantPool.connect();
   try {
     await client.query('BEGIN');
-    const driver1 = await client.query(
+    // Buses/routes/drivers have no persisted assignment to each other — a
+    // bus, route, and driver are only ever linked together via a `trips` row
+    // created live when a driver scans in, so the seed doesn't wire one up.
+    await client.query(
       `INSERT INTO drivers (school_id, user_id, name, employee_id, email, phone, whatsapp, license_number, license_expiry)
        VALUES ('GREENFIELD',$1,'Salim Ahmed Rashid','EMP001','driver@smarttrack.ae','+971551234501','+971551234501','DXB-LIC-78901','2027-08-15') RETURNING id`,
       [driverUserId]
     );
-    const driver2 = await client.query(
+    await client.query(
       `INSERT INTO drivers (school_id, name, employee_id, email, phone, whatsapp, license_number, license_expiry)
        VALUES ('GREENFIELD','Ali Mohammed Al-Faris','EMP002','ali.driver@greenfield.ae','+971551234502','+971551234502','DXB-LIC-78902','2026-03-20') RETURNING id`
     );
-    const driverId1 = driver1.rows[0].id;
-    const driverId2 = driver2.rows[0].id;
 
-    const bus1 = await client.query(
-      `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year, insurance_expiry, fitness_cert_expiry, safety_qr_code, driver_id, status)
-       VALUES ('GREENFIELD','B-001',45,'Toyota Coaster 2022',2022,'2026-12-31','2026-06-30',$1,$2,'idle') RETURNING id`,
-      [generateSeedQrCode('BUS', 'GREENFIELD-B-001'), driverId1]
+    await client.query(
+      `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year, insurance_expiry, fitness_cert_expiry, safety_qr_code, status)
+       VALUES ('GREENFIELD','B-001',45,'Toyota Coaster 2022',2022,'2026-12-31','2026-06-30',$1,'idle') RETURNING id`,
+      [generateSeedQrCode('BUS', 'GREENFIELD-B-001')]
     );
-    const bus2 = await client.query(
-      `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year, insurance_expiry, fitness_cert_expiry, safety_qr_code, driver_id, status)
-       VALUES ('GREENFIELD','B-002',35,'Mitsubishi Rosa 2021',2021,'2026-08-15','2026-08-15',$1,$2,'idle') RETURNING id`,
-      [generateSeedQrCode('BUS', 'GREENFIELD-B-002'), driverId2]
+    await client.query(
+      `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year, insurance_expiry, fitness_cert_expiry, safety_qr_code, status)
+       VALUES ('GREENFIELD','B-002',35,'Mitsubishi Rosa 2021',2021,'2026-08-15','2026-08-15',$1,'idle') RETURNING id`,
+      [generateSeedQrCode('BUS', 'GREENFIELD-B-002')]
     );
-    const busId1 = bus1.rows[0].id;
-    const busId2 = bus2.rows[0].id;
-
-    await client.query(`UPDATE drivers SET assigned_bus_id = $1 WHERE id = $2`, [busId1, driverId1]);
-    await client.query(`UPDATE drivers SET assigned_bus_id = $1 WHERE id = $2`, [busId2, driverId2]);
 
     const route1 = await client.query(
-      `INSERT INTO routes (school_id, bus_id, driver_id, name, start_point, end_point, route_qr_code)
-       VALUES ('GREENFIELD',$1,$2,'Route A','Al Barsha South','Greenfield Academy',$3) RETURNING id`,
-      [busId1, driverId1, generateSeedQrCode('RT', 'GREENFIELD-Route-A')]
+      `INSERT INTO routes (school_id, name, start_point, end_point, route_qr_code)
+       VALUES ('GREENFIELD','Route A','Al Barsha South','Greenfield Academy',$1) RETURNING id`,
+      [generateSeedQrCode('RT', 'GREENFIELD-Route-A')]
     );
     const routeId1 = route1.rows[0].id;
 

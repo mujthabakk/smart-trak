@@ -16,7 +16,6 @@ export interface BusInput {
   year?: number
   insurance_expiry?: string
   fitness_cert_expiry?: string
-  driver_id?: string
   assistant_name?: string
   assistant_phone?: string
 }

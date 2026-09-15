@@ -995,6 +995,54 @@
           }
         },
         {
+          "name": "Take Over Trip after Breakdown (driver) [NEW]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.trip) pm.collectionVariables.set('trip_id', data.trip.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{driver_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"safety_qr_code\": \"{{safety_qr_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trips/take-over",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trips",
+                "take-over"
+              ]
+            },
+            "description": "[NEW] A standby driver completes a bus-breakdown handover by scanning the ORIGINAL (breakdown) bus's safety QR code -- not the replacement bus's, since that's the only one they have physical access to. Requires a school admin to have already named this driver as new_driver_id on the bus_transfers record (via the admin console's Bus Transfer screen); otherwise this 403s with \"You are not the assigned driver for this transfer.\" On success, trips.driver_id switches to this driver and the bus_transfers record is marked completed."
+          }
+        },
+        {
           "name": "Start Trip",
           "request": {
             "method": "POST",
@@ -1276,7 +1324,7 @@
                 "leave"
               ]
             },
-            "description": "[CHANGED] Fails unless {{student_id}} is this parent's own child (matched by login email). If '2. Lookups' captured a student that isn't this parent's, expect a 403."
+            "description": "[CHANGED] Leave is granted the moment it's applied for -- the response now comes back with status \"approved\" immediately (there is no more pending/review stage for anyone, parent or admin). Still fails with 403 unless {{student_id}} is this parent's own child (matched by login email)."
           }
         },
         {
@@ -1316,7 +1364,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"status\": \"approved\"\n}",
+              "raw": "{\n  \"status\": \"rejected\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1332,7 +1380,8 @@
                 "leave",
                 "{{leave_id}}"
               ]
-            }
+            },
+            "description": "[CHANGED] Leave requests are pre-approved on creation now, so this is no longer a review step -- it's how an admin revokes/rejects a leave that was already auto-approved. Set status to \"rejected\" to revoke one; there's nothing left in a \"pending\" state to approve."
           }
         },
         {

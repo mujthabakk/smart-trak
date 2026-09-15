@@ -121,10 +121,6 @@ export default function DriverDetail() {
       text: extractCredentialsError(err, 'Failed to send reset link — this driver may not have a login yet. Try "Regenerate & Send Password" first.'),
     }),
   })
-  const bus = useMemo(
-    () => (driver?.assigned_bus_id ? { id: driver.assigned_bus_id, bus_number: driver.assigned_bus_number ?? '' } : undefined),
-    [driver],
-  )
   const { data: routesData } = useQuery({
     queryKey: ['routes'],
     queryFn: () => listRoutes(),
@@ -140,6 +136,13 @@ export default function DriverDetail() {
     enabled: !!id,
   })
   const trips = useMemo(() => tripsData?.trips ?? [], [tripsData])
+  // Drivers have no persisted bus assignment — "their bus" only exists for
+  // the duration of a live trip.
+  const activeTrip = useMemo(() => trips.find((t) => t.status === 'in_progress'), [trips])
+  const bus = useMemo(
+    () => (activeTrip ? { id: activeTrip.bus_id, bus_number: activeTrip.bus_number } : undefined),
+    [activeTrip],
+  )
   const tripHistory = useMemo(() => (id ? makeTripHistory(id) : []), [id])
 
   const dayMeta = useMemo(() =>
@@ -265,7 +268,7 @@ export default function DriverDetail() {
         {/* Stats row */}
         <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: 'Assigned Bus', value: bus?.bus_number ?? 'Unassigned', icon: BusIcon },
+            { label: 'Current Bus', value: bus?.bus_number ?? '—', icon: BusIcon },
             { label: 'Routes', value: routes.length, icon: Navigation },
             { label: 'License Expiry', value: formatDate(driver.license_expiry, 'date'), icon: Calendar },
             { label: 'Total Trips', value: trips.length, icon: Clock },
@@ -351,7 +354,7 @@ export default function DriverDetail() {
                       </span>
                     </div>
                   </DetailRow>
-                  <DetailRow label="Assigned Bus">
+                  <DetailRow label="Current Bus">
                     {bus ? (
                       <button
                         onClick={() => navigate(`/school-admin/buses/${bus.id}`)}
@@ -359,7 +362,7 @@ export default function DriverDetail() {
                       >
                         {bus.bus_number}
                       </button>
-                    ) : <span className="text-sm text-[var(--muted-foreground)]">Unassigned</span>}
+                    ) : <span className="text-sm text-[var(--muted-foreground)]">No active trip</span>}
                   </DetailRow>
                   <DetailRow label="Joined" value={formatDate(driver.created_at, 'date')} />
                 </CardContent>

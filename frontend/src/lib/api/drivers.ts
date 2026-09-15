@@ -20,7 +20,6 @@ export interface DriverInput {
   license_expiry: string
   photo_url?: string
   address?: string
-  assigned_bus_id?: string | null
   is_active?: boolean
   // Editing a guest driver's own validity after creation — no-ops for a
   // non-guest driver.

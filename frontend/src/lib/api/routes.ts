@@ -6,7 +6,6 @@ export interface ListRoutesParams {
   page?: number
   pageSize?: number
   search?: string
-  bus_id?: string
   is_active?: boolean
 }
 
@@ -14,8 +13,6 @@ export interface RouteInput {
   name: string
   start_point: string
   end_point: string
-  bus_id?: string
-  driver_id?: string
   is_active?: boolean
   stops?: Array<Partial<Stop>>
 }

@@ -5,15 +5,28 @@ const { generateQrCode } = require('../../utils/qrcode');
 
 // Route.student_count counts students whose pickup OR drop stop belongs to
 // the route (via its stops), matching src/types/index.ts::Route.
+//
+// Buses, routes and drivers are independent entities — a route has no
+// persisted bus_id/driver_id of its own. bus_id/bus_number/driver_id/
+// driver_name below reflect whichever trip is *currently in progress* on
+// this route (if any), resolved fresh every read instead of a stored
+// assignment.
 const BASE_SELECT = `
-  SELECT r.*, b.bus_number, d.name AS driver_name,
+  SELECT r.*, ct.bus_id, ct.bus_number, ct.driver_id, ct.driver_name,
     (SELECT COUNT(*)::int FROM students st
        WHERE st.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = r.id)
           OR st.drop_stop_id IN (SELECT id FROM stops WHERE route_id = r.id)
     ) AS student_count
   FROM routes r
-  LEFT JOIN buses b ON b.id = r.bus_id
-  LEFT JOIN drivers d ON d.id = r.driver_id
+  LEFT JOIN LATERAL (
+    SELECT t.bus_id, b.bus_number, t.driver_id, d.name AS driver_name
+    FROM trips t
+    JOIN buses b ON b.id = t.bus_id
+    JOIN drivers d ON d.id = t.driver_id
+    WHERE t.route_id = r.id AND t.status = 'in_progress'
+    ORDER BY t.started_at DESC
+    LIMIT 1
+  ) ct ON true
 `;
 
 function toStopResponse(row) {
@@ -33,8 +46,11 @@ function toResponse(row, stops = []) {
   return {
     id: row.id,
     school_id: row.school_id,
+    // Live trip only — no persisted bus/driver assignment exists on a route.
     bus_id: row.bus_id || undefined,
     bus_number: row.bus_number || undefined,
+    driver_id: row.driver_id || undefined,
+    driver_name: row.driver_name || undefined,
     name: row.name,
     start_point: row.start_point,
     end_point: row.end_point,
@@ -42,8 +58,6 @@ function toResponse(row, stops = []) {
     stops,
     is_active: row.is_active,
     student_count: row.student_count,
-    driver_id: row.driver_id || undefined,
-    driver_name: row.driver_name || undefined,
     created_at: row.created_at,
   };
 }
@@ -81,10 +95,6 @@ async function list(schoolId, { page, pageSize, offset }, filters) {
   if (filters.search) {
     params.push(`%${filters.search}%`);
     conditions.push(`r.name ILIKE $${params.length}`);
-  }
-  if (filters.bus_id) {
-    params.push(filters.bus_id);
-    conditions.push(`r.bus_id = $${params.length}`);
   }
   if (filters.is_active !== undefined) {
     params.push(filters.is_active === 'true');
@@ -158,12 +168,11 @@ async function upsertStops(client, routeId, stops) {
 async function create(schoolId, data) {
   const routeId = await withTransaction(async (client) => {
     const { rows } = await client.query(
-      `INSERT INTO routes (school_id, bus_id, driver_id, name, start_point, end_point, route_qr_code, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, true))
+      `INSERT INTO routes (school_id, name, start_point, end_point, route_qr_code, is_active)
+       VALUES ($1,$2,$3,$4,$5,COALESCE($6, true))
        RETURNING id`,
       [
-        schoolId, data.bus_id || null, data.driver_id || null, data.name,
-        data.start_point, data.end_point, generateQrCode('RT'), data.is_active,
+        schoolId, data.name, data.start_point, data.end_point, generateQrCode('RT'), data.is_active,
       ]
     );
     const id = rows[0].id;
@@ -176,7 +185,7 @@ async function create(schoolId, data) {
 async function update(id, schoolId, data) {
   await getById(id, schoolId);
   await withTransaction(async (client) => {
-    const fields = ['bus_id', 'driver_id', 'name', 'start_point', 'end_point', 'is_active'];
+    const fields = ['name', 'start_point', 'end_point', 'is_active'];
     const sets = [];
     const params = [];
     for (const field of fields) {

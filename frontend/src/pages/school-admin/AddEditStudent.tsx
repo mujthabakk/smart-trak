@@ -142,13 +142,13 @@ export default function AddEditStudent() {
       className: existing.class ?? '',
       division: existing.division ?? '',
       dob: existing.dob ?? '',
-      gender: '',
+      gender: existing.gender ?? '',
       photoUrl: existing.photo_url ?? '',
       guardianName: guardian?.parent_name ?? '',
       relationship: guardian?.relationship ?? '',
       phone: guardian?.phone ?? '',
       email: guardian?.email ?? '',
-      address: '',
+      address: existing.address ?? '',
       pickupLocation: '',
       dropLocation: '',
     })
@@ -216,7 +216,7 @@ export default function AddEditStudent() {
     const payload: StudentInput = {
       name: form.fullName,
       class: form.className,
-      division: form.division,
+      division: form.division || undefined,
       // The form has no dedicated roll-number field; the auto-generated
       // student ID badge (STD-XXXX) doubles as the roll number.
       roll_number: studentId.replace(/^STD-/, ''),

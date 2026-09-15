@@ -1,6 +1,7 @@
 const { GoogleGenAI } = require('@google/genai');
 const env = require('../../config/env');
 const ApiError = require('../../utils/ApiError');
+const { query } = require('../../config/db');
 const studentsService = require('../students/students.service');
 const busesService = require('../buses/buses.service');
 const driversService = require('../drivers/drivers.service');
@@ -26,13 +27,21 @@ function todayStr() {
 const PAGE = { page: 1, pageSize: 1000, offset: 0 };
 
 async function buildSnapshot(schoolId) {
-  const [studentsRes, busesRes, driversRes, routesRes, attendanceRes, leaveRes] = await Promise.all([
+  const [studentsRes, busesRes, driversRes, routesRes, attendanceRes, leaveRes, activeTripRows] = await Promise.all([
     studentsService.list(schoolId, PAGE, {}),
     busesService.list(schoolId, PAGE, {}),
     driversService.list(schoolId, PAGE, {}),
     routesService.list(schoolId, PAGE, {}),
     attendanceService.list(schoolId, PAGE, { date: todayStr() }),
     leaveService.list(schoolId, PAGE, {}),
+    query(
+      `SELECT t.driver_id, t.bus_id, b.bus_number, d.name AS driver_name
+       FROM trips t
+       JOIN buses b ON b.id = t.bus_id
+       JOIN drivers d ON d.id = t.driver_id
+       WHERE t.status = 'in_progress' AND b.school_id = $1`,
+      [schoolId]
+    ).then((r) => r.rows),
   ]);
 
   const students = studentsRes.students;
@@ -42,10 +51,12 @@ async function buildSnapshot(schoolId) {
   const attendance = attendanceRes.records;
   const leaves = leaveRes.leaves;
 
-  // Route assignment lives on the route (routes.bus_id), not the bus — a bus
-  // has no field of its own saying whether it's on a route, so this has to
-  // be cross-referenced rather than read directly off either list.
+  // Buses, routes and drivers have no persisted assignment to each other —
+  // "currently on a route/bus" only exists for the duration of an
+  // in-progress trip, so it's cross-referenced from today's live trips.
   const routeByBusId = new Map(routes.filter((r) => r.bus_id).map((r) => [r.bus_id, r]));
+  const activeTripByBusId = new Map(activeTripRows.map((t) => [t.bus_id, t]));
+  const activeBusNumberByDriverId = new Map(activeTripRows.map((t) => [t.driver_id, t.bus_number]));
 
   return {
     date: todayStr(),
@@ -70,7 +81,7 @@ async function buildSnapshot(schoolId) {
         bus_number: b.bus_number,
         status: b.status,
         is_active: b.is_active,
-        driver: b.driver_name || null,
+        driver: activeTripByBusId.get(b.id)?.driver_name || null,
         route: routeByBusId.get(b.id)?.name || null,
       })),
     },
@@ -89,7 +100,7 @@ async function buildSnapshot(schoolId) {
     drivers: {
       total: drivers.length,
       active: drivers.filter((d) => d.is_active).length,
-      list: drivers.map((d) => ({ name: d.name, is_active: d.is_active, assigned_bus_id: d.assigned_bus_id || null, is_guest: d.is_guest })),
+      list: drivers.map((d) => ({ name: d.name, is_active: d.is_active, current_bus_number: activeBusNumberByDriverId.get(d.id) || null, is_guest: d.is_guest })),
     },
     leave_requests: {
       pending: leaves.filter((l) => l.status === 'pending').length,

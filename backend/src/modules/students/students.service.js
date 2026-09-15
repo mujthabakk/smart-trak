@@ -41,6 +41,18 @@ function toParentResponse(row) {
   };
 }
 
+// node-postgres parses a DATE column as a Date at LOCAL midnight (not UTC), so
+// formatting via toISOString() (which converts to UTC first) can shift the
+// date back a day in timezones ahead of UTC. Reading the local components back
+// off the same Date object avoids that shift.
+function toDateOnly(value) {
+  if (!(value instanceof Date)) return value;
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function toResponse(row, parents = []) {
   return {
     id: row.id,
@@ -49,7 +61,9 @@ function toResponse(row, parents = []) {
     class: row.class,
     division: row.division,
     roll_number: row.roll_number,
-    dob: row.dob,
+    dob: toDateOnly(row.dob),
+    gender: row.gender || undefined,
+    address: row.address || undefined,
     photo_url: row.photo_url || undefined,
     student_qr_code: row.student_qr_code || undefined,
     is_active: row.is_active,
@@ -99,6 +113,45 @@ function resolveClass(data) {
 }
 function resolveParentName(p) {
   return p.parent_name !== undefined ? p.parent_name : p.guardianName;
+}
+
+/**
+ * A student's class/division are free-text (no FK), but the classes/divisions
+ * tables back the Classes menu's dropdowns and list view. Importing or adding
+ * a student with a class/division that isn't in those tables yet should grow
+ * the school's class list instead of silently going unlisted there.
+ */
+async function ensureClassAndDivision(client, schoolId, className, divisionName) {
+  const trimmedClass = className ? String(className).trim() : '';
+  if (!trimmedClass) return;
+
+  const { rows: maxRows } = await client.query(
+    'SELECT COALESCE(MAX(order_index), -1) + 1 AS next FROM classes WHERE school_id = $1',
+    [schoolId]
+  );
+  const { rows: insertedRows } = await client.query(
+    `INSERT INTO classes (school_id, name, order_index) VALUES ($1, $2, $3)
+     ON CONFLICT (school_id, name) DO NOTHING
+     RETURNING id`,
+    [schoolId, trimmedClass, maxRows[0].next]
+  );
+  let classId = insertedRows[0]?.id;
+  if (!classId) {
+    const { rows } = await client.query(
+      'SELECT id FROM classes WHERE school_id = $1 AND name = $2',
+      [schoolId, trimmedClass]
+    );
+    classId = rows[0]?.id;
+  }
+
+  const trimmedDivision = divisionName ? String(divisionName).trim() : '';
+  if (!classId || !trimmedDivision) return;
+
+  await client.query(
+    `INSERT INTO divisions (class_id, school_id, name) VALUES ($1, $2, $3)
+     ON CONFLICT (class_id, name) DO NOTHING`,
+    [classId, schoolId, trimmedDivision]
+  );
 }
 
 async function insertParents(client, studentId, parents) {
@@ -176,6 +229,7 @@ async function getById(id, schoolId, parentUserId) {
 async function create(schoolId, data) {
   if (!schoolId) throw ApiError.badRequest('school_id is required');
   const id = await withTransaction(async (client) => {
+    await ensureClassAndDivision(client, schoolId, resolveClass(data), data.division);
     const { rows } = await client.query(
       `INSERT INTO students (school_id, name, class, division, roll_number, dob, gender,
          photo_url, student_qr_code, is_active, pickup_stop_id, drop_stop_id, address)
@@ -197,7 +251,7 @@ async function create(schoolId, data) {
 }
 
 async function update(id, schoolId, data) {
-  await getById(id, schoolId);
+  const existing = await getById(id, schoolId);
   const studentId = await withTransaction(async (client) => {
     const sets = [];
     const params = [];
@@ -210,6 +264,15 @@ async function update(id, schoolId, data) {
     if (name !== undefined) setField('name', name);
     const klass = resolveClass(data);
     if (klass !== undefined) setField('class', klass);
+
+    if (klass !== undefined || data.division !== undefined) {
+      await ensureClassAndDivision(
+        client,
+        schoolId,
+        klass !== undefined ? klass : existing.class,
+        data.division !== undefined ? data.division : existing.division
+      );
+    }
 
     const directFields = [
       'division', 'roll_number', 'dob', 'gender', 'photo_url', 'is_active',

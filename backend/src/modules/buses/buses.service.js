@@ -4,11 +4,7 @@ const { parsePagination, paginationMeta } = require('../../utils/pagination');
 const { generateQrCode } = require('../../utils/qrcode');
 const { haversineKm } = require('../../utils/geo');
 
-const BASE_SELECT = `
-  SELECT b.*, d.name AS driver_name
-  FROM buses b
-  LEFT JOIN drivers d ON d.id = b.driver_id
-`;
+const BASE_SELECT = `SELECT b.* FROM buses b`;
 
 function toResponse(row) {
   return {
@@ -23,8 +19,6 @@ function toResponse(row) {
     safety_qr_code: row.safety_qr_code || undefined,
     is_active: row.is_active,
     current_trip_id: row.current_trip_id || undefined,
-    driver_id: row.driver_id || undefined,
-    driver_name: row.driver_name || undefined,
     status: row.status,
     current_stop: row.current_stop || undefined,
     assistant_name: row.assistant_name || undefined,
@@ -77,13 +71,13 @@ async function createMany(schoolId, busInputs) {
     for (const bus of busInputs) {
       const { rows } = await client.query(
         `INSERT INTO buses (school_id, bus_number, seat_capacity, make_model, year,
-           insurance_expiry, fitness_cert_expiry, safety_qr_code, driver_id, assistant_name, assistant_phone)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           insurance_expiry, fitness_cert_expiry, safety_qr_code, assistant_name, assistant_phone)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          RETURNING id`,
         [
           schoolId, bus.bus_number, bus.seat_capacity, bus.make_model || null, bus.year || null,
           bus.insurance_expiry || null, bus.fitness_cert_expiry || null,
-          generateQrCode('BUS'), bus.driver_id || null,
+          generateQrCode('BUS'),
           bus.assistant_name || null, bus.assistant_phone || null,
         ]
       );
@@ -97,7 +91,7 @@ async function update(id, schoolId, data) {
   await getById(id, schoolId);
   const fields = [
     'bus_number', 'seat_capacity', 'make_model', 'year', 'insurance_expiry', 'fitness_cert_expiry',
-    'driver_id', 'is_active', 'status', 'current_stop', 'assistant_name', 'assistant_phone',
+    'is_active', 'status', 'current_stop', 'assistant_name', 'assistant_phone',
   ];
   const sets = [];
   const params = [];
@@ -165,7 +159,29 @@ const LOCATION_META_SELECT = `
   ) AS student_count
 `;
 
-async function getLatestLocation(id, schoolId) {
+/** Whether one of this parent's own children actually rides the given
+ * trip's route (matched the same pickup/drop-stop way trips.service.js's
+ * parentTripCondition does) — a parent may only see live location data for
+ * a trip their child is on. */
+async function tripIncludesParentChild(tripId, parentUserId) {
+  const { rows } = await query(
+    `SELECT 1
+     FROM students s
+     JOIN parent_details pd ON pd.student_id = s.id
+     JOIN users u ON lower(u.email) = lower(pd.email)
+     LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = $1
+     WHERE u.id = $2
+       AND (
+         COALESCE(tso.override_pickup_stop_id, s.pickup_stop_id) IN (SELECT id FROM stops WHERE route_id = (SELECT route_id FROM trips WHERE id = $1))
+         OR COALESCE(tso.override_drop_stop_id, s.drop_stop_id) IN (SELECT id FROM stops WHERE route_id = (SELECT route_id FROM trips WHERE id = $1))
+       )
+     LIMIT 1`,
+    [tripId, parentUserId]
+  );
+  return rows.length > 0;
+}
+
+async function getLatestLocation(id, schoolId, parentUserId) {
   const bus = await getById(id, schoolId);
   let row;
 
@@ -182,7 +198,7 @@ async function getLatestLocation(id, schoolId) {
          pos.latitude, pos.longitude, pos.speed, pos.current_stop, pos.recorded_at
        FROM trips t
        JOIN buses b ON b.id = $1
-       LEFT JOIN drivers d ON d.id = b.driver_id
+       LEFT JOIN drivers d ON d.id = t.driver_id
        LEFT JOIN routes r ON r.id = t.route_id
        LEFT JOIN LATERAL (
          SELECT latitude, longitude, speed, current_stop, recorded_at
@@ -209,8 +225,8 @@ async function getLatestLocation(id, schoolId) {
          ${LOCATION_META_SELECT}
        FROM bus_locations bl
        JOIN buses b ON b.id = bl.bus_id
-       LEFT JOIN drivers d ON d.id = b.driver_id
        LEFT JOIN trips t ON t.id = bl.trip_id
+       LEFT JOIN drivers d ON d.id = t.driver_id
        LEFT JOIN routes r ON r.id = t.route_id
        WHERE bl.bus_id = $1
        ORDER BY bl.recorded_at DESC LIMIT 1`,
@@ -220,6 +236,12 @@ async function getLatestLocation(id, schoolId) {
   }
 
   if (!row || row.latitude == null) return null;
+
+  // A parent only ever sees live location data for a trip one of their own
+  // children actually rides — never any bus in the school.
+  if (parentUserId && !(await tripIncludesParentChild(row.trip_id, parentUserId))) {
+    return null;
+  }
 
   // schools live in the master DB, not this tenant DB, so this can't be a
   // plain SQL JOIN — it's a second query against a different database.

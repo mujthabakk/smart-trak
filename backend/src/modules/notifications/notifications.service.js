@@ -104,9 +104,15 @@ async function resolvePushTokens(userIds) {
  *     action_url: `/leave/${leave.id}`,
  *   });
  *
- * school_id and action_url are optional; the rest are required.
+ * school_id and action_url are optional; the rest are required. `type` is
+ * the in-app inbox category and must be one of notifications.type's fixed
+ * values (info/warning/success/error/emergency/leave/attendance/message/
+ * system) — it is NOT the push sound/channel. Pass `push_type` separately
+ * when the push should ring/alert differently than its inbox category
+ * implies (e.g. a routine 'info' row that should still ring the phone —
+ * see alerts.service.js's "Bus approaching"); it defaults to `type`.
  */
-async function createNotification({ school_id, user_id, title, body, type, action_url }) {
+async function createNotification({ school_id, user_id, title, body, type, action_url, push_type }) {
   const { rows } = await query(
     `INSERT INTO notifications (school_id, user_id, title, body, type, action_url)
      VALUES ($1,$2,$3,$4,$5,$6)
@@ -119,7 +125,7 @@ async function createNotification({ school_id, user_id, title, body, type, actio
   if (user_id) {
     try {
       const tokens = await resolvePushTokens([user_id]);
-      await Promise.all(tokens.map((token) => sendPush({ token, title, body, data: { type, action_url } })));
+      await Promise.all(tokens.map((token) => sendPush({ token, title, body, data: { type: push_type || type, action_url } })));
     } catch (err) {
       console.error('Failed to send push notification', err);
     }
@@ -153,19 +159,19 @@ async function broadcastNotification(schoolId, senderId, payload) {
 
   if (audience === 'all_parents') {
     const { rows } = await query(`
-      SELECT DISTINCT u.id 
+      SELECT DISTINCT u.id
       FROM parent_details p
-      JOIN users u ON u.email = p.email
+      JOIN users u ON lower(u.email) = lower(p.email)
       JOIN students s ON s.id = p.student_id
       WHERE s.school_id = $1
     `, [schoolId]);
     userIds = rows.map(r => r.id);
   } else if (audience === 'specific_route' && route_ids?.length) {
     const { rows } = await query(`
-      SELECT DISTINCT u.id 
+      SELECT DISTINCT u.id
       FROM students s
       JOIN parent_details p ON p.student_id = s.id
-      JOIN users u ON u.email = p.email
+      JOIN users u ON lower(u.email) = lower(p.email)
       WHERE s.school_id = $1 AND (
         s.pickup_stop_id IN (SELECT id FROM stops WHERE route_id = ANY($2)) OR
         s.drop_stop_id IN (SELECT id FROM stops WHERE route_id = ANY($2))

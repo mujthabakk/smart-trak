@@ -331,34 +331,34 @@ export default function SchoolReports() {
   }, [schoolRoutes, filterBus, filterRoute])
 
   // ── Driver activity report ────────────────────────────────────────────────
+  // Drivers have no persisted bus assignment — bus/route activity is derived
+  // from their actual trips in the selected date range, not a stored link.
   const driverActivityData = useMemo<DriverActivityRow[]>(() => {
-    return schoolDrivers
-      .filter((d) => {
-        if (filterBus !== 'all') {
-          const bus = schoolBuses.find((b) => b.id === d.assigned_bus_id)
-          if (bus?.bus_number !== filterBus) return false
-        }
-        return true
-      })
-      .map((d) => {
-        const driverTrips = allTrips.filter(
-          (t) =>
-            t.driver_id === d.id &&
-            t.started_at != null &&
-            t.started_at.split('T')[0] >= dateFrom &&
-            t.started_at.split('T')[0] <= dateTo,
-        )
-        const uniqueRoutes = new Set(driverTrips.map((t) => t.route_id)).size
-        return {
-          id: d.id,
-          driver_name: d.name,
-          bus_number: d.assigned_bus_number ?? '—',
-          routes_count: uniqueRoutes,
-          total_trips: driverTrips.length,
-          is_active: d.is_active,
-        }
-      })
-  }, [schoolDrivers, schoolBuses, allTrips, filterBus, dateFrom, dateTo])
+    const withBusNumbers = schoolDrivers.map((d) => {
+      const driverTrips = allTrips.filter(
+        (t) =>
+          t.driver_id === d.id &&
+          t.started_at != null &&
+          t.started_at.split('T')[0] >= dateFrom &&
+          t.started_at.split('T')[0] <= dateTo,
+      )
+      const uniqueRoutes = new Set(driverTrips.map((t) => t.route_id)).size
+      const busNumbers = new Set(driverTrips.map((t) => t.bus_number))
+      const latestTrip = [...driverTrips].sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''))[0]
+      const row: DriverActivityRow = {
+        id: d.id,
+        driver_name: d.name,
+        bus_number: latestTrip?.bus_number ?? '—',
+        routes_count: uniqueRoutes,
+        total_trips: driverTrips.length,
+        is_active: d.is_active,
+      }
+      return { row, busNumbers }
+    })
+    return withBusNumbers
+      .filter(({ busNumbers }) => filterBus === 'all' || busNumbers.has(filterBus))
+      .map(({ row }) => row)
+  }, [schoolDrivers, allTrips, filterBus, dateFrom, dateTo])
 
   // ── Stats (attendance-based for attendance report; generic otherwise) ──────
   const stats = useMemo(() => {

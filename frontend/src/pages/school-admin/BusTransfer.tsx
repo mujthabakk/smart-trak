@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/select'
 import { listBusTransfers, createBusTransfer, assignBusTransfer } from '@/lib/api/busTransfers'
 import { listBuses, createBuses } from '@/lib/api/buses'
+import { listDrivers } from '@/lib/api/drivers'
 import { listTrips } from '@/lib/api/trips'
 import { formatDate } from '@/lib/utils'
 import { getSocket, type BusTransferRequestedEvent } from '@/lib/socket'
@@ -228,10 +229,20 @@ export default function BusTransfer() {
   })
   const buses = useMemo(() => busesData?.buses ?? [], [busesData])
 
+  // Standby drivers to hand a trip over to — buses have no persistent driver
+  // of their own, so the admin must name one explicitly; that's who the
+  // mobile app lets scan the breakdown bus's QR to complete the takeover.
+  const { data: driversData } = useQuery({
+    queryKey: ['drivers'],
+    queryFn: () => listDrivers({ is_active: true }),
+  })
+  const activeDrivers = useMemo(() => driversData?.drivers ?? [], [driversData])
+
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const [fromTripId, setFromTripId] = useState('')
   const [toBus, setToBus] = useState('')
+  const [standbyDriverId, setStandbyDriverId] = useState('')
   const [useTempBus, setUseTempBus] = useState(false)
   const [tempBusNumber, setTempBusNumber] = useState('')
   const [tempBusMake, setTempBusMake] = useState('')
@@ -282,10 +293,12 @@ export default function BusTransfer() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false)
   const [assigningTransfer, setAssigningTransfer] = useState<BusTransferType | null>(null)
   const [assignBusId, setAssignBusId] = useState('')
+  const [assignDriverId, setAssignDriverId] = useState('')
 
   function openAssignDialog(transfer: BusTransferType) {
     setAssigningTransfer(transfer)
     setAssignBusId('')
+    setAssignDriverId('')
     setAssignDialogOpen(true)
   }
 
@@ -298,6 +311,7 @@ export default function BusTransfer() {
       setAssignDialogOpen(false)
       setAssigningTransfer(null)
       setAssignBusId('')
+      setAssignDriverId('')
     },
   })
 
@@ -307,9 +321,8 @@ export default function BusTransfer() {
   )
 
   function submitAssign() {
-    if (!assigningTransfer || !assignBusId) return
-    const newDriverId = buses.find((b) => b.id === assignBusId)?.driver_id
-    assignMutation.mutate({ id: assigningTransfer.id, newBusId: assignBusId, newDriverId })
+    if (!assigningTransfer || !assignBusId || !assignDriverId) return
+    assignMutation.mutate({ id: assigningTransfer.id, newBusId: assignBusId, newDriverId: assignDriverId })
   }
 
   function resetForm() {
@@ -322,6 +335,7 @@ export default function BusTransfer() {
     setReason(TRANSFER_REASONS[0].value)
     setNotes('')
     setNotify(true)
+    setStandbyDriverId('')
   }
 
   const createTransferMutation = useMutation({
@@ -334,9 +348,9 @@ export default function BusTransfer() {
       tempBusCapacity: number | ''
       reasonLabel: string
       notes: string
+      standbyDriverId: string
     }) => {
       let newBusId = input.toBusId
-      let newDriverId: string | undefined
       if (input.useTempBus) {
         const created = await createBuses([{
           bus_number: input.tempBusNumber,
@@ -344,15 +358,13 @@ export default function BusTransfer() {
           ...(input.tempBusMake ? { make_model: input.tempBusMake } : {}),
         }])
         newBusId = created[0]?.id ?? ''
-      } else {
-        newDriverId = buses.find((b) => b.id === input.toBusId)?.driver_id
       }
       const reasonText = input.notes ? `${input.reasonLabel}: ${input.notes}` : input.reasonLabel
       return createBusTransfer({
         original_trip_id: input.trip.id,
         original_bus_id: input.trip.bus_id,
         new_bus_id: newBusId,
-        new_driver_id: newDriverId,
+        new_driver_id: input.standbyDriverId,
         reason: reasonText,
       })
     },
@@ -365,7 +377,7 @@ export default function BusTransfer() {
   })
 
   function submitTransfer() {
-    if (!fromTrip) return
+    if (!fromTrip || !standbyDriverId) return
     if (useTempBus) {
       if (!tempBusNumber) return
     } else if (!toBus) {
@@ -381,6 +393,7 @@ export default function BusTransfer() {
       tempBusCapacity,
       reasonLabel,
       notes,
+      standbyDriverId,
     })
   }
 
@@ -559,7 +572,7 @@ export default function BusTransfer() {
                     <SelectContent>
                       {toBusOptions.map((b) => (
                         <SelectItem key={b.id} value={b.id}>
-                          Bus {b.bus_number}{b.driver_name ? ` · ${b.driver_name}` : ''}
+                          Bus {b.bus_number}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -598,6 +611,23 @@ export default function BusTransfer() {
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="bt-standby-driver">Standby Driver</Label>
+              <Select value={standbyDriverId} onValueChange={setStandbyDriverId}>
+                <SelectTrigger id="bt-standby-driver">
+                  <SelectValue placeholder="Select the driver taking over" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeDrivers.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                This driver scans the original (breakdown) bus's safety QR to complete the handover.
+              </p>
             </div>
 
             {/* live preview of the transfer */}
@@ -659,9 +689,11 @@ export default function BusTransfer() {
               onClick={submitTransfer}
               loading={createTransferMutation.isPending}
               disabled={
-                useTempBus
-                  ? !fromTripId || !tempBusNumber
-                  : !fromTripId || !toBus
+                !standbyDriverId || (
+                  useTempBus
+                    ? !fromTripId || !tempBusNumber
+                    : !fromTripId || !toBus
+                )
               }
             >
               Initiate Transfer
@@ -702,7 +734,7 @@ export default function BusTransfer() {
                 <SelectContent>
                   {assignBusOptions.map((b) => (
                     <SelectItem key={b.id} value={b.id}>
-                      Bus {b.bus_number}{b.driver_name ? ` · ${b.driver_name}` : ''}
+                      Bus {b.bus_number}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -710,6 +742,23 @@ export default function BusTransfer() {
               {assignBusOptions.length === 0 && (
                 <p className="text-xs text-[var(--muted-foreground)]">No idle buses available right now.</p>
               )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="assign-driver">Standby Driver</Label>
+              <Select value={assignDriverId} onValueChange={setAssignDriverId}>
+                <SelectTrigger id="assign-driver">
+                  <SelectValue placeholder="Select the driver taking over" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeDrivers.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                This driver scans the original (breakdown) bus's safety QR to complete the handover.
+              </p>
             </div>
 
             {assigningTransfer && assignBusId && (
@@ -729,7 +778,7 @@ export default function BusTransfer() {
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
-            <Button onClick={submitAssign} loading={assignMutation.isPending} disabled={!assignBusId}>
+            <Button onClick={submitAssign} loading={assignMutation.isPending} disabled={!assignBusId || !assignDriverId}>
               Assign Bus
             </Button>
           </DialogFooter>

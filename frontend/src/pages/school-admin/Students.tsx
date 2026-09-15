@@ -15,7 +15,7 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import DataTable, { type Column } from '@/components/shared/DataTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -466,6 +466,7 @@ export default function Students() {
       render: (s) => (
         <div className="flex items-center gap-3">
           <Avatar className="h-9 w-9">
+            {s.photo_url && <AvatarImage src={s.photo_url} alt={s.name} />}
             <AvatarFallback className="text-xs">{getInitials(s.name)}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">

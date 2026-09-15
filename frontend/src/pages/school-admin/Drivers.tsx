@@ -30,7 +30,6 @@ import {
 } from '@/components/ui/select'
 import { getInitials, formatDate, daysUntil, downloadCSV, guestBudgetLabel, parseCSVRow } from '@/lib/utils'
 import { listDrivers, createDriver, updateDriver, deleteDriver, type DriverInput } from '@/lib/api/drivers'
-import { listBuses } from '@/lib/api/buses'
 import type { Driver } from '@/types'
 
 function extractErrorMessage(err: unknown): string {
@@ -51,10 +50,6 @@ const container = {
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 
 const EXPIRY_WINDOW_DAYS = 90
-
-function busIsOnTrip(_busId?: string): boolean {
-  return false
-}
 
 // ── Dialog state types ────────────────────────────────────────────────────────
 
@@ -96,14 +91,6 @@ export default function Drivers() {
     queryFn: () => listDrivers(),
   })
 
-  // Only needed to resolve the bulk-import CSV's assigned_bus_number column
-  // against a real assigned_bus_id — no bus picker exists on the single
-  // Add/Edit Driver dialog.
-  const { data: busesData } = useQuery({
-    queryKey: ['buses'],
-    queryFn: () => listBuses(),
-  })
-  const buses = busesData?.buses ?? []
   const drivers = data?.drivers ?? []
 
   // Add dialog
@@ -114,7 +101,6 @@ export default function Drivers() {
   // Bulk import dialog
   const [importOpen, setImportOpen] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
-  const [unmatchedBusNumbers, setUnmatchedBusNumbers] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // View dialog
@@ -177,7 +163,9 @@ export default function Drivers() {
   const stats = useMemo(() => {
     const total = drivers.length
     const active = drivers.filter((d) => d.is_active).length
-    const onTrip = drivers.filter((d) => d.is_active && busIsOnTrip(d.assigned_bus_id)).length
+    // Drivers have no persisted bus assignment — "on trip" would need a
+    // live trips lookup, not tracked on this list view.
+    const onTrip = 0
     const expiring = drivers.filter((d) => daysUntil(d.license_expiry) <= EXPIRY_WINDOW_DAYS).length
     return { total, active, onTrip, expiring }
   }, [drivers])
@@ -204,7 +192,7 @@ export default function Drivers() {
       [{
         name: 'John Doe', employee_id: 'EMP001', email: 'john@example.com', phone: '+1234567890',
         license_number: 'LIC123456', license_expiry: '2026-12-31',
-        whatsapp: '+1234567890', address: '12 Main St, Dubai', assigned_bus_number: 'BUS-001', is_active: 'true',
+        whatsapp: '+1234567890', address: '12 Main St, Dubai', is_active: 'true',
       }],
       'drivers_template',
     )
@@ -214,33 +202,19 @@ export default function Drivers() {
     const file = e.target.files?.[0]
     if (!file) return
     setImportError(null)
-    setUnmatchedBusNumbers([])
     const reader = new FileReader()
     reader.onload = (ev) => {
       const text = ev.target?.result as string
       const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
       if (lines.length < 2) return
       // Header-name lookup (not positional) — a reordered or partial column
-      // set (e.g. the older template without address/assigned_bus_number)
-      // still imports correctly, unlike a fixed-position split.
+      // set still imports correctly, unlike a fixed-position split.
       const headers = parseCSVRow(lines[0]).map((h) => h.toLowerCase())
       const dataLines = lines.slice(1)
-      const unmatched: string[] = []
       const imported: DriverInput[] = dataLines.map((line) => {
         const cols = parseCSVRow(line)
         const row: Record<string, string> = {}
         headers.forEach((h, i) => { row[h] = cols[i] ?? '' })
-
-        // assigned_bus_number is a human-readable identifier — resolved
-        // here against the buses already loaded for this school, same
-        // reasoning as Buses.tsx's driver_employee_id lookup.
-        const busNumber = (row['assigned_bus_number'] ?? '').trim()
-        let assignedBusId: string | undefined
-        if (busNumber) {
-          const match = buses.find((b) => b.bus_number.toLowerCase() === busNumber.toLowerCase())
-          if (match) assignedBusId = match.id
-          else unmatched.push(busNumber)
-        }
 
         const isActiveRaw = (row['is_active'] ?? '').trim().toLowerCase()
 
@@ -253,11 +227,9 @@ export default function Drivers() {
           license_number: row['license_number'] ?? '',
           license_expiry: row['license_expiry'] ?? '',
           address: row['address'] || undefined,
-          assigned_bus_id: assignedBusId,
           is_active: isActiveRaw === 'true' || isActiveRaw === 'false' ? isActiveRaw === 'true' : undefined,
         }
       }).filter((d) => d.name)
-      setUnmatchedBusNumbers(unmatched)
       if (imported.length > 0) {
         bulkImportMutation.mutate(imported)
       }
@@ -372,12 +344,7 @@ export default function Drivers() {
     {
       key: 'status',
       header: 'Status',
-      render: (d) => {
-        if (d.is_active && busIsOnTrip(d.assigned_bus_id)) {
-          return <StatusBadge status="running" />
-        }
-        return <StatusBadge status={d.is_active ? 'active' : 'inactive'} />
-      },
+      render: (d) => <StatusBadge status={d.is_active ? 'active' : 'inactive'} />,
     },
     {
       key: 'actions',
@@ -588,12 +555,6 @@ export default function Drivers() {
               <AlertCircle size={16} className="flex-shrink-0 mt-0.5" /> {importError}
             </p>
           )}
-          {unmatchedBusNumbers.length > 0 && (
-            <p className="flex items-start gap-2 p-3 rounded-xl text-sm bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40">
-              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-              No bus found with bus_number: {unmatchedBusNumbers.join(', ')} — those drivers imported without a bus assigned.
-            </p>
-          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setImportOpen(false)} disabled={bulkImportMutation.isPending}>Close</Button>
           </DialogFooter>
@@ -646,12 +607,6 @@ export default function Drivers() {
                     <dd className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
                       <Timer size={13} /> {guestBudgetLabel(viewDriver)}
                     </dd>
-                  </div>
-                )}
-                {viewDriver.assigned_bus_number && (
-                  <div>
-                    <dt className="text-[var(--muted-foreground)] text-xs uppercase tracking-wide mb-0.5">Assigned Bus</dt>
-                    <dd className="text-[var(--foreground)]">{viewDriver.assigned_bus_number}</dd>
                   </div>
                 )}
               </dl>

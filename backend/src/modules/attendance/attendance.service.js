@@ -296,24 +296,29 @@ async function remove(id, schoolId) {
 
 async function notifyParentsForAttendance(records, tripType) {
   for (const rec of records) {
-    if (rec.status !== 'present') continue;
-    
+    if (rec.status !== 'present' && rec.status !== 'absent') continue;
+
     // Find parent(s)
     const { rows: parentRows } = await query(`
-      SELECT u.id, s.name as student_name, s.school_id 
+      SELECT u.id, s.name as student_name, s.school_id
       FROM parent_details pd
       JOIN users u ON lower(u.email) = lower(pd.email)
       JOIN students s ON s.id = pd.student_id
       WHERE pd.student_id = $1
     `, [rec.student_id]);
-    
+
+    const tripLabel = tripType === 'pickup' ? 'pickup' : 'drop';
+
     for (const parent of parentRows) {
       await createNotification({
         school_id: parent.school_id,
         user_id: parent.id,
         title: 'Attendance Update',
-        body: `${parent.student_name} is inside the bus for the ${tripType === 'pickup' ? 'pickup' : 'drop'} trip.`,
+        body: rec.status === 'present'
+          ? `${parent.student_name} is inside the bus for the ${tripLabel} trip.`
+          : `${parent.student_name} was marked absent for the ${tripLabel} trip.`,
         type: 'attendance',
+        push_type: 'normal',
       });
     }
   }

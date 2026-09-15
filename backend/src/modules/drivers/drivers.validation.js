@@ -11,7 +11,6 @@ const driverInput = z.object({
   license_expiry: z.string().min(1),
   photo_url: z.string().optional(),
   address: z.string().optional(),
-  assigned_bus_id: z.string().optional(),
   is_active: z.boolean().optional(),
 });
 
@@ -20,8 +19,6 @@ const createDriver = driverInput.extend({
 });
 
 const updateDriver = driverInput.partial().extend({
-  // allow explicit un-assignment: PATCH { assigned_bus_id: null }
-  assigned_bus_id: z.string().nullable().optional(),
   // Editing a guest driver's own validity after creation (extend/shorten
   // their access) — only meaningful when the driver already has is_guest
   // true; harmless no-ops otherwise since the service only writes columns

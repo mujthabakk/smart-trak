@@ -371,7 +371,7 @@ export default function SchoolAdminDashboard() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold text-[var(--foreground)] hover:text-[var(--primary)]">{bus.bus_number}</p>
                             <p className="text-xs text-[var(--muted-foreground)] truncate">
-                              {bus.driver_name ?? 'Unassigned'} · {route?.name ?? 'No route'}
+                              {route?.driver_name ?? 'No driver'} · {route?.name ?? 'No route'}
                             </p>
                           </div>
                           <div className="text-right flex-shrink-0">
@@ -402,7 +402,7 @@ export default function SchoolAdminDashboard() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold text-[var(--foreground)] hover:text-[var(--primary)]">{bus.bus_number}</p>
                             <p className="text-xs text-[var(--muted-foreground)] truncate">
-                              {bus.driver_name ?? 'Unassigned'} · {route?.name ?? 'Standing by'}
+                              {route?.driver_name ?? 'No driver'} · {route?.name ?? 'Standing by'}
                             </p>
                           </div>
                           <div className="text-right flex-shrink-0">

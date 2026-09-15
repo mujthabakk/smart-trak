@@ -6,14 +6,13 @@ import { motion } from 'framer-motion'
 import {
   ArrowLeft, Phone, Pencil, ChevronDown, ChevronUp,
   Bus as BusIcon, Clock, Users, Navigation, User, MapPin,
-  CheckCircle2, CalendarCheck, AlertCircle, UserCog,
+  CheckCircle2, CalendarCheck, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import HorizontalCalendar from '@/components/shared/HorizontalCalendar'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { AssignDriverDialog } from '@/components/shared/AssignDriverDialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -354,13 +353,6 @@ export default function BusDetail() {
     refetchInterval: 10000,
   })
 
-  const { data: routesData } = useQuery({
-    queryKey: ['routes', 'bus', id],
-    queryFn: () => listRoutes({ bus_id: id }),
-    enabled: !!id,
-  })
-  const busRoutes = useMemo(() => routesData?.routes ?? [], [routesData])
-
   const { data: allRoutesData } = useQuery({
     queryKey: ['routes'],
     queryFn: () => listRoutes(),
@@ -387,12 +379,14 @@ export default function BusDetail() {
   })
   const attendance = useMemo(() => attendanceData?.records ?? [], [attendanceData])
 
-  const [assignDriverOpen, setAssignDriverOpen] = useState(false)
+  // Buses have no persisted driver — "current driver" only exists for the
+  // duration of a live (in-progress) trip.
+  const activeTrip = useMemo(() => trips.find((t) => t.status === 'in_progress'), [trips])
 
   const { data: driversData } = useQuery({ queryKey: ['drivers'], queryFn: () => listDrivers() })
   const driver = useMemo(
-    () => driversData?.drivers.find((d) => d.id === bus?.driver_id),
-    [driversData, bus?.driver_id],
+    () => driversData?.drivers.find((d) => d.id === activeTrip?.driver_id),
+    [driversData, activeTrip],
   )
 
   const last14Days = useMemo(
@@ -408,11 +402,13 @@ export default function BusDetail() {
     enabled: !!id,
   })
 
+  // Buses have no persisted route — "current route" only exists for the
+  // duration of a live (in-progress) trip, falling back to the most recent
+  // trip's route so the page isn't blank between trips.
   const route = useMemo(() => {
-    if (busRoutes.length > 0) return busRoutes[0]
-    if (trips.length > 0) return allRoutes.find((r) => r.id === trips[0].route_id)
-    return undefined
-  }, [busRoutes, trips, allRoutes])
+    const trip = activeTrip ?? [...trips].sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''))[0]
+    return trip ? allRoutes.find((r) => r.id === trip.route_id) : undefined
+  }, [activeTrip, trips, allRoutes])
 
   const allBusStudents = useMemo(
     () => (route ? students.filter((s) => s.route_name === route.name) : []),
@@ -529,8 +525,8 @@ export default function BusDetail() {
             value={tripDuration ? tripDuration.label : '—'}
           />
           <StatCard icon={CalendarCheck} label="Onboarded" value={`${busAttendance.onboarded}/${busAttendance.total}`} />
-          <StatCard icon={Navigation} label="Route" value={route?.name ?? 'Unassigned'} />
-          <StatCard icon={User} label="Driver" value={bus.driver_name ?? 'Unassigned'} />
+          <StatCard icon={Navigation} label="Route" value={route?.name ?? '—'} />
+          <StatCard icon={User} label="Driver" value={activeTrip?.driver_name ?? '—'} />
         </motion.div>
 
         {/* Student attendance breakdown */}
@@ -757,21 +753,18 @@ export default function BusDetail() {
 
                 <Card>
                   <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2 space-y-0">
-                    <CardTitle className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Driver &amp; Assignment</CardTitle>
-                    <Button variant="outline" size="sm" onClick={() => setAssignDriverOpen(true)}>
-                      <UserCog size={14} /> {bus.driver_id ? 'Change' : 'Assign'} Driver
-                    </Button>
+                    <CardTitle className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Driver &amp; Route</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <DetailRow label="Driver Assigned">
-                      {bus.driver_id ? (
+                    <DetailRow label="Current Driver">
+                      {activeTrip ? (
                         <button
-                          onClick={() => navigate(`/school-admin/drivers/${bus.driver_id}`)}
+                          onClick={() => navigate(`/school-admin/drivers/${activeTrip.driver_id}`)}
                           className="text-sm font-medium text-[var(--primary)] hover:underline"
                         >
-                          {bus.driver_name ?? 'Unassigned'}
+                          {activeTrip.driver_name ?? 'Unknown'}
                         </button>
-                      ) : <span className="text-sm text-[var(--muted-foreground)]">Unassigned</span>}
+                      ) : <span className="text-sm text-[var(--muted-foreground)]">No active trip</span>}
                     </DetailRow>
                     <DetailRow label="Driver Phone">
                       <div className="flex items-center gap-1.5">
@@ -796,7 +789,7 @@ export default function BusDetail() {
                         >
                           {route.name}
                         </button>
-                      ) : <span className="text-sm text-[var(--muted-foreground)]">Unassigned</span>}
+                      ) : <span className="text-sm text-[var(--muted-foreground)]">No active trip</span>}
                     </DetailRow>
                     <DetailRow label="Route Type">
                       {route ? (
@@ -835,10 +828,10 @@ export default function BusDetail() {
           <div className="flex flex-col items-center gap-3 py-4">
             <Avatar className="h-16 w-16">
               <AvatarFallback className="text-xl font-bold bg-[var(--primary)]/10 text-[var(--primary)]">
-                {bus.driver_name ? getInitials(bus.driver_name) : 'NA'}
+                {activeTrip?.driver_name ? getInitials(activeTrip.driver_name) : 'NA'}
               </AvatarFallback>
             </Avatar>
-            <p className="font-semibold text-[var(--foreground)]">{bus.driver_name ?? 'Unassigned'}</p>
+            <p className="font-semibold text-[var(--foreground)]">{activeTrip?.driver_name ?? 'No active trip'}</p>
             {driver?.phone ? (
               <a href={`tel:${driver.phone.replace(/\s/g, '')}`} className="inline-flex items-center gap-2 text-lg font-bold text-[var(--primary)] hover:underline">
                 <Phone size={18} /> {driver.phone}
@@ -875,8 +868,6 @@ export default function BusDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Assign Driver Dialog */}
-      <AssignDriverDialog bus={bus} open={assignDriverOpen} onOpenChange={setAssignDriverOpen} />
     </Layout>
   )
 }

@@ -14,7 +14,7 @@ export interface ListStudentsParams {
 export interface StudentInput {
   name: string
   class: string
-  division: string
+  division?: string
   roll_number: string
   dob: string
   gender?: string

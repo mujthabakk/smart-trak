@@ -2,8 +2,8 @@ import { useMemo, useState, type ComponentType } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  CalendarOff, Clock, CheckCircle2, XCircle, CalendarRange,
-  Check, X, Eye, Search, AlertCircle,
+  CalendarOff, CheckCircle2, XCircle, CalendarRange,
+  X, Eye, Search, AlertCircle,
 } from 'lucide-react'
 import Layout from '@/components/layout/Layout'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -77,16 +77,16 @@ function rowBorderClass(status: LeaveStatus) {
 
 // ─── Stats card tint helpers ──────────────────────────────────────────────────
 const STAT_TINTS = {
-  pending:  'bg-amber-50  dark:bg-amber-900/10  border-amber-100  dark:border-amber-800/30',
   approved: 'bg-green-50  dark:bg-green-900/10  border-green-100  dark:border-green-800/30',
   rejected: 'bg-red-50    dark:bg-red-900/10    border-red-100    dark:border-red-800/30',
   month:    'bg-blue-50   dark:bg-blue-900/10   border-blue-100   dark:border-blue-800/30',
 }
 
 // ─── Filter status pill options ───────────────────────────────────────────────
+// No pending stage — a leave is approved the moment it's applied for, so
+// there's nothing to filter into a review queue, just approved vs rejected.
 const STATUS_FILTERS: Array<{ value: LeaveStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
-  { value: 'pending', label: 'Pending' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
 ]
@@ -174,16 +174,10 @@ function LeaveDetailDialog({ leave, students, onClose, onDecide }: DetailDialogP
             <LeaveBadge status={leave.status} />
           </div>
 
-          {/* Actions for pending */}
-          {leave.status === 'pending' && (
+          {/* Leave is approved the moment it's applied for — the only action
+              left for an admin is to revoke an already-approved one. */}
+          {leave.status === 'approved' && (
             <div className="flex gap-2 pt-1">
-              <Button
-                className="flex-1 border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900/40 dark:text-green-400 dark:hover:bg-green-900/20"
-                variant="outline"
-                onClick={() => { onDecide(leave.id, 'approved'); onClose() }}
-              >
-                <Check size={14} /> Approve
-              </Button>
               <Button
                 className="flex-1 border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20"
                 variant="outline"
@@ -259,7 +253,6 @@ export default function Leave() {
 
   // ── Stats ────────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const pending = leaves.filter((l) => l.status === 'pending').length
     const approved = leaves.filter((l) => l.status === 'approved').length
     const rejected = leaves.filter((l) => l.status === 'rejected').length
     const thisMonth = leaves.filter((l) => {
@@ -267,7 +260,7 @@ export default function Leave() {
       const now = new Date()
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
     }).length
-    return { pending, approved, rejected, thisMonth }
+    return { approved, rejected, thisMonth }
   }, [leaves])
 
   const decideMutation = useMutation({
@@ -373,16 +366,8 @@ export default function Leave() {
       header: '',
       className: 'text-right',
       render: (row) =>
-        row.status === 'pending' ? (
+        row.status === 'approved' ? (
           <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-green-200 text-green-700 hover:bg-green-50 dark:border-green-900/40 dark:text-green-400 dark:hover:bg-green-900/20"
-              onClick={() => decide(row.id, 'approved')}
-            >
-              <Check size={14} /> Approve
-            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -407,7 +392,6 @@ export default function Leave() {
   ]
 
   const TABS: Array<{ value: LeaveStatus | 'all'; label: string }> = [
-    { value: 'pending', label: 'Pending' },
     { value: 'approved', label: 'Approved' },
     { value: 'rejected', label: 'Rejected' },
     { value: 'all', label: 'All' },
@@ -417,7 +401,7 @@ export default function Leave() {
     <Layout>
       <PageHeader
         title="Leave Management"
-        subtitle="Review and respond to student leave requests"
+        subtitle="Leave is granted the moment it's applied for — track requests here"
       />
 
       <motion.div
@@ -436,15 +420,7 @@ export default function Leave() {
         </motion.div>
 
         {/* ── Stats Cards (tinted) ── */}
-        <motion.div variants={item} className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-          <TintedStatsCard
-            title="Pending"
-            value={stats.pending}
-            icon={Clock}
-            color="warning"
-            subtitle="awaiting review"
-            tintClass={STAT_TINTS.pending}
-          />
+        <motion.div variants={item} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <TintedStatsCard
             title="Approved"
             value={stats.approved}
@@ -530,9 +506,7 @@ export default function Leave() {
                     onClick={() => setStatusFilter(f.value)}
                     className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold transition-colors border ${
                       active
-                        ? f.value === 'pending'
-                          ? 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-700/40'
-                          : f.value === 'approved'
+                        ? f.value === 'approved'
                           ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700/40'
                           : f.value === 'rejected'
                           ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700/40'
@@ -563,7 +537,7 @@ export default function Leave() {
               <LoadingSpinner size="lg" />
             </div>
           ) : (
-            <Tabs defaultValue="pending">
+            <Tabs defaultValue="approved">
               <TabsList>
                 {TABS.map((t) => {
                   const count = tabData(t.value).length

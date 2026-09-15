@@ -142,7 +142,17 @@ function attachSockets(httpServer) {
           }
         });
       } catch (err) {
-        console.error('Failed to persist bus location', err);
+        // A stale client (old app instance/background isolate still holding
+        // a trip that has since ended and been removed) keeps pinging a
+        // trip_id that no longer exists — expected and harmless, so log one
+        // line instead of a full stack trace, and don't broadcast a location
+        // for a trip nobody should be tracking anymore.
+        if (err.code === '23503' && err.constraint === 'bus_locations_trip_id_fkey') {
+          console.warn(`[bus:location] ignoring ping for trip ${trip_id} — trip no longer exists`);
+        } else {
+          console.error('Failed to persist bus location', err);
+        }
+        return;
       }
 
       const event = {

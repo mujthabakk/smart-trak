@@ -131,6 +131,8 @@ export interface Student {
   division: string
   roll_number: string
   dob: string
+  gender?: string
+  address?: string
   photo_url?: string
   student_qr_code?: string
   is_active: boolean
@@ -157,8 +159,6 @@ export interface Driver {
   license_expiry: string
   photo_url?: string
   address?: string
-  assigned_bus_id?: string
-  assigned_bus_number?: string
   is_active: boolean
   is_guest?: boolean
   guest_validity_type?: 'trips' | 'days'
@@ -180,8 +180,6 @@ export interface Bus {
   safety_qr_code?: string
   is_active: boolean
   current_trip_id?: string
-  driver_id?: string
-  driver_name?: string
   status?: 'running' | 'idle' | 'offline'
   current_stop?: string
   assistant_name?: string
@@ -203,8 +201,13 @@ export interface Stop {
 export interface Route {
   id: string
   school_id: string
+  // Routes have no persisted bus/driver assignment. These reflect whichever
+  // trip is currently in progress on this route, if any — resolved live,
+  // not a stored pre-assignment.
   bus_id?: string
   bus_number?: string
+  driver_id?: string
+  driver_name?: string
   name: string
   type?: 'pickup' | 'drop'
   start_point: string
@@ -213,8 +216,6 @@ export interface Route {
   stops: Stop[]
   is_active: boolean
   student_count?: number
-  driver_id?: string
-  driver_name?: string
   created_at: string
 }
 
