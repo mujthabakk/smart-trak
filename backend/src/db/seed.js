@@ -57,7 +57,7 @@ async function seedPlans() {
   const plans = [
     {
       id: 'plan_basic', name: 'basic', label: 'Basic',
-      price_monthly: 49, price_annual: 470, price_per_student: 0.50,
+      price_monthly: 49, price_annual: 470, price_per_student: 0.23,
       max_students: 200, max_buses: 5, max_drivers: 10, is_popular: false,
       features: [
         { name: 'GPS Tracking', price: 0.10 },
@@ -69,7 +69,7 @@ async function seedPlans() {
     },
     {
       id: 'plan_standard', name: 'standard', label: 'Standard',
-      price_monthly: 99, price_annual: 950, price_per_student: 0.80,
+      price_monthly: 99, price_annual: 950, price_per_student: 0.27,
       max_students: 500, max_buses: 15, max_drivers: 25, is_popular: true,
       features: [
         { name: 'Everything in Basic', price: 0 },
@@ -83,11 +83,10 @@ async function seedPlans() {
     },
     {
       id: 'plan_premium', name: 'premium', label: 'Premium',
-      price_monthly: 199, price_annual: 1910, price_per_student: 1.20,
+      price_monthly: 199, price_annual: 1910, price_per_student: 0.34,
       max_students: 99999, max_buses: 99999, max_drivers: 99999, is_popular: false,
       features: [
         { name: 'Everything in Standard', price: 0 },
-        { name: 'Unlimited All', price: 0 },
         { name: 'Guest Driver Module', price: 0.08 },
         { name: 'SMS Notifications', price: 0.10 },
         { name: 'Full Analytics', price: 0.10 },

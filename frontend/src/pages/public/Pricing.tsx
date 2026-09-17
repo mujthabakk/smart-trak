@@ -108,7 +108,11 @@ export default function Pricing() {
                 </div>
                 <p className="text-xs text-[var(--muted-foreground)] mt-1 h-4">
                   {annual ? `billed annually at ${formatCurrency(plan.price_annual)}` : 'billed monthly'}
-                  {plan.price_per_student > 0 && ` + ${formatCurrency(plan.price_per_student)}/student`}
+                  {plan.price_per_student > 0 && (
+                    annual
+                      ? ` + ${formatCurrency(plan.price_per_student * 12)}/student/year`
+                      : ` + ${formatCurrency(plan.price_per_student)}/student/month`
+                  )}
                 </p>
 
                 <Button
