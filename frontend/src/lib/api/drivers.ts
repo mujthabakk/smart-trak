@@ -91,3 +91,9 @@ export async function sendDriverCredentials(id: string): Promise<{ emailStatus: 
   const { data } = await apiClient.post<{ emailStatus: string }>(`/drivers/${id}/credentials`)
   return data
 }
+
+/** Directly sets this driver's login password to an admin-chosen value —
+ * no current password required. */
+export async function setDriverPassword(id: string, password: string): Promise<void> {
+  await apiClient.post(`/drivers/${id}/password`, { password })
+}

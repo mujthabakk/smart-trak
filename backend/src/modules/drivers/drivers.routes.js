@@ -49,5 +49,11 @@ router.post(
   validate({ params: schema.idParam }),
   controller.sendCredentials
 );
+router.post(
+  '/:id/password',
+  requireRole('super_admin', 'school_admin'),
+  validate({ params: schema.idParam, body: schema.setPassword }),
+  controller.setPassword
+);
 
 module.exports = router;

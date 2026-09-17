@@ -1,7 +1,7 @@
-route_name,start_point,end_point,stop_name,stop_time
-Route 1,Al Barsha South,New Horizon School,Al Barsha South 1,7:00 AM
-Route 1,Al Barsha South,New Horizon School,Al Barsha South 2,7:10 AM
-Route 1,Al Barsha South,New Horizon School,Al Quoz,7:20 AM
-Route 2,Jumeirah Village Circle,New Horizon School,JVC District 10,7:05 AM
-Route 2,Jumeirah Village Circle,New Horizon School,JVC District 12,7:15 AM
-Route 2,Jumeirah Village Circle,New Horizon School,JVC District 15,7:25 AM
+route_name,start_point,end_point,stop_name,stop_time,latitude,longitude,order_index
+Route 1,Al Barsha South,New Horizon School,Al Barsha South 1,7:00 AM,25.0913,55.2013,0
+Route 1,Al Barsha South,New Horizon School,Al Barsha South 2,7:10 AM,25.0870,55.2050,1
+Route 1,Al Barsha South,New Horizon School,Al Quoz,7:20 AM,25.1300,55.2400,2
+Route 2,Jumeirah Village Circle,New Horizon School,JVC District 10,7:05 AM,25.0530,55.2100,0
+Route 2,Jumeirah Village Circle,New Horizon School,JVC District 12,7:15 AM,25.0480,55.2050,1
+Route 2,Jumeirah Village Circle,New Horizon School,JVC District 15,7:25 AM,25.0450,55.2150,2

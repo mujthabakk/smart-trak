@@ -98,4 +98,14 @@ const sendCredentials = asyncHandler(async (req, res) => {
   res.json({ emailStatus: result.status });
 });
 
-module.exports = { list, listGuestDrivers, getOne, create, createGuestDriver, update, remove, expiringDocuments, getRouteStudents, sendCredentials };
+const setPassword = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  await service.setPassword(req.params.id, schoolId, req.body.password);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'driver.set_password',
+    entity_type: 'driver', entity_id: req.params.id,
+  });
+  res.status(204).send();
+});
+
+module.exports = { list, listGuestDrivers, getOne, create, createGuestDriver, update, remove, expiringDocuments, getRouteStudents, sendCredentials, setPassword };

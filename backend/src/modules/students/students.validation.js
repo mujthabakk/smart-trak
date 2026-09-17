@@ -64,4 +64,9 @@ const sendParentCredentials = z.object({
   email: z.string().email(),
 });
 
-module.exports = { createStudent, updateStudent, idParam, listQuery, updateLocation, sendParentCredentials };
+const setParentPassword = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+});
+
+module.exports = { createStudent, updateStudent, idParam, listQuery, updateLocation, sendParentCredentials, setParentPassword };

@@ -18,8 +18,11 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { getInitials, formatDate } from '@/lib/utils'
-import { getStudent, sendParentCredentials } from '@/lib/api/students'
+import { getStudent, sendParentCredentials, setParentPassword } from '@/lib/api/students'
 import { forgotPassword } from '@/lib/api/auth'
 import { listRoutes } from '@/lib/api/routes'
 import { listBuses } from '@/lib/api/buses'
@@ -93,6 +96,27 @@ export default function StudentProfile() {
       text: extractErrorMessage(err, 'Failed to send reset link — this guardian may not have a login yet. Try "Regenerate & Send Password" first.'),
     }),
   })
+
+  const [showSetPassword, setShowSetPassword] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [setPasswordError, setSetPasswordError] = useState<string | null>(null)
+  const setPasswordMutation = useMutation({
+    mutationFn: () => setParentPassword(id!, guardian!.email!, newPassword),
+    onSuccess: () => {
+      setShowSetPassword(false)
+      setNewPassword('')
+      setConfirmPassword('')
+      setCredentialsMessage({ type: 'success', text: 'Password updated successfully.' })
+    },
+    onError: (err) => setSetPasswordError(extractErrorMessage(err, 'Failed to update password.')),
+  })
+  const handleSetPassword = () => {
+    setSetPasswordError(null)
+    if (newPassword.length < 6) { setSetPasswordError('Password must be at least 6 characters.'); return }
+    if (newPassword !== confirmPassword) { setSetPasswordError('Passwords do not match.'); return }
+    setPasswordMutation.mutate()
+  }
 
   const routesQuery = useQuery({
     queryKey: ['routes'],
@@ -241,12 +265,13 @@ export default function StudentProfile() {
               {/* Overview */}
               <TabsContent value="overview" className="space-y-6">
                 <Card>
-                  <CardHeader className="flex-row items-center justify-between space-y-0">
+                  <CardHeader className="flex-col items-start gap-3 space-y-0">
                     <CardTitle>Guardian Contact</CardTitle>
                     {guardian?.email && (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap gap-1.5 w-full">
                         <Button
                           variant="outline" size="sm"
+                          className="h-auto min-h-8 whitespace-normal text-center leading-tight"
                           onClick={() => { setCredentialsMessage(null); sendResetLinkMutation.mutate() }}
                           loading={sendResetLinkMutation.isPending}
                         >
@@ -254,10 +279,18 @@ export default function StudentProfile() {
                         </Button>
                         <Button
                           variant="outline" size="sm"
+                          className="h-auto min-h-8 whitespace-normal text-center leading-tight"
                           onClick={() => { setCredentialsMessage(null); sendCredentialsMutation.mutate() }}
                           loading={sendCredentialsMutation.isPending}
                         >
                           <KeyRound size={13} /> Regenerate &amp; Send Password
+                        </Button>
+                        <Button
+                          variant="outline" size="sm"
+                          className="h-auto min-h-8 whitespace-normal text-center leading-tight"
+                          onClick={() => { setCredentialsMessage(null); setSetPasswordError(null); setNewPassword(''); setConfirmPassword(''); setShowSetPassword(true) }}
+                        >
+                          <KeyRound size={13} /> Set Password
                         </Button>
                       </div>
                     )}
@@ -500,6 +533,41 @@ export default function StudentProfile() {
           </motion.div>
         </div>
       </div>
+
+      <Dialog open={showSetPassword} onOpenChange={setShowSetPassword}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="pr-6 truncate">Set Password for {guardian?.parent_name ?? 'Guardian'}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="parent-new-password">New Password</Label>
+              <Input
+                id="parent-new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="parent-confirm-password">Confirm Password</Label>
+              <Input
+                id="parent-confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter new password"
+              />
+            </div>
+            {setPasswordError && <p className="text-xs text-[var(--destructive)]">{setPasswordError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSetPassword(false)}>Cancel</Button>
+            <Button onClick={handleSetPassword} loading={setPasswordMutation.isPending}>Set Password</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   )
 }

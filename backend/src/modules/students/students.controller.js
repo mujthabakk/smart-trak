@@ -103,6 +103,16 @@ const sendParentCredentials = asyncHandler(async (req, res) => {
   res.json({ emailStatus: result.status });
 });
 
+const setParentPassword = asyncHandler(async (req, res) => {
+  const schoolId = resolveSchoolId(req);
+  await service.setParentPassword(req.params.id, schoolId, req.body.email, req.body.password);
+  await recordAudit({
+    user_id: req.user.id, school_id: schoolId, action: 'student.set_parent_password',
+    entity_type: 'student', entity_id: req.params.id, details: { parent_email: req.body.email },
+  });
+  res.status(204).send();
+});
+
 module.exports = {
   list,
   getOne,
@@ -114,4 +124,5 @@ module.exports = {
   updateAlertPickupStop,
   updateAlertDropStop,
   sendParentCredentials,
+  setParentPassword,
 };

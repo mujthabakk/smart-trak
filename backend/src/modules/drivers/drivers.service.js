@@ -301,4 +301,42 @@ async function sendCredentials(driverId, schoolId) {
   );
 }
 
-module.exports = { list, getById, create, createGuestDriver, update, remove, expiringDocuments, getIdByUserId, getRouteStudents, sendCredentials };
+/**
+ * Directly sets a driver's login password to an admin-chosen value — unlike
+ * sendCredentials (which generates a random password and emails it), this
+ * skips generation/email entirely since the admin is choosing and relaying
+ * the password themselves. Same no-old-password-required, lazy-provision-
+ * the-user-row shape as sendCredentials otherwise.
+ */
+async function setPassword(driverId, schoolId, newPassword) {
+  const driver = await getById(driverId, schoolId);
+  if (!driver.email) throw ApiError.badRequest('This driver has no email on file');
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  const email = driver.email.trim().toLowerCase();
+
+  let userId = driver.user_id;
+  if (!userId) {
+    const { rows: existingRows } = await query('SELECT id FROM users WHERE lower(email) = lower($1)', [email]);
+    userId = existingRows[0]?.id;
+  }
+
+  if (userId) {
+    await query(
+      `UPDATE users SET password_hash = $1, name = $2, phone = COALESCE($3, phone), role = 'driver', school_id = $4, updated_at = now() WHERE id = $5`,
+      [passwordHash, driver.name, driver.phone || null, schoolId, userId]
+    );
+  } else {
+    const { rows } = await query(
+      `INSERT INTO users (name, email, password_hash, phone, role, school_id) VALUES ($1,$2,$3,$4,'driver',$5) RETURNING id`,
+      [driver.name, email, passwordHash, driver.phone || null, schoolId]
+    );
+    userId = rows[0].id;
+  }
+
+  if (driver.user_id !== userId) {
+    await query('UPDATE drivers SET user_id = $1 WHERE id = $2', [userId, driverId]);
+  }
+}
+
+module.exports = { list, getById, create, createGuestDriver, update, remove, expiringDocuments, getIdByUserId, getRouteStudents, sendCredentials, setPassword };

@@ -423,4 +423,37 @@ async function sendParentCredentials(studentId, schoolId, parentEmail) {
   );
 }
 
-module.exports = { list, getById, create, update, remove, updateLocation, updateAlertStop, sendParentCredentials };
+/**
+ * Directly sets a parent's login password to an admin-chosen value — unlike
+ * sendParentCredentials (which generates a random password and emails it),
+ * this skips generation/email since the admin is choosing and relaying the
+ * password themselves. Same email-matched upsert shape otherwise.
+ */
+async function setParentPassword(studentId, schoolId, parentEmail, newPassword) {
+  const student = await getById(studentId, schoolId);
+  const parent = student.parents.find((p) => p.email && p.email.toLowerCase() === parentEmail.toLowerCase());
+  if (!parent) throw ApiError.badRequest('No parent with that email is on file for this student');
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  const email = parent.email.trim().toLowerCase();
+
+  const { rows: existingRows } = await query(
+    `SELECT id FROM users WHERE lower(email) = lower($1) AND role = 'parent'`,
+    [email]
+  );
+
+  if (existingRows[0]) {
+    await query(
+      `UPDATE users SET password_hash = $1, name = $2, phone = COALESCE($3, phone), school_id = $4, updated_at = now() WHERE id = $5`,
+      [passwordHash, parent.parent_name, parent.phone || null, schoolId, existingRows[0].id]
+    );
+  } else {
+    await query(
+      `INSERT INTO users (name, email, password_hash, phone, role, school_id)
+       VALUES ($1,$2,$3,$4,'parent',$5)`,
+      [parent.parent_name, email, passwordHash, parent.phone || null, schoolId]
+    );
+  }
+}
+
+module.exports = { list, getById, create, update, remove, updateLocation, updateAlertStop, sendParentCredentials, setParentPassword };

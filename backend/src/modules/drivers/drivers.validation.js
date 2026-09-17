@@ -31,6 +31,8 @@ const updateDriver = driverInput.partial().extend({
 
 const idParam = z.object({ id: z.string().min(1) });
 
+const setPassword = z.object({ password: z.string().min(6) });
+
 const listQuery = z.object({
   school_id: z.string().optional(),
   page: z.string().optional(),
@@ -56,4 +58,4 @@ const createGuestDriver = z.object({
   guest_validity_value: z.number().int().positive(),
 });
 
-module.exports = { createDriver, updateDriver, idParam, listQuery, expiringQuery, createGuestDriver };
+module.exports = { createDriver, updateDriver, idParam, listQuery, expiringQuery, createGuestDriver, setPassword };

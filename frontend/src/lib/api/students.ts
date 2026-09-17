@@ -56,3 +56,9 @@ export async function sendParentCredentials(studentId: string, email: string): P
   const { data } = await apiClient.post<{ emailStatus: string }>(`/students/${studentId}/parent-credentials`, { email })
   return data
 }
+
+/** Directly sets a parent's login password to an admin-chosen value —
+ * no current password required. */
+export async function setParentPassword(studentId: string, email: string, password: string): Promise<void> {
+  await apiClient.post(`/students/${studentId}/parent-password`, { email, password })
+}

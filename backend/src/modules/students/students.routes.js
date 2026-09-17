@@ -58,5 +58,11 @@ router.post(
   validate({ params: schema.idParam, body: schema.sendParentCredentials }),
   controller.sendParentCredentials
 );
+router.post(
+  '/:id/parent-password',
+  requireRole('super_admin', 'school_admin'),
+  validate({ params: schema.idParam, body: schema.setParentPassword }),
+  controller.setParentPassword
+);
 
 module.exports = router;

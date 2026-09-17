@@ -248,6 +248,52 @@ async function seedFleetAndRoutes(driverUserId) {
         [rows[0].id, parentName, email, '+971501234567']
       );
     }
+
+    const routeC = await client.query(
+      `INSERT INTO routes (school_id, name, start_point, end_point, route_qr_code)
+       VALUES ('GREENFIELD','Route C','Al Quoz','Greenfield Academy',$1) RETURNING id`,
+      [generateSeedQrCode('RT', 'GREENFIELD-Route-C')]
+    );
+    const routeIdC = routeC.rows[0].id;
+
+    const stopC1 = await client.query(
+      `INSERT INTO stops (route_id, name, latitude, longitude, order_index, estimated_time)
+       VALUES ($1,'Al Quoz Industrial 3',25.1367,55.2273,1,'07:10') RETURNING id`,
+      [routeIdC]
+    );
+    const stopC2 = await client.query(
+      `INSERT INTO stops (route_id, name, latitude, longitude, order_index, estimated_time)
+       VALUES ($1,'Motor City',25.0457,55.2371,2,'07:30') RETURNING id`,
+      [routeIdC]
+    );
+    const stopC3 = await client.query(
+      `INSERT INTO stops (route_id, name, latitude, longitude, order_index, estimated_time)
+       VALUES ($1,'Sports City',25.0424,55.2201,3,'07:50') RETURNING id`,
+      [routeIdC]
+    );
+
+    const routeCStudents = [
+      ['Yousef Abdullah Al-Mansoori', '4', 'A', '401', '2016-02-10', stopC1.rows[0].id, null],
+      ['Mariam Saeed Al-Suwaidi', '4', 'B', '402', '2016-06-19', stopC1.rows[0].id, null],
+      ['Khalid Omar Al-Farsi', '6', 'A', '601', '2014-09-03', stopC2.rows[0].id, null],
+      ['Noura Khalid Al-Farsi', '1', 'A', '101', '2019-12-27', stopC2.rows[0].id, null],
+      ['Hamdan Rashid Al-Mazrouei', '8', 'B', '801', '2012-04-14', stopC3.rows[0].id, null],
+    ];
+    for (const [name, klass, division, roll, dob, pickupStopId, parentEmail] of routeCStudents) {
+      const { rows } = await client.query(
+        `INSERT INTO students (school_id, name, class, division, roll_number, dob, student_qr_code, pickup_stop_id, drop_stop_id)
+         VALUES ('GREENFIELD',$1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`,
+        [name, klass, division, roll, dob, generateSeedQrCode('STD', `GREENFIELD-STD-${roll}`), pickupStopId]
+      );
+      const email = parentEmail || `parent.${rows[0].id}@example.com`;
+      const parentName = parentEmail ? 'Aisha Mohammed' : `Parent of ${name}`;
+      await client.query(
+        `INSERT INTO parent_details (student_id, parent_name, relationship, email, phone, whatsapp)
+         VALUES ($1,$2,'Father',$3,$4,$4)`,
+        [rows[0].id, parentName, email, '+971501234567']
+      );
+    }
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
