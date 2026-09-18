@@ -185,7 +185,13 @@ const scan = asyncHandler(async (req, res) => {
   if (req.user.role === 'driver') await assertDriverOwnsTrip(req.body.trip_id, req.user.id);
 
   const record = await service.markByQrCode(schoolId || null, req.body.trip_id, req.body.qr_code, req.body.stop_id);
-  await broadcastAndNotify(req, schoolId, req.body.trip_id, [record], 'pickup'); // Assuming pickup for QR scan for simplicity if type not available in payload
+  // record.trip_type is the trip's real type (markByQrCode/toResponse
+  // already resolve it from the trip row) — was previously hardcoded to
+  // 'pickup' here regardless of the actual trip, which both mislabeled the
+  // push notification body ("... for the pickup trip" on a drop scan) and
+  // made checkAlertsForStop check alert_pickup_stop_id instead of
+  // alert_drop_stop_id, so a drop-location alert never fired for a QR scan.
+  await broadcastAndNotify(req, schoolId, req.body.trip_id, [record], record.trip_type);
   res.status(201).json({ record });
 });
 
@@ -197,7 +203,10 @@ const bulk = asyncHandler(async (req, res) => {
   if (req.user.role === 'driver') await assertDriverOwnsTrip(req.body.trip_id, req.user.id);
 
   const records = await service.bulkMark(schoolId || null, req.body.trip_id, req.body.records);
-  await broadcastAndNotify(req, schoolId, req.body.trip_id, records, 'pickup');
+  // Same fix as scan() above: every record here is on the same trip, so its
+  // real trip_type (not a hardcoded 'pickup') is what notifyParentsForAttendance
+  // and checkAlertsForStop need to label/route correctly for a drop trip.
+  await broadcastAndNotify(req, schoolId, req.body.trip_id, records, records[0]?.trip_type);
   res.status(201).json({ records });
 });
 
@@ -221,7 +230,8 @@ const update = asyncHandler(async (req, res) => {
   }
   const record = await service.update(req.params.id, schoolId, req.body);
   const tripId = await service.getTripIdForRecord(req.params.id);
-  await broadcastAndNotify(req, schoolId, tripId, [record], 'pickup');
+  // Same fix as scan()/bulk() above: use the record's real trip_type.
+  await broadcastAndNotify(req, schoolId, tripId, [record], record.trip_type);
   res.json({ record });
 });
 
