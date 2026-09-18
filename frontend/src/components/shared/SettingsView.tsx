@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
@@ -15,7 +15,8 @@ import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { updateUser as updateUserAction } from '@/store/slices/authSlice'
-import { changePassword } from '@/lib/api/auth'
+import { changePassword, updateMe } from '@/lib/api/auth'
+import { uploadImage } from '@/lib/api/upload'
 import { getSchool, updateSchool } from '@/lib/api/schools'
 import { getPlatformSettings, updatePlatformSettings } from '@/lib/api/platformSettings'
 import { LocationPicker } from '@/components/shared/LocationPicker'
@@ -76,15 +77,51 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
   const [name, setName] = useState(user?.name ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
   const [phone, setPhone] = useState(user?.phone ?? '')
+  const [avatar, setAvatar] = useState(user?.avatar ?? '')
   const [prefs, setPrefs] = useState<Record<string, boolean>>(
     Object.fromEntries(NOTIFICATION_PREFS.map((p) => [p.id, p.on])),
   )
   const [saved, setSaved] = useState(false)
 
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setAvatarError('Please choose an image file (PNG or JPG).')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setAvatarError('Image is too large — please choose one under 2MB.')
+      return
+    }
+    setAvatarError('')
+    setAvatarUploading(true)
+    try {
+      const url = await uploadImage(file)
+      setAvatar(url)
+    } catch (err) {
+      setAvatarError(isAxiosError(err) ? (err.response?.data as { error?: string } | undefined)?.error ?? 'Failed to upload photo.' : 'Failed to upload photo.')
+    } finally {
+      setAvatarUploading(false)
+    }
+  }
+
+  const updateProfileMutation = useMutation({
+    mutationFn: () => updateMe({ name, phone, avatar }),
+    onSuccess: (updatedUser) => {
+      dispatch(updateUserAction(updatedUser))
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    },
+  })
+
   function handleSaveProfile() {
-    dispatch(updateUserAction({ name, email, phone }))
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    updateProfileMutation.mutate()
   }
 
   // ── School contact/address details (school_admin only — plan, status,
@@ -217,17 +254,42 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
             <CardContent className="space-y-6">
               <div className="flex items-center gap-4">
                 <div className="relative">
-                  <div className="h-20 w-20 rounded-full bg-[var(--primary)] flex items-center justify-center text-white text-2xl font-bold shadow-md">
-                    {getInitials(name || 'User')}
+                  <div className="h-20 w-20 rounded-full bg-[var(--primary)] flex items-center justify-center text-white text-2xl font-bold shadow-md overflow-hidden">
+                    {avatar ? (
+                      <img src={avatar} alt={name || 'User'} className="h-full w-full object-cover" />
+                    ) : (
+                      getInitials(name || 'User')
+                    )}
                   </div>
-                  <button className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-[var(--card)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={avatarUploading}
+                    className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-[var(--card)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)] hover:text-[var(--foreground)] shadow-sm disabled:opacity-50"
+                  >
                     <Camera size={13} />
                   </button>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    className="hidden"
+                    onChange={handleAvatarChange}
+                  />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-[var(--foreground)]">Profile photo</p>
                   <p className="text-xs text-[var(--muted-foreground)] mb-2">PNG or JPG, up to 2MB.</p>
-                  <Button variant="outline" size="sm">Upload new</Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => avatarInputRef.current?.click()}
+                    loading={avatarUploading}
+                  >
+                    Upload new
+                  </Button>
+                  {avatarError && <p className="text-xs text-red-500 mt-1.5">{avatarError}</p>}
                 </div>
               </div>
 
@@ -251,7 +313,7 @@ export function SettingsView({ scope = 'super_admin' }: SettingsViewProps) {
               </div>
 
               <div className="flex items-center gap-3">
-                <Button onClick={handleSaveProfile}>Save Changes</Button>
+                <Button onClick={handleSaveProfile} loading={updateProfileMutation.isPending}>Save Changes</Button>
                 {saved && (
                   <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-green-600 flex items-center gap-1">
                     <Check size={15} /> Saved

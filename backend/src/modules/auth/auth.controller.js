@@ -66,6 +66,11 @@ const changePassword = asyncHandler(async (req, res) => {
   res.json({ message: 'Password updated successfully' });
 });
 
+const updateProfile = asyncHandler(async (req, res) => {
+  const user = await authService.updateOwnProfile(req.user.id, req.body);
+  res.json({ user });
+});
+
 const updateFcmToken = asyncHandler(async (req, res) => {
   const user = await authService.updateFcmToken(req.user.id, req.body.fcm_token);
   res.json({ user });
@@ -89,6 +94,7 @@ module.exports = {
   verifyOtp,
   resetPassword,
   changePassword,
+  updateProfile,
   updateFcmToken,
   registerDeviceToken,
 };

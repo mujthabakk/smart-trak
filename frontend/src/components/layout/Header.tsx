@@ -4,7 +4,7 @@ import { Menu, Search, Bell, ChevronDown, User, Settings, LogOut, X } from 'luci
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { toggleSidebar as toggleSidebarAction, markAllRead as markAllReadAction } from '@/store/slices/appSlice'
 import { logout as logoutAction } from '@/store/slices/authSlice'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { cn, getInitials } from '@/lib/utils'
 
 export function Header() {
@@ -137,6 +137,7 @@ export function Header() {
               aria-label="User menu"
             >
               <Avatar className="h-7 w-7">
+                {user?.avatar && <AvatarImage src={user.avatar} alt={user.name} className="object-cover" />}
                 <AvatarFallback className="text-[10px]">{user ? getInitials(user.name) : '?'}</AvatarFallback>
               </Avatar>
               <ChevronDown size={13} className="text-[var(--muted-foreground)] hidden sm:block" />

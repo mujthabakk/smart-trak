@@ -13,6 +13,7 @@ router.post('/reset-password', validate({ body: schema.resetPassword }), control
 router.get('/me', requireAuth, controller.me);
 router.post('/logout', requireAuth, controller.logout);
 router.patch('/change-password', requireAuth, validate({ body: schema.changePassword }), controller.changePassword);
+router.patch('/me', requireAuth, validate({ body: schema.updateProfile }), controller.updateProfile);
 router.patch('/fcm-token', requireAuth, validate({ body: schema.updateFcmToken }), controller.updateFcmToken);
 
 // Multi-device push token registry — supersedes the single-token endpoint

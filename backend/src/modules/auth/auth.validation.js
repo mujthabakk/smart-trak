@@ -29,6 +29,12 @@ const changePassword = z.object({
   newPassword: z.string().min(6),
 });
 
+const updateProfile = z.object({
+  name: z.string().min(1).optional(),
+  phone: z.string().min(1).optional(),
+  avatar: z.string().optional(),
+});
+
 const updateFcmToken = z.object({
   fcm_token: z.string().min(1),
 });
@@ -45,6 +51,7 @@ module.exports = {
   verifyOtp,
   resetPassword,
   changePassword,
+  updateProfile,
   updateFcmToken,
   registerDeviceToken,
 };

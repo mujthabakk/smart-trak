@@ -38,10 +38,13 @@ router.post('/', upload.single('image'), (req, res) => {
     throw ApiError.badRequest('No image file provided. Make sure to use the "image" field in form-data.');
   }
 
-  // Construct absolute URL for the frontend
-  // E.g., https://your-ngrok.dev/uploads/image-123.jpg
+  // Construct absolute URL for the frontend. Served under /api/uploads (not
+  // bare /uploads) because in production only the /api/* path is proxied
+  // through to this backend — the domain's root otherwise serves the
+  // frontend's static build, which would swallow a bare /uploads/* request
+  // into its SPA fallback (index.html) instead of the actual image.
   const baseUrl = `${req.protocol}://${req.get('host')}`;
-  const fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
+  const fileUrl = `${baseUrl}/api/uploads/${req.file.filename}`;
 
   res.status(201).json({ url: fileUrl });
 });

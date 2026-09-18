@@ -130,6 +130,29 @@ async function changeOwnPassword(userId, currentPassword, newPassword) {
   await query('UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2', [passwordHash, userId]);
 }
 
+/** Self-service "update my own profile" — name/phone/avatar only, unlike
+ * users.service.js's admin-driven update which also allows email/role and is
+ * restricted to managing other accounts (a school_admin can't touch its own
+ * row through it, see assertManageableRole there). */
+async function updateOwnProfile(userId, data) {
+  const fields = ['name', 'phone', 'avatar'];
+  const sets = [];
+  const params = [];
+  for (const field of fields) {
+    if (data[field] !== undefined) {
+      params.push(data[field]);
+      sets.push(`${field} = $${params.length}`);
+    }
+  }
+  if (sets.length > 0) {
+    sets.push('updated_at = now()');
+    params.push(userId);
+    const { rowCount } = await query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    if (!rowCount) throw ApiError.notFound('User not found');
+  }
+  return findUserById(userId);
+}
+
 /**
  * Legacy self-service push-token registration — lets a mobile client (driver,
  * guest_driver, parent) register its own device token without needing the
@@ -188,6 +211,7 @@ module.exports = {
   verifyOtp,
   resetPassword,
   changeOwnPassword,
+  updateOwnProfile,
   updateFcmToken,
   registerDeviceToken,
 };

@@ -243,8 +243,12 @@ export function Sidebar() {
             )}
           >
             {/* Avatar */}
-            <div className="h-8 w-8 rounded-full bg-[var(--primary)] flex items-center justify-center flex-shrink-0 text-white text-xs font-bold shadow-sm">
-              {user ? getInitials(user.name) : '?'}
+            <div className="h-8 w-8 rounded-full bg-[var(--primary)] flex items-center justify-center flex-shrink-0 text-white text-xs font-bold shadow-sm overflow-hidden">
+              {user?.avatar ? (
+                <img src={user.avatar} alt={user.name} className="h-full w-full object-cover" />
+              ) : (
+                user ? getInitials(user.name) : '?'
+              )}
             </div>
             <AnimatePresence>
               {isExpanded && user && (
@@ -255,8 +259,8 @@ export function Sidebar() {
                   transition={{ duration: 0.15 }}
                   className="flex-1 min-w-0"
                 >
-                  <p className="text-xs font-semibold text-white truncate">{user.name}</p>
-                  <p className="text-[10px] text-white/60 truncate">{getRoleLabel(user.role)}</p>
+                  <p className="text-xs font-semibold text-[var(--sidebar-text,#e2e8f0)] truncate">{user.name}</p>
+                  <p className="text-[10px] text-[var(--sidebar-text,#e2e8f0)]/60 truncate">{getRoleLabel(user.role)}</p>
                 </motion.div>
               )}
             </AnimatePresence>

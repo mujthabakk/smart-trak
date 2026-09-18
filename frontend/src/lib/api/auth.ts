@@ -41,6 +41,12 @@ export async function changePassword(currentPassword: string, newPassword: strin
   return data
 }
 
+/** Self-service "update my own profile" — name/phone/avatar only. */
+export async function updateMe(payload: { name?: string; phone?: string; avatar?: string }): Promise<User> {
+  const { data } = await apiClient.patch<{ user: User }>('/auth/me', payload)
+  return data.user
+}
+
 /** Registers this browser's FCM token so push notifications reach it —
  * upserts on (user, device_id), so re-registering the same browser just
  * refreshes its token rather than creating a duplicate. */
