@@ -93,7 +93,14 @@ async function broadcastAndNotify(req, schoolId, tripId, records, type) {
       if (type === 'pickup' || type === 'drop') {
         const stopIds = [...new Set((records || []).map((r) => r.stop_id).filter(Boolean))];
         for (const stopId of stopIds) {
-          alertsService.checkAlertsForStop({ schoolId, tripId, stopId, tripType: type }).catch((err) => {
+          alertsService.checkAlertsForStop({ schoolId, tripId, stopId, tripType: type }).then((notifiedUserIds) => {
+            // Same "push + live socket ping" pairing busTransfers.controller.js's
+            // notifyAssignedDrivers uses — push alone doesn't refresh the
+            // in-app bell/list for a parent who already has the app open.
+            for (const userId of notifiedUserIds || []) {
+              io.to(`user:${userId}`).emit('notification:update');
+            }
+          }).catch((err) => {
             console.error('Failed to check stop alerts', err);
           });
         }

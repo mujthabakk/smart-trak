@@ -68,8 +68,18 @@ async function list(schoolId, { hours = 12, studentId, parentUserId }) {
  * Idempotent per (trip, student, alert_type) via alert_events' UNIQUE
  * constraint, same as day-to-day "reset" — a new trip tomorrow, a fresh row.
  */
+/**
+ * Returns the ids of every parent user actually notified, so the caller
+ * (attendance.controller.js's broadcastAndNotify, which owns `io` — services
+ * don't touch sockets directly, same convention as busTransfers.controller.js)
+ * can emit 'notification:update' to each of them. Without this, a stop alert
+ * only ever reached a parent via push (best-effort, silently swallowed if the
+ * token is stale/missing) — the in-app bell/list never updated live for
+ * anyone who had the app open, unlike every other notification path in the
+ * app (bus transfers, leave, etc.), which all fire this socket event.
+ */
 async function checkAlertsForStop({ schoolId, tripId, stopId, tripType }) {
-  if (tripType !== 'pickup' && tripType !== 'drop') return;
+  if (tripType !== 'pickup' && tripType !== 'drop') return [];
   const column = tripType === 'pickup' ? 'alert_pickup_stop_id' : 'alert_drop_stop_id';
 
   const { rows: candidates } = await query(
@@ -80,6 +90,7 @@ async function checkAlertsForStop({ schoolId, tripId, stopId, tripType }) {
     [stopId]
   );
 
+  const notifiedUserIds = [];
   for (const c of candidates) {
     const message = `The bus has reached ${c.stop_name}.`;
     const { rows: inserted } = await query(
@@ -98,16 +109,22 @@ async function checkAlertsForStop({ schoolId, tripId, stopId, tripType }) {
       [c.student_id]
     );
     for (const parent of parentRows) {
-      await createNotification({
-        school_id: schoolId,
-        user_id: parent.id,
-        title: 'Bus approaching',
-        body: `${c.student_name}: ${message}`,
-        type: 'info', // notifications.type has no 'stop_alert' value
-        push_type: 'ringing', // the bus is arriving now — ring, don't just ping
-      }).catch((err) => console.error('Failed to send stop alert notification', err));
+      try {
+        await createNotification({
+          school_id: schoolId,
+          user_id: parent.id,
+          title: 'Bus approaching',
+          body: `${c.student_name}: ${message}`,
+          type: 'info', // notifications.type has no 'stop_alert' value
+          push_type: 'ringing', // the bus is arriving now — ring, don't just ping
+        });
+        notifiedUserIds.push(parent.id);
+      } catch (err) {
+        console.error('Failed to send stop alert notification', err);
+      }
     }
   }
+  return notifiedUserIds;
 }
 
 module.exports = { list, checkAlertsForStop };

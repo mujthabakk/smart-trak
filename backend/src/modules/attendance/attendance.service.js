@@ -239,7 +239,7 @@ async function bulkOffboard(schoolId, tripId, records) {
       const recordWhere = schoolId ? 'ar.id = $1 AND ar.trip_id = $2 AND s.school_id = $3' : 'ar.id = $1 AND ar.trip_id = $2';
       
       const { rows: recordRows } = await client.query(
-        `SELECT ar.id FROM attendance_records ar
+        `SELECT ar.id, ar.trip_id, ar.student_id FROM attendance_records ar
          JOIN students s ON s.id = ar.student_id
          WHERE ${recordWhere}`,
         recordParams
@@ -253,13 +253,25 @@ async function bulkOffboard(schoolId, tripId, records) {
       // header comment on getDaySummary for the full boarded/reached split).
       const offboardedAt = rec.offboarded_at || (rec.offboard_status === 'offboarded' ? new Date().toISOString() : null);
 
+      // A drop trip's attendance_records row is created at boarding (getting
+      // on the bus at school), when there is no stop yet to record — the
+      // student's actual stop is only known once they're offboarded here.
+      // Without this, stop_id/current_stop can never populate for drop trips
+      // the way they already do for pickup (whose stop_id comes from the QR
+      // scan at each stop) — getDaySummary's stop_name/current_stop both key
+      // off stop_id being set. Only fills it if still unset, and prefers this
+      // trip's own override over the student's default drop stop, same
+      // resolution order as ownStopId in getDaySummary below.
       await client.query(
-        `UPDATE attendance_records SET
+        `UPDATE attendance_records ar SET
            offboard_status = $1,
            offboard_reason = $2,
-           drop_time = COALESCE($3, drop_time),
-           offboarded_at = COALESCE($4, offboarded_at)
-         WHERE id = $5`,
+           drop_time = COALESCE($3, ar.drop_time),
+           offboarded_at = COALESCE($4, ar.offboarded_at),
+           stop_id = COALESCE(ar.stop_id, tso.override_drop_stop_id, s.drop_stop_id)
+         FROM students s
+         LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = ar.trip_id
+         WHERE ar.id = $5 AND ar.student_id = s.id`,
         [rec.offboard_status, rec.offboard_reason || null, dropTime, offboardedAt, rec.attendance_id]
       );
       updated.push(rec.attendance_id);
