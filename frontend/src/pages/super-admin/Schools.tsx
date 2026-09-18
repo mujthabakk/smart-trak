@@ -158,19 +158,18 @@ export default function Schools() {
   const estimatedCost = useMemo(() => {
     const n = parseInt(form.student_count) || 0
     if (!selectedPlan || n <= 0) return null
-    const studentCost = n * selectedPlan.price_per_student
-    const monthly = selectedPlan.price_monthly + studentCost
-    const annual = selectedPlan.price_annual + studentCost * 12
-    return { monthly, annual, studentCost, base: selectedPlan.price_monthly, n, rate: selectedPlan.price_per_student }
+    const annual = n * selectedPlan.price_annual
+    const monthly = n * selectedPlan.price_monthly
+    return { monthly, annual, n, rate: selectedPlan.price_annual }
   }, [form.student_count, selectedPlan])
 
-  // Invoice amount for the selected school
+  // Invoice amount for the selected school — flat per-student/year rate,
+  // no base fee or extra charges.
   const invoiceAmount = useMemo(() => {
     if (!paymentTarget) return 0
     const plan = plans.find((p) => p.name.toLowerCase() === paymentTarget.plan_name.toLowerCase())
     if (!plan) return 0
-    const studentCost = (paymentTarget.student_count ?? 0) * plan.price_per_student
-    return plan.price_monthly + studentCost
+    return (paymentTarget.student_count ?? 0) * plan.price_annual
   }, [paymentTarget, plans])
 
   function openAdd() { setEditingId(null); setForm(EMPTY_FORM); setSaveError(''); setFormOpen(true) }
@@ -566,17 +565,16 @@ export default function Schools() {
               <div className="rounded-xl border border-[var(--primary)]/30 bg-[var(--primary)]/5 p-3 space-y-1.5">
                 <p className="text-xs font-semibold text-[var(--primary)] uppercase tracking-wide">Estimated Cost Preview</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                  <span className="text-[var(--muted-foreground)]">Base price</span>
-                  <span className="text-[var(--foreground)] tabular-nums font-medium">{formatCurrency(estimatedCost.base)}/mo</span>
-                  <span className="text-[var(--muted-foreground)]">Student cost</span>
+                  <span className="text-[var(--muted-foreground)]">Per student / year</span>
                   <span className="text-[var(--foreground)] tabular-nums font-medium">
-                    {estimatedCost.n} × {formatCurrency(estimatedCost.rate)} = {formatCurrency(estimatedCost.studentCost)}/mo
+                    {estimatedCost.n} × {formatCurrency(estimatedCost.rate)}
                   </span>
-                  <span className="text-[var(--muted-foreground)] font-semibold">Total monthly</span>
-                  <span className="text-[var(--primary)] tabular-nums font-bold">{formatCurrency(estimatedCost.monthly)}</span>
                   <span className="text-[var(--muted-foreground)] font-semibold">Total annual</span>
-                  <span className="text-[var(--foreground)] tabular-nums font-semibold">{formatCurrency(estimatedCost.annual)}</span>
+                  <span className="text-[var(--primary)] tabular-nums font-bold">{formatCurrency(estimatedCost.annual)}</span>
+                  <span className="text-[var(--muted-foreground)] font-semibold">Total monthly</span>
+                  <span className="text-[var(--foreground)] tabular-nums font-semibold">{formatCurrency(estimatedCost.monthly)}</span>
                 </div>
+                <p className="text-[11px] text-[var(--muted-foreground)]">No extra charges — flat per-student rate, features included.</p>
               </div>
             )}
 
@@ -619,7 +617,7 @@ export default function Schools() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[var(--muted-foreground)]">Amount due</span>
-                  <span className="font-bold text-amber-600">{formatCurrency(invoiceAmount)}/mo</span>
+                  <span className="font-bold text-amber-600">{formatCurrency(invoiceAmount)}/yr</span>
                 </div>
               </div>
               <p className="text-xs text-[var(--muted-foreground)]">An email notification will be sent to the school admin reminding them of the outstanding payment.</p>

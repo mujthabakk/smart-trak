@@ -15,6 +15,7 @@ import { getRoleLabel, cn } from '@/lib/utils'
 import { login as apiLogin, registerFcmToken } from '@/lib/api/auth'
 import { requestFcmToken } from '@/lib/firebase'
 import { isAxiosError } from 'axios'
+import smartTrackLogo from '@/assets/smarttrack-logo.png'
 
 const ROLE_ICON: Record<UserRole, typeof Shield> = {
   super_admin: Shield,
@@ -143,8 +144,8 @@ export default function Login() {
         ))}
 
         <div className="relative z-10 flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg" style={{ background: 'rgba(255,255,255,0.18)' }}>
-            <Bus size={24} color="white" />
+          <div className="w-8 h-11 overflow-hidden rounded-2xl shadow-lg flex-shrink-0">
+            <img src={smartTrackLogo} alt="" className="h-11 w-auto max-w-none object-cover object-left" />
           </div>
           <span className="text-2xl font-bold text-white">SmartTrack</span>
         </div>
@@ -199,11 +200,8 @@ export default function Login() {
           className="w-full max-w-md py-6"
         >
           {/* Mobile logo */}
-          <div className="flex lg:hidden items-center gap-2 justify-center mb-8">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary)' }}>
-              <Bus size={20} color="white" />
-            </div>
-            <span className="text-xl font-bold" style={{ color: 'var(--foreground)' }}>SmartTrack</span>
+          <div className="flex lg:hidden items-center justify-center mb-8">
+            <img src={smartTrackLogo} alt="SmartTrack" className="h-10 w-auto" />
           </div>
 
           <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--foreground)' }}>Welcome back</h1>

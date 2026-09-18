@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { motion, useScroll } from 'framer-motion'
-import { Bus, Menu, X } from 'lucide-react'
+import { Menu, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PUBLIC_NAV } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+import smartTrackLogo from '@/assets/smarttrack-logo.png'
 
 interface PublicLayoutProps {
   children?: ReactNode
@@ -26,11 +27,8 @@ export function PublicLayout({ children }: PublicLayoutProps) {
       {/* Navbar */}
       <header className="sticky top-0 z-50 bg-[var(--card)]/80 backdrop-blur-lg border-b border-[var(--border)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-xl bg-[var(--primary)] flex items-center justify-center shadow-sm">
-              <Bus size={20} className="text-white" />
-            </div>
-            <span className="text-lg font-bold text-[var(--foreground)]">SmartTrack</span>
+          <Link to="/" className="flex items-center">
+            <img src={smartTrackLogo} alt="SmartTrack" className="h-12 w-auto" />
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
@@ -104,11 +102,8 @@ export function PublicLayout({ children }: PublicLayoutProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             <div className="col-span-2 md:col-span-1">
-              <Link to="/" className="flex items-center gap-2 mb-3">
-                <div className="h-8 w-8 rounded-lg bg-[var(--primary)] flex items-center justify-center">
-                  <Bus size={18} className="text-white" />
-                </div>
-                <span className="font-bold text-[var(--foreground)]">SmartTrack</span>
+              <Link to="/" className="flex items-center mb-3">
+                <img src={smartTrackLogo} alt="SmartTrack" className="h-8 w-auto" />
               </Link>
               <p className="text-sm text-[var(--muted-foreground)] leading-relaxed">
                 The smartest way to manage school bus fleets and keep every student safe.

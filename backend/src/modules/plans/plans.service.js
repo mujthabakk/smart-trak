@@ -20,7 +20,6 @@ function toResponse(row) {
     label: row.label,
     price_monthly: Number(row.price_monthly),
     price_annual: Number(row.price_annual),
-    price_per_student: Number(row.price_per_student),
     billing_cycle: row.billing_cycle,
     max_students: row.max_students,
     max_buses: row.max_buses,
@@ -44,12 +43,12 @@ async function getById(id) {
 async function create(data) {
   const id = data.id || data.name.toLowerCase().replace(/\s+/g, '_');
   const { rows } = await masterPool.query(
-    `INSERT INTO plans (id, name, label, price_monthly, price_annual, price_per_student,
+    `INSERT INTO plans (id, name, label, price_monthly, price_annual,
        billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      RETURNING *`,
     [
-      id, data.name, data.label, data.price_monthly, data.price_annual, data.price_per_student,
+      id, data.name, data.label, data.price_monthly, data.price_annual,
       data.billing_cycle, data.max_students, data.max_buses, data.max_drivers,
       JSON.stringify(data.features || []), data.is_popular || false,
     ]
@@ -61,12 +60,12 @@ async function update(id, data) {
   const existing = await getById(id);
   const merged = { ...existing, ...data };
   const { rows } = await masterPool.query(
-    `UPDATE plans SET name=$1, label=$2, price_monthly=$3, price_annual=$4, price_per_student=$5,
-       billing_cycle=$6, max_students=$7, max_buses=$8, max_drivers=$9, features=$10,
-       is_popular=$11, updated_at=now()
-     WHERE id=$12 RETURNING *`,
+    `UPDATE plans SET name=$1, label=$2, price_monthly=$3, price_annual=$4,
+       billing_cycle=$5, max_students=$6, max_buses=$7, max_drivers=$8, features=$9,
+       is_popular=$10, updated_at=now()
+     WHERE id=$11 RETURNING *`,
     [
-      merged.name, merged.label, merged.price_monthly, merged.price_annual, merged.price_per_student,
+      merged.name, merged.label, merged.price_monthly, merged.price_annual,
       merged.billing_cycle, merged.max_students, merged.max_buses, merged.max_drivers, JSON.stringify(merged.features),
       merged.is_popular, id,
     ]

@@ -233,15 +233,15 @@ async function provisionTenant(school) {
     const p = planRows[0];
     if (p) {
       await tenantPool.query(
-        `INSERT INTO plans (id, name, label, price_monthly, price_annual, price_per_student, billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        `INSERT INTO plans (id, name, label, price_monthly, price_annual, billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name, label = EXCLUDED.label, price_monthly = EXCLUDED.price_monthly,
-           price_annual = EXCLUDED.price_annual, price_per_student = EXCLUDED.price_per_student,
+           price_annual = EXCLUDED.price_annual,
            billing_cycle = EXCLUDED.billing_cycle, max_students = EXCLUDED.max_students,
            max_buses = EXCLUDED.max_buses, max_drivers = EXCLUDED.max_drivers,
            features = EXCLUDED.features, is_popular = EXCLUDED.is_popular`,
-        [p.id, p.name, p.label, p.price_monthly, p.price_annual, p.price_per_student, p.billing_cycle, p.max_students, p.max_buses, p.max_drivers, JSON.stringify(p.features), p.is_popular]
+        [p.id, p.name, p.label, p.price_monthly, p.price_annual, p.billing_cycle, p.max_students, p.max_buses, p.max_drivers, JSON.stringify(p.features), p.is_popular]
       );
     }
     await tenantPool.query(

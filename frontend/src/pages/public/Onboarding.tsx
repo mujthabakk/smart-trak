@@ -109,14 +109,15 @@ export default function Onboarding() {
     return fit?.id ?? null
   }, [filterCount])
 
-  // Cost calculation, shown from step 1 onward once a student count is known
+  // Cost calculation, shown from step 1 onward once a student count is known.
+  // Flat per-student/year rate, no base fee and no extra charges — monthly
+  // is just that rate ÷ 12 for reference.
   const costCalc = useMemo(() => {
     const n = parseInt(form.students) || 0
     if (!n || !plan) return null
-    const studentCost = n * plan.pricePerStudent
-    const monthly = plan.monthly + studentCost
-    const annual = monthly * 12 * 0.8 // 20% annual discount
-    return { base: plan.monthly, studentCost, monthly, annual, n, rate: plan.pricePerStudent }
+    const annual = n * plan.pricePerStudentYear
+    const monthly = annual / 12
+    return { annual, monthly, n, rate: plan.pricePerStudentYear }
   }, [form.students, plan])
 
   const canNext =
@@ -194,7 +195,7 @@ export default function Onboarding() {
                     const status = planStatus(p)
                     const exceeded = status === 'exceeded'
                     const isRecommended = recommendedId === p.id && filterCount > 0
-                    const estMonthly = filterCount > 0 ? p.monthly + filterCount * p.pricePerStudent : null
+                    const estAnnual = filterCount > 0 ? filterCount * p.pricePerStudentYear : null
 
                     return (
                       <button
@@ -247,20 +248,19 @@ export default function Onboarding() {
                               </span>
                             </div>
                             {/* Live cost estimate */}
-                            {estMonthly !== null && !exceeded && (
+                            {estAnnual !== null && !exceeded && (
                               <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)]/10 px-2.5 py-1 text-xs font-semibold text-[var(--primary)]">
                                 <Calculator size={11} />
-                                Est. {formatUSD(estMonthly)}/mo for {filterCount.toLocaleString()} students
+                                Est. {formatUSD(estAnnual)}/yr for {filterCount.toLocaleString()} students
                               </div>
                             )}
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
                           <p className="font-bold text-[var(--foreground)]">
-                            ${p.monthly}<span className="text-xs font-normal text-[var(--muted-foreground)]">/mo</span>
+                            {formatUSD(p.pricePerStudentYear)}<span className="text-xs font-normal text-[var(--muted-foreground)]">/student/yr</span>
                           </p>
-                          <p className="text-[10px] text-[var(--muted-foreground)]">base price</p>
-                          <p className="text-[10px] text-[var(--muted-foreground)]">+${p.pricePerStudent}/student</p>
+                          <p className="text-[10px] text-[var(--muted-foreground)]">no extra charges</p>
                         </div>
                       </button>
                     )
@@ -401,22 +401,20 @@ export default function Onboarding() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
-                      <span className="text-[var(--muted-foreground)]">Base price</span>
-                      <span className="tabular-nums font-medium text-[var(--foreground)]">{formatUSD(costCalc.base)} / mo</span>
-
-                      <span className="text-[var(--muted-foreground)]">Student cost</span>
+                      <span className="text-[var(--muted-foreground)]">Per student / year</span>
                       <span className="tabular-nums font-medium text-[var(--foreground)]">
-                        {costCalc.n.toLocaleString()} × {formatUSD(costCalc.rate)} = {formatUSD(costCalc.studentCost)} / mo
+                        {costCalc.n.toLocaleString()} × {formatUSD(costCalc.rate)} = {formatUSD(costCalc.annual)}
                       </span>
 
                       <div className="col-span-2 border-t border-[var(--primary)]/20 my-1" />
 
-                      <span className="font-semibold text-[var(--foreground)]">Total monthly</span>
-                      <span className="tabular-nums font-bold text-[var(--primary)] text-base">{formatUSD(costCalc.monthly)}</span>
+                      <span className="font-semibold text-[var(--foreground)]">Total annual</span>
+                      <span className="tabular-nums font-bold text-[var(--primary)] text-base">{formatUSD(costCalc.annual)}</span>
 
-                      <span className="text-[var(--muted-foreground)] text-xs">Annual (save 20%)</span>
-                      <span className="tabular-nums text-xs font-semibold text-green-600">{formatUSD(costCalc.annual)} / yr</span>
+                      <span className="text-[var(--muted-foreground)] text-xs">≈ monthly equivalent</span>
+                      <span className="tabular-nums text-xs font-semibold text-green-600">{formatUSD(costCalc.monthly)} / mo</span>
                     </div>
+                    <p className="text-[11px] text-[var(--muted-foreground)]">No extra charges — this is the total price, features included.</p>
 
                     {/* Plan limit warning */}
                     {costCalc.n > plan.maxStudents && (
@@ -445,16 +443,16 @@ export default function Onboarding() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-[var(--muted-foreground)]">Selected plan</p>
-                      <p className="font-semibold text-[var(--foreground)]">{plan.name} — ${plan.monthly}/mo base</p>
+                      <p className="font-semibold text-[var(--foreground)]">{plan.name} — {formatUSD(plan.pricePerStudentYear)}/student/yr</p>
                     </div>
                     <Button variant="ghost" size="sm" onClick={() => setStep(0)}>Change</Button>
                   </div>
                   {costCalc && (
                     <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm border-t border-[var(--primary)]/20 pt-2">
-                      <span className="text-[var(--muted-foreground)]">Student cost ({costCalc.n} × {formatUSD(costCalc.rate)})</span>
-                      <span className="tabular-nums font-medium text-[var(--foreground)]">{formatUSD(costCalc.studentCost)}/mo</span>
-                      <span className="font-semibold text-[var(--foreground)]">Est. total monthly</span>
-                      <span className="tabular-nums font-bold text-[var(--primary)]">{formatUSD(costCalc.monthly)}</span>
+                      <span className="text-[var(--muted-foreground)]">Students ({costCalc.n} × {formatUSD(costCalc.rate)})</span>
+                      <span className="tabular-nums font-medium text-[var(--foreground)]">{formatUSD(costCalc.annual)}/yr</span>
+                      <span className="font-semibold text-[var(--foreground)]">Est. total annual</span>
+                      <span className="tabular-nums font-bold text-[var(--primary)]">{formatUSD(costCalc.annual)}</span>
                     </div>
                   )}
                 </div>

@@ -15,9 +15,9 @@ const ASSET_BASE = import.meta.env.BASE_URL
 /* Real product data extracted from SmartTrack PRD v1.1 (AKIRA PLC, June 2026) */
 
 export const SITE_STATS = [
-  { value: '99+', label: 'Schools onboarded' },
-  { value: '24,580', label: 'Students tracked daily' },
-  { value: '420', label: 'Buses on the road' },
+  { value: '250+', label: 'Schools onboarded' },
+  { value: '3,00,000+', label: 'Students' },
+  { value: '2700+', label: 'Buses on the road' },
   { value: '99.9%', label: 'Platform uptime' },
 ]
 
@@ -124,8 +124,8 @@ export interface Plan {
   id: string
   name: string
   tagline: string
-  monthly: number
-  pricePerStudent: number
+  /** Flat per-student annual rate (USD) — no separate base fee. */
+  pricePerStudentYear: number
   maxStudents: number
   popular?: boolean
   limits: { students: string; buses: string; drivers: string }
@@ -137,8 +137,7 @@ export const PLANS: Plan[] = [
     id: 'basic',
     name: 'Basic',
     tagline: 'For small schools getting started with tracking.',
-    monthly: 49,
-    pricePerStudent: 0.23,
+    pricePerStudentYear: 2.72,
     maxStudents: 200,
     limits: { students: '200', buses: '5', drivers: '10' },
     features: [
@@ -154,8 +153,7 @@ export const PLANS: Plan[] = [
     id: 'standard',
     name: 'Standard',
     tagline: 'For growing fleets that need automation.',
-    monthly: 99,
-    pricePerStudent: 0.27,
+    pricePerStudentYear: 3.27,
     maxStudents: 500,
     popular: true,
     limits: { students: '500', buses: '15', drivers: '25' },
@@ -174,8 +172,7 @@ export const PLANS: Plan[] = [
     id: 'premium',
     name: 'Premium',
     tagline: 'For large districts that need it all.',
-    monthly: 199,
-    pricePerStudent: 0.34,
+    pricePerStudentYear: 4.08,
     maxStudents: 999999,
     limits: { students: 'Unlimited', buses: 'Unlimited', drivers: 'Unlimited' },
     features: [

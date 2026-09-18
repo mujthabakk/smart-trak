@@ -57,52 +57,58 @@ async function seedPlans() {
   const plans = [
     {
       id: 'plan_basic', name: 'basic', label: 'Basic',
-      price_monthly: 49, price_annual: 470, price_per_student: 0.23,
+      // Flat per-student pricing, no base fee — price_annual is the primary
+      // rate ($/student/year), price_monthly is just that ÷ 12 for display.
+      price_monthly: 0.23, price_annual: 2.72,
       max_students: 200, max_buses: 5, max_drivers: 10, is_popular: false,
+      // Matches the marketing copy in frontend/src/lib/siteContent.ts PLANS,
+      // so the same names are addable/toggleable from the super-admin Plans UI.
       features: [
-        { name: 'GPS Tracking', price: 0.10 },
-        { name: 'QR Attendance', price: 0.05 },
-        { name: 'Push Notifications', price: 0.03 },
-        { name: 'Basic Reports', price: 0.02 },
-        { name: 'Email Support', price: 0 },
+        { name: 'Real-time GPS tracking', price: 0 },
+        { name: 'QR attendance (Safety + Route + Student)', price: 0 },
+        { name: 'Push notifications', price: 0 },
+        { name: 'Live fleet map', price: 0 },
+        { name: 'Basic attendance reports', price: 0 },
+        { name: 'Email support', price: 0 },
       ],
     },
     {
       id: 'plan_standard', name: 'standard', label: 'Standard',
-      price_monthly: 99, price_annual: 950, price_per_student: 0.27,
+      price_monthly: 0.27, price_annual: 3.27,
       max_students: 500, max_buses: 15, max_drivers: 25, is_popular: true,
       features: [
         { name: 'Everything in Basic', price: 0 },
-        { name: 'WhatsApp Alerts', price: 0.08 },
-        { name: 'Leave Management', price: 0.05 },
-        { name: 'Lost & Found', price: 0.05 },
-        { name: 'Bus Transfer', price: 0.05 },
-        { name: 'Training Centre', price: 0.04 },
-        { name: 'Priority Support', price: 0 },
+        { name: 'WhatsApp notifications', price: 0 },
+        { name: 'Leave management', price: 0 },
+        { name: 'Lost & found', price: 0 },
+        { name: 'Bus transfer module', price: 0 },
+        { name: 'Advanced reports & analytics', price: 0 },
+        { name: 'Training centre access', price: 0 },
+        { name: 'Priority email support', price: 0 },
       ],
     },
     {
       id: 'plan_premium', name: 'premium', label: 'Premium',
-      price_monthly: 199, price_annual: 1910, price_per_student: 0.34,
+      price_monthly: 0.34, price_annual: 4.08,
       max_students: 99999, max_buses: 99999, max_drivers: 99999, is_popular: false,
       features: [
         { name: 'Everything in Standard', price: 0 },
-        { name: 'Guest Driver Module', price: 0.08 },
-        { name: 'SMS Notifications', price: 0.10 },
-        { name: 'Full Analytics', price: 0.10 },
-        { name: 'Audit Logs', price: 0 },
-        { name: 'API Access', price: 0.15 },
-        { name: 'Dedicated Support', price: 0 },
+        { name: 'WhatsApp + SMS notifications', price: 0 },
+        { name: 'Guest driver management', price: 0 },
+        { name: 'Full analytics & audit logs', price: 0 },
+        { name: 'Bulk school & student import', price: 0 },
+        { name: 'API access', price: 0 },
+        { name: 'Dedicated support & onboarding', price: 0 },
       ],
     },
   ];
   for (const p of plans) {
     await masterPool.query(
-      `INSERT INTO plans (id, name, label, price_monthly, price_annual, price_per_student,
+      `INSERT INTO plans (id, name, label, price_monthly, price_annual,
          billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
-       VALUES ($1,$2,$3,$4,$5,$6,'monthly',$7,$8,$9,$10,$11)`,
+       VALUES ($1,$2,$3,$4,$5,'monthly',$6,$7,$8,$9,$10)`,
       [
-        p.id, p.name, p.label, p.price_monthly, p.price_annual, p.price_per_student,
+        p.id, p.name, p.label, p.price_monthly, p.price_annual,
         p.max_students, p.max_buses, p.max_drivers, JSON.stringify(p.features), p.is_popular,
       ]
     );
@@ -133,9 +139,9 @@ async function seedSchools() {
     const { rows: planRows } = await masterPool.query(`SELECT * FROM plans WHERE id = $1`, [planId]);
     const p = planRows[0];
     await tenantPool.query(
-      `INSERT INTO plans (id, name, label, price_monthly, price_annual, price_per_student, billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [p.id, p.name, p.label, p.price_monthly, p.price_annual, p.price_per_student, p.billing_cycle, p.max_students, p.max_buses, p.max_drivers, JSON.stringify(p.features), p.is_popular]
+      `INSERT INTO plans (id, name, label, price_monthly, price_annual, billing_cycle, max_students, max_buses, max_drivers, features, is_popular)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [p.id, p.name, p.label, p.price_monthly, p.price_annual, p.billing_cycle, p.max_students, p.max_buses, p.max_drivers, JSON.stringify(p.features), p.is_popular]
     );
 
     // Copy the school to satisfy foreign keys
@@ -169,10 +175,12 @@ async function seedUsers() {
 }
 
 async function seedSubscriptions() {
+  // amount_paid = student_count × the plan's price_annual (per-student/year
+  // rate) — there's no separate base fee to add on top any more.
   await masterPool.query(`
     INSERT INTO subscriptions (school_id, plan_id, start_date, end_date, amount_paid, payment_method, status) VALUES
-    ('GREENFIELD', 'plan_premium', '2025-09-01', '2026-08-31', 1910, 'Bank Transfer', 'active'),
-    ('ALNOOR', 'plan_standard', '2025-10-15', '2026-10-14', 950, 'Online', 'active')
+    ('GREENFIELD', 'plan_premium', '2025-09-01', '2026-08-31', 36.72, 'Bank Transfer', 'active'),
+    ('ALNOOR', 'plan_standard', '2025-10-15', '2026-10-14', 1635.00, 'Online', 'active')
   `);
 }
 

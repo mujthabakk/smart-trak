@@ -117,7 +117,6 @@ export const SIDEBAR_NAV: Record<
     { label: 'Schools', path: '/super-admin/schools', icon: 'School' },
     { label: 'Subscriptions', path: '/super-admin/subscriptions', icon: 'CreditCard' },
     { label: 'Plans', path: '/super-admin/plans', icon: 'Package' },
-    { label: 'Plan Features', path: '/super-admin/features', icon: 'Sparkles' },
     { label: 'Email Logs', path: '/super-admin/email-logs', icon: 'Mail' },
     { label: 'Bulk Messaging', path: '/super-admin/bulk-messaging', icon: 'MessageSquare' },
     { label: 'Support Tickets', path: '/super-admin/support', icon: 'LifeBuoy' },

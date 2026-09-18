@@ -6,7 +6,6 @@ const planBody = z.object({
   label: z.string().min(1),
   price_monthly: z.number().nonnegative(),
   price_annual: z.number().nonnegative(),
-  price_per_student: z.number().nonnegative(),
   billing_cycle: z.enum(['monthly', 'annual']),
   max_students: z.number().int().nonnegative(),
   max_buses: z.number().int().nonnegative(),

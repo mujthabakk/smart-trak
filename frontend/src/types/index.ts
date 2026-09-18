@@ -45,9 +45,10 @@ export interface Plan {
   id: string
   name: string
   label: string
+  /** Per-student monthly rate (USD) — no separate base/flat fee. */
   price_monthly: number
+  /** Per-student annual rate (USD) — the primary, headline price. */
   price_annual: number
-  price_per_student: number
   billing_cycle: 'monthly' | 'annual'
   max_students: number
   max_buses: number

@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Bus } from 'lucide-react'
+import smartTrackLogo from '@/assets/smarttrack-logo.png'
 
 export default function SplashScreen() {
   const navigate = useNavigate()
@@ -57,7 +57,9 @@ export default function SplashScreen() {
             animate={{ y: [0, -8, 0] }}
             transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
           >
-            <Bus size={56} color="#ffffff" strokeWidth={1.5} />
+            <div className="h-14 w-10 overflow-hidden">
+              <img src={smartTrackLogo} alt="" className="h-14 w-auto max-w-none object-cover object-left" />
+            </div>
           </motion.div>
         </motion.div>
 

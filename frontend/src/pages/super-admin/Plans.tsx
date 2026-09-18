@@ -20,10 +20,19 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { isAxiosError } from 'axios'
 import { formatCurrency, formatNumber } from '@/lib/utils'
 import { listPlans, createPlan, updatePlan, deletePlan } from '@/lib/api/plans'
-import { listFeatureCatalog } from '@/lib/api/featureCatalog'
+import { listFeatureCatalog, createFeatureCatalogItem, deleteFeatureCatalogItem } from '@/lib/api/featureCatalog'
 import type { Plan, PlanFeature } from '@/types'
+
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (isAxiosError(err)) {
+    const data = err.response?.data as { error?: string } | undefined
+    return data?.error || fallback
+  }
+  return fallback
+}
 
 const container = {
   hidden: { opacity: 0 },
@@ -35,10 +44,6 @@ const PLAN_RING: Record<string, string> = {
   basic: 'border-[var(--border)]',
   standard: 'border-[var(--primary)] ring-2 ring-[var(--primary)]/30',
   premium: 'border-[var(--border)]',
-}
-
-function sumFeaturePrices(features: PlanFeature[]): number {
-  return parseFloat(features.reduce((sum, f) => sum + (Number(f.price) || 0), 0).toFixed(2))
 }
 
 function CheckCell({ on }: { on: boolean }) {
@@ -53,12 +58,16 @@ function limitLabel(n: number): string {
   return n >= 99999 ? 'Unlimited' : formatNumber(n)
 }
 
+function exampleStudentCount(maxStudents: number): number {
+  return maxStudents >= 99999 ? 1000 : maxStudents
+}
+
 const EMPTY_EDIT_FORM = {
-  label: '', price_monthly: 0, price_annual: 0, price_per_student: 0,
+  label: '', price_monthly: 0, price_annual: 0,
   max_students: 0, max_buses: 0, max_drivers: 0,
 }
 const EMPTY_CREATE_FORM = {
-  label: '', price_monthly: '', price_annual: '', price_per_student: '',
+  label: '', price_monthly: '', price_annual: '',
   max_students: '', max_buses: '', max_drivers: '',
 }
 
@@ -117,46 +126,33 @@ export default function Plans() {
   const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM)
   const [createFeatures, setCreateFeatures] = useState<PlanFeature[]>([])
 
-  // ── Dialog auto-calc ──────────────────────────────────────────────────────
+  // ── Inline "add feature to catalog" — no separate page needed ─────────────
+  const [newEditFeature, setNewEditFeature] = useState('')
+  const [newCreateFeature, setNewCreateFeature] = useState('')
+  const [addFeatureError, setAddFeatureError] = useState('')
+  const [addingFeature, setAddingFeature] = useState(false)
+
+  // ── Dialog auto-calc — example total at this plan's student count ────────
   const editCalc = useMemo(() => {
     const n = Number(editForm.max_students) || 0
-    const rate = Number(editForm.price_per_student) || 0
-    const base = Number(editForm.price_monthly) || 0
-    const baseAnnual = Number(editForm.price_annual) || 0
-    if (!n || (!base && !rate)) return null
-    const studentCost = n * rate
-    return {
-      n, rate, base, studentCost,
-      monthly: base + studentCost,
-      annual: baseAnnual + studentCost * 12,
-    }
-  }, [editForm.max_students, editForm.price_per_student, editForm.price_monthly, editForm.price_annual])
+    const rate = Number(editForm.price_annual) || 0
+    if (!n || !rate) return null
+    return { n, rate, annual: n * rate, monthly: n * (Number(editForm.price_monthly) || 0) }
+  }, [editForm.max_students, editForm.price_annual, editForm.price_monthly])
 
   const createCalc = useMemo(() => {
     const n = Number(createForm.max_students) || 0
-    const rate = Number(createForm.price_per_student) || 0
-    const base = Number(createForm.price_monthly) || 0
-    const baseAnnual = Number(createForm.price_annual) || 0
-    if (!n || (!base && !rate)) return null
-    const studentCost = n * rate
-    return {
-      n, rate, base, studentCost,
-      monthly: base + studentCost,
-      annual: baseAnnual + studentCost * 12,
-    }
-  }, [createForm.max_students, createForm.price_per_student, createForm.price_monthly, createForm.price_annual])
+    const rate = Number(createForm.price_annual) || 0
+    if (!n || !rate) return null
+    return { n, rate, annual: n * rate, monthly: n * (Number(createForm.price_monthly) || 0) }
+  }, [createForm.max_students, createForm.price_annual, createForm.price_monthly])
 
   // ── Pricing calculator state ───────────────────────────────────────────────
   const [calcStudents, setCalcStudents] = useState('')
 
   const calcResults = useMemo(() => {
     const n = parseInt(calcStudents) || 0
-    return plans.map((p) => {
-      const studentCost = n * p.price_per_student
-      const monthly = p.price_monthly + studentCost
-      const annual = p.price_annual + studentCost * 12
-      return { plan: p, monthly, annual, studentCost, n }
-    })
+    return plans.map((p) => ({ plan: p, monthly: n * p.price_monthly, annual: n * p.price_annual, n }))
   }, [calcStudents, plans])
 
   function openEdit(plan: Plan) {
@@ -165,12 +161,13 @@ export default function Plans() {
       label: plan.label,
       price_monthly: plan.price_monthly,
       price_annual: plan.price_annual,
-      price_per_student: plan.price_per_student,
       max_students: plan.max_students,
       max_buses: plan.max_buses,
       max_drivers: plan.max_drivers,
     })
     setEditFeatures(plan.features.map((f) => ({ ...f })))
+    setNewEditFeature('')
+    setAddFeatureError('')
     setEditOpen(true)
   }
 
@@ -182,7 +179,6 @@ export default function Plans() {
         label: editForm.label,
         price_monthly: Number(editForm.price_monthly),
         price_annual: Number(editForm.price_annual),
-        price_per_student: Number(editForm.price_per_student),
         max_students: Number(editForm.max_students),
         max_buses: Number(editForm.max_buses),
         max_drivers: Number(editForm.max_drivers),
@@ -194,6 +190,8 @@ export default function Plans() {
   function openCreate() {
     setCreateForm(EMPTY_CREATE_FORM)
     setCreateFeatures([])
+    setNewCreateFeature('')
+    setAddFeatureError('')
     setCreateOpen(true)
   }
 
@@ -204,7 +202,6 @@ export default function Plans() {
       label: createForm.label,
       price_monthly: Number(createForm.price_monthly) || 0,
       price_annual: Number(createForm.price_annual) || 0,
-      price_per_student: Number(createForm.price_per_student) || 0,
       billing_cycle: 'monthly',
       max_students: Number(createForm.max_students) || 0,
       max_buses: Number(createForm.max_buses) || 0,
@@ -221,9 +218,41 @@ export default function Plans() {
     }
   }
 
-  function setFeaturePrice(list: PlanFeature[], setList: (v: PlanFeature[]) => void, name: string, price: number) {
-    setList(list.map((f) => (f.name === name ? { ...f, price } : f)))
+  // Adds a brand-new feature straight from the plan dialog — no separate
+  // "Plan Features" page needed — and turns it on for the plan being edited.
+  async function addNewFeature(target: 'edit' | 'create') {
+    const name = (target === 'edit' ? newEditFeature : newCreateFeature).trim()
+    if (!name) return
+    setAddingFeature(true)
+    setAddFeatureError('')
+    try {
+      const created = await createFeatureCatalogItem(name)
+      queryClient.invalidateQueries({ queryKey: ['feature-catalog'] })
+      if (target === 'edit') {
+        toggleFeature(editFeatures, setEditFeatures, created.name, true)
+        setNewEditFeature('')
+      } else {
+        toggleFeature(createFeatures, setCreateFeatures, created.name, true)
+        setNewCreateFeature('')
+      }
+    } catch (err) {
+      setAddFeatureError(extractErrorMessage(err, 'Failed to add feature — it may already exist.'))
+    } finally {
+      setAddingFeature(false)
+    }
   }
+
+  // Removes a feature from the catalog entirely (not just this plan) — the
+  // catalog-wide equivalent of what the old separate Features page did.
+  async function removeCatalogFeature(id: string) {
+    try {
+      await deleteFeatureCatalogItem(id)
+      queryClient.invalidateQueries({ queryKey: ['feature-catalog'] })
+    } catch (err) {
+      setAddFeatureError(extractErrorMessage(err, 'Failed to remove feature.'))
+    }
+  }
+
 
   // Union of every feature name across all real plans, for the comparison table below.
   const allFeatureNames = useMemo(() => {
@@ -279,16 +308,16 @@ export default function Plans() {
                   <CardHeader className="pb-3 pt-6">
                     <h3 className="text-lg font-bold text-[var(--foreground)]">{plan.label}</h3>
                     <div className="flex items-baseline gap-1 mt-2">
-                      <span className="text-3xl font-bold text-[var(--foreground)]">{formatCurrency(plan.price_monthly)}</span>
-                      <span className="text-sm text-[var(--muted-foreground)]">/month base</span>
+                      <span className="text-3xl font-bold text-[var(--foreground)]">{formatCurrency(plan.price_annual)}</span>
+                      <span className="text-sm text-[var(--muted-foreground)]">/student/year</span>
                     </div>
                     <p className="text-xs text-[var(--muted-foreground)] mt-1">
-                      or {formatCurrency(plan.price_annual)} billed annually
+                      &asymp; {formatCurrency(plan.price_monthly)}/student/month &middot; no extra charges
                     </p>
-                    {/* Per-student rate badge */}
+                    {/* Example total badge */}
                     <div className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold mt-2 w-fit ${PLAN_COLOR[key] ?? 'bg-[var(--muted)] text-[var(--muted-foreground)]'}`}>
                       <Users size={11} />
-                      {formatCurrency(plan.price_per_student)} / student / month
+                      e.g. {formatCurrency(plan.price_annual * exampleStudentCount(plan.max_students))}/yr for {formatNumber(exampleStudentCount(plan.max_students))} students
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -390,14 +419,13 @@ export default function Plans() {
                     <thead>
                       <tr>
                         <th className="text-left font-semibold text-[var(--muted-foreground)] pb-2 pr-6">Plan</th>
-                        <th className="text-left font-semibold text-[var(--muted-foreground)] pb-2 pr-6">Base / mo</th>
-                        <th className="text-left font-semibold text-[var(--muted-foreground)] pb-2 pr-6">Student cost / mo</th>
+                        <th className="text-left font-semibold text-[var(--muted-foreground)] pb-2 pr-6">Rate / student / yr</th>
                         <th className="text-left font-semibold text-[var(--muted-foreground)] pb-2 pr-6">Total / mo</th>
                         <th className="text-left font-semibold text-[var(--muted-foreground)] pb-2">Total / yr</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {calcResults.map(({ plan, monthly, annual, studentCost, n }) => {
+                      {calcResults.map(({ plan, monthly, annual, n }) => {
                         const key = plan.name.toLowerCase()
                         return (
                           <tr key={plan.id} className={plan.is_popular ? 'font-semibold' : ''}>
@@ -407,9 +435,8 @@ export default function Plans() {
                                 {plan.label}
                               </span>
                             </td>
-                            <td className="py-2 pr-6 text-[var(--muted-foreground)] tabular-nums">{formatCurrency(plan.price_monthly)}</td>
                             <td className="py-2 pr-6 text-[var(--muted-foreground)] tabular-nums">
-                              {n} × {formatCurrency(plan.price_per_student)} = <span className="text-[var(--foreground)]">{formatCurrency(studentCost)}</span>
+                              {n} × {formatCurrency(plan.price_annual)}
                             </td>
                             <td className="py-2 pr-6 text-[var(--foreground)] tabular-nums font-semibold">{formatCurrency(monthly)}</td>
                             <td className="py-2 text-[var(--foreground)] tabular-nums">{formatCurrency(annual)}</td>
@@ -471,7 +498,7 @@ export default function Plans() {
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit {activePlan?.label} Plan</DialogTitle>
-            <DialogDescription>Set limits first — pricing auto-calculates.</DialogDescription>
+            <DialogDescription>Flat per-student/year rate, no base fee or extra charges.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5">
@@ -501,11 +528,7 @@ export default function Plans() {
                       min={0}
                       className="pl-7"
                       value={editForm.max_students}
-                      onChange={(e) => {
-                        const s = Number(e.target.value)
-                        const monthly = Math.round(s * editForm.price_per_student)
-                        setEditForm((f) => ({ ...f, max_students: s, price_monthly: monthly, price_annual: Math.round(monthly * 10) }))
-                      }}
+                      onChange={(e) => setEditForm((f) => ({ ...f, max_students: Number(e.target.value) }))}
                     />
                   </div>
                 </div>
@@ -540,94 +563,54 @@ export default function Plans() {
               </div>
             </div>
 
-            {/* STEP 2 — Rate + Auto-calculated prices */}
+            {/* STEP 2 — Flat per-student rate, no base fee */}
             <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)]/20 p-4 space-y-3">
               <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wide flex items-center gap-1.5">
                 <span className="h-4 w-4 rounded-full bg-[var(--primary)] text-white text-[10px] flex items-center justify-center font-bold">2</span>
-                Pricing
+                Pricing — no extra charges
               </p>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="plan-per-student">Price Per Student / Month (USD)</Label>
-                <Input
-                  id="plan-per-student"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={editForm.price_per_student}
-                  onChange={(e) => setEditForm((f) => ({ ...f, price_per_student: Number(e.target.value) }))}
-                />
-                {sumFeaturePrices(editFeatures) !== editForm.price_per_student && (
-                  <button
-                    type="button"
-                    className="text-xs text-[var(--primary)] hover:underline"
-                    onClick={() => setEditForm((f) => ({ ...f, price_per_student: sumFeaturePrices(editFeatures) }))}
-                  >
-                    Use sum of features below ({formatCurrency(sumFeaturePrices(editFeatures))})
-                  </button>
-                )}
-              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="plan-monthly">Monthly Price (USD)</Label>
-                    <span className="text-[10px] text-[var(--primary)] font-semibold bg-[var(--primary)]/10 rounded px-1.5 py-0.5">auto</span>
-                  </div>
-                  <Input
-                    id="plan-monthly"
-                    type="number"
-                    min={0}
-                    value={editForm.price_monthly}
-                    onChange={(e) => {
-                      const monthly = Number(e.target.value)
-                      setEditForm((f) => ({ ...f, price_monthly: monthly, price_annual: Math.round(monthly * 10) }))
-                    }}
-                  />
-                  {editForm.max_students > 0 && editForm.price_per_student > 0 && (
-                    <p className="text-[11px] text-[var(--muted-foreground)]">
-                      {formatNumber(editForm.max_students)} × {formatCurrency(editForm.price_per_student)}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="plan-annual">Annual Price (USD)</Label>
-                    <span className="text-[10px] text-green-600 font-semibold bg-green-100 dark:bg-green-900/30 rounded px-1.5 py-0.5">auto ×10</span>
-                  </div>
+                  <Label htmlFor="plan-annual">Price Per Student / Year (USD)</Label>
                   <Input
                     id="plan-annual"
                     type="number"
+                    step="0.01"
                     min={0}
                     value={editForm.price_annual}
-                    onChange={(e) => setEditForm((f) => ({ ...f, price_annual: Number(e.target.value) }))}
+                    onChange={(e) => {
+                      const annual = Number(e.target.value)
+                      setEditForm((f) => ({ ...f, price_annual: annual, price_monthly: Math.round((annual / 12) * 100) / 100 }))
+                    }}
                   />
-                  {editForm.price_monthly > 0 && (
-                    <p className="text-[11px] text-green-600 font-medium">Save {formatCurrency(editForm.price_monthly * 2)} vs monthly</p>
-                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="plan-monthly">Per Student / Month (USD)</Label>
+                    <span className="text-[10px] text-[var(--primary)] font-semibold bg-[var(--primary)]/10 rounded px-1.5 py-0.5">auto</span>
+                  </div>
+                  <Input id="plan-monthly" type="number" min={0} value={editForm.price_monthly} disabled />
                 </div>
               </div>
             </div>
 
-            {/* Auto-calculation preview */}
+            {/* Example calculation preview */}
             {editCalc && (
               <div className="rounded-xl border border-[var(--primary)]/30 bg-[var(--primary)]/5 p-4 space-y-3">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[var(--primary)]">
                   <Calculator size={14} />
-                  Auto-calculated at full capacity ({editCalc.n.toLocaleString()} students)
+                  Example at {editCalc.n.toLocaleString()} students
                 </div>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
                   <span className="text-[var(--muted-foreground)]">Students × rate</span>
                   <span className="tabular-nums font-medium text-[var(--foreground)]">
-                    {editCalc.n.toLocaleString()} × {formatCurrency(editCalc.rate)} = {formatCurrency(editCalc.studentCost)}
+                    {editCalc.n.toLocaleString()} × {formatCurrency(editCalc.rate)}
                   </span>
-                  <span className="font-bold text-[var(--foreground)]">Monthly price</span>
-                  <span className="tabular-nums font-bold text-[var(--primary)] text-base">{formatCurrency(editCalc.monthly)}</span>
-                  <div className="col-span-2 border-t border-[var(--primary)]/20 my-0.5" />
-                  <span className="text-[var(--muted-foreground)] text-xs">Monthly × 10</span>
-                  <span className="tabular-nums text-xs text-[var(--foreground)]">{formatCurrency(editCalc.monthly)} × 10</span>
-                  <span className="font-bold text-[var(--foreground)]">Annual price</span>
-                  <span className="tabular-nums font-bold text-green-600 text-base">{formatCurrency(editCalc.annual)}</span>
+                  <span className="font-bold text-[var(--foreground)]">Total annual</span>
+                  <span className="tabular-nums font-bold text-[var(--primary)] text-base">{formatCurrency(editCalc.annual)}</span>
+                  <span className="font-bold text-[var(--foreground)]">Total monthly</span>
+                  <span className="tabular-nums font-bold text-green-600 text-base">{formatCurrency(editCalc.monthly)}</span>
                 </div>
               </div>
             )}
@@ -637,17 +620,14 @@ export default function Plans() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Features</Label>
-                <span className="text-xs text-[var(--muted-foreground)]">Enable a feature and set its price for this plan</span>
+                <span className="text-xs text-[var(--muted-foreground)]">Bundled at no extra cost — toggle what's included in this plan</span>
               </div>
               {featureCatalog.length === 0 ? (
-                <p className="text-xs text-[var(--muted-foreground)] italic">
-                  No features in the catalog yet — add some from the Plan Features page first.
-                </p>
+                <p className="text-xs text-[var(--muted-foreground)] italic">No features yet — add the first one below.</p>
               ) : (
                 <div className="space-y-2">
                   {featureCatalog.map((cat) => {
                     const enabled = editFeatures.some((f) => f.name === cat.name)
-                    const price = editFeatures.find((f) => f.name === cat.name)?.price ?? 0
                     return (
                       <div
                         key={cat.id}
@@ -655,19 +635,31 @@ export default function Plans() {
                       >
                         <Switch checked={enabled} onCheckedChange={(v) => toggleFeature(editFeatures, setEditFeatures, cat.name, v)} />
                         <p className="text-sm text-[var(--foreground)] flex-1 truncate">{cat.name}</p>
-                        <Input
-                          type="number" step="0.01" min={0}
-                          placeholder="0.00"
-                          disabled={!enabled}
-                          value={price}
-                          className="w-24 flex-shrink-0"
-                          onChange={(e) => setFeaturePrice(editFeatures, setEditFeatures, cat.name, Number(e.target.value))}
-                        />
+                        <button
+                          type="button"
+                          title="Remove from catalog"
+                          className="text-[var(--muted-foreground)] hover:text-red-500 flex-shrink-0"
+                          onClick={() => removeCatalogFeature(cat.id)}
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
                     )
                   })}
                 </div>
               )}
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Add a new feature…"
+                  value={newEditFeature}
+                  onChange={(e) => setNewEditFeature(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addNewFeature('edit') } }}
+                />
+                <Button type="button" size="icon" variant="outline" disabled={!newEditFeature.trim() || addingFeature} onClick={() => addNewFeature('edit')}>
+                  <Plus size={14} />
+                </Button>
+              </div>
+              {addFeatureError && <p className="text-xs text-red-500">{addFeatureError}</p>}
             </div>
           </div>
 
@@ -683,7 +675,7 @@ export default function Plans() {
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Plan</DialogTitle>
-            <DialogDescription>Set limits first — pricing auto-calculates.</DialogDescription>
+            <DialogDescription>Flat per-student/year rate, no base fee or extra charges.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5">
@@ -715,14 +707,7 @@ export default function Plans() {
                       placeholder="500"
                       className="pl-7"
                       value={createForm.max_students}
-                      onChange={(e) => {
-                        const s = e.target.value
-                        const monthly = s && createForm.price_per_student
-                          ? String(Math.round(Number(s) * Number(createForm.price_per_student)))
-                          : createForm.price_monthly
-                        const annual = monthly ? String(Math.round(Number(monthly) * 10)) : ''
-                        setCreateForm((f) => ({ ...f, max_students: s, price_monthly: monthly, price_annual: annual }))
-                      }}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, max_students: e.target.value }))}
                     />
                   </div>
                 </div>
@@ -759,98 +744,56 @@ export default function Plans() {
               </div>
             </div>
 
-            {/* STEP 2 — Rate + Auto-calculated prices */}
+            {/* STEP 2 — Flat per-student rate, no base fee */}
             <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)]/20 p-4 space-y-3">
               <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wide flex items-center gap-1.5">
                 <span className="h-4 w-4 rounded-full bg-[var(--primary)] text-white text-[10px] flex items-center justify-center font-bold">2</span>
-                Pricing
+                Pricing — no extra charges
               </p>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="new-plan-per-student">Price Per Student / Month (USD)</Label>
-                <Input
-                  id="new-plan-per-student"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={createForm.price_per_student}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, price_per_student: e.target.value }))}
-                  placeholder="0.00"
-                />
-                {sumFeaturePrices(createFeatures) !== (Number(createForm.price_per_student) || 0) && (
-                  <button
-                    type="button"
-                    className="text-xs text-[var(--primary)] hover:underline"
-                    onClick={() => setCreateForm((f) => ({ ...f, price_per_student: String(sumFeaturePrices(createFeatures)) }))}
-                  >
-                    Use sum of features below ({formatCurrency(sumFeaturePrices(createFeatures))})
-                  </button>
-                )}
-              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="new-plan-monthly">Monthly Price (USD)</Label>
-                    <span className="text-[10px] text-[var(--primary)] font-semibold bg-[var(--primary)]/10 rounded px-1.5 py-0.5">auto</span>
-                  </div>
-                  <Input
-                    id="new-plan-monthly"
-                    type="number"
-                    min={0}
-                    placeholder="0"
-                    value={createForm.price_monthly}
-                    onChange={(e) => {
-                      const monthly = e.target.value
-                      const annual = monthly ? String(Math.round(Number(monthly) * 10)) : ''
-                      setCreateForm((f) => ({ ...f, price_monthly: monthly, price_annual: annual }))
-                    }}
-                  />
-                  {createForm.max_students && createForm.price_per_student && (
-                    <p className="text-[11px] text-[var(--muted-foreground)]">
-                      {Number(createForm.max_students).toLocaleString()} × {formatCurrency(Number(createForm.price_per_student))}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="new-plan-annual">Annual Price (USD)</Label>
-                    <span className="text-[10px] text-green-600 font-semibold bg-green-100 dark:bg-green-900/30 rounded px-1.5 py-0.5">auto ×10</span>
-                  </div>
+                  <Label htmlFor="new-plan-annual">Price Per Student / Year (USD)</Label>
                   <Input
                     id="new-plan-annual"
                     type="number"
+                    step="0.01"
                     min={0}
-                    placeholder="0"
+                    placeholder="0.00"
                     value={createForm.price_annual}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, price_annual: e.target.value }))}
+                    onChange={(e) => {
+                      const annual = e.target.value
+                      const monthly = annual ? String(Math.round((Number(annual) / 12) * 100) / 100) : ''
+                      setCreateForm((f) => ({ ...f, price_annual: annual, price_monthly: monthly }))
+                    }}
                   />
-                  {Number(createForm.price_monthly) > 0 && (
-                    <p className="text-[11px] text-green-600 font-medium">Save {formatCurrency(Number(createForm.price_monthly) * 2)} vs monthly</p>
-                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="new-plan-monthly">Per Student / Month (USD)</Label>
+                    <span className="text-[10px] text-[var(--primary)] font-semibold bg-[var(--primary)]/10 rounded px-1.5 py-0.5">auto</span>
+                  </div>
+                  <Input id="new-plan-monthly" type="number" placeholder="0" value={createForm.price_monthly} disabled />
                 </div>
               </div>
             </div>
 
-            {/* Auto-calculation preview */}
+            {/* Example calculation preview */}
             {createCalc && (
               <div className="rounded-xl border border-[var(--primary)]/30 bg-[var(--primary)]/5 p-4 space-y-3">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[var(--primary)]">
                   <Calculator size={14} />
-                  Auto-calculated at full capacity ({createCalc.n.toLocaleString()} students)
+                  Example at {createCalc.n.toLocaleString()} students
                 </div>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
                   <span className="text-[var(--muted-foreground)]">Students × rate</span>
                   <span className="tabular-nums font-medium text-[var(--foreground)]">
-                    {createCalc.n.toLocaleString()} × {formatCurrency(createCalc.rate)} = {formatCurrency(createCalc.studentCost)}
+                    {createCalc.n.toLocaleString()} × {formatCurrency(createCalc.rate)}
                   </span>
-                  <span className="font-bold text-[var(--foreground)]">Monthly price</span>
-                  <span className="tabular-nums font-bold text-[var(--primary)] text-base">{formatCurrency(createCalc.monthly)}</span>
-                  <div className="col-span-2 border-t border-[var(--primary)]/20 my-0.5" />
-                  <span className="text-[var(--muted-foreground)] text-xs">Monthly × 10</span>
-                  <span className="tabular-nums text-xs text-[var(--foreground)]">{formatCurrency(createCalc.monthly)} × 10</span>
-                  <span className="font-bold text-[var(--foreground)]">Annual price</span>
-                  <span className="tabular-nums font-bold text-green-600 text-base">{formatCurrency(createCalc.annual)}</span>
+                  <span className="font-bold text-[var(--foreground)]">Total annual</span>
+                  <span className="tabular-nums font-bold text-[var(--primary)] text-base">{formatCurrency(createCalc.annual)}</span>
+                  <span className="font-bold text-[var(--foreground)]">Total monthly</span>
+                  <span className="tabular-nums font-bold text-green-600 text-base">{formatCurrency(createCalc.monthly)}</span>
                 </div>
               </div>
             )}
@@ -860,17 +803,14 @@ export default function Plans() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Features</Label>
-                <span className="text-xs text-[var(--muted-foreground)]">Enable a feature and set its price for this plan</span>
+                <span className="text-xs text-[var(--muted-foreground)]">Bundled at no extra cost — toggle what's included in this plan</span>
               </div>
               {featureCatalog.length === 0 ? (
-                <p className="text-xs text-[var(--muted-foreground)] italic">
-                  No features in the catalog yet — add some from the Plan Features page first.
-                </p>
+                <p className="text-xs text-[var(--muted-foreground)] italic">No features yet — add the first one below.</p>
               ) : (
                 <div className="space-y-2">
                   {featureCatalog.map((cat) => {
                     const enabled = createFeatures.some((f) => f.name === cat.name)
-                    const price = createFeatures.find((f) => f.name === cat.name)?.price ?? 0
                     return (
                       <div
                         key={cat.id}
@@ -878,19 +818,31 @@ export default function Plans() {
                       >
                         <Switch checked={enabled} onCheckedChange={(v) => toggleFeature(createFeatures, setCreateFeatures, cat.name, v)} />
                         <p className="text-sm text-[var(--foreground)] flex-1 truncate">{cat.name}</p>
-                        <Input
-                          type="number" step="0.01" min={0}
-                          placeholder="0.00"
-                          disabled={!enabled}
-                          value={price}
-                          className="w-24 flex-shrink-0"
-                          onChange={(e) => setFeaturePrice(createFeatures, setCreateFeatures, cat.name, Number(e.target.value))}
-                        />
+                        <button
+                          type="button"
+                          title="Remove from catalog"
+                          className="text-[var(--muted-foreground)] hover:text-red-500 flex-shrink-0"
+                          onClick={() => removeCatalogFeature(cat.id)}
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
                     )
                   })}
                 </div>
               )}
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Add a new feature…"
+                  value={newCreateFeature}
+                  onChange={(e) => setNewCreateFeature(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addNewFeature('create') } }}
+                />
+                <Button type="button" size="icon" variant="outline" disabled={!newCreateFeature.trim() || addingFeature} onClick={() => addNewFeature('create')}>
+                  <Plus size={14} />
+                </Button>
+              </div>
+              {addFeatureError && <p className="text-xs text-red-500">{addFeatureError}</p>}
             </div>
           </div>
 

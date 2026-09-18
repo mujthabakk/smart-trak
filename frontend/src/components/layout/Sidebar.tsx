@@ -38,6 +38,7 @@ import { logout as logoutAction } from '@/store/slices/authSlice'
 import { SIDEBAR_NAV } from '@/lib/constants'
 import { cn, getInitials, getRoleLabel } from '@/lib/utils'
 import { listSchools } from '@/lib/api/schools'
+import smartTrackLogo from '@/assets/smarttrack-logo.png'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -148,8 +149,8 @@ export function Sidebar() {
             isExpanded ? 'gap-3' : 'justify-center',
           )}
         >
-          <div className="h-8 w-8 rounded-lg bg-[var(--primary)] flex items-center justify-center flex-shrink-0 shadow-sm">
-            <Bus size={18} className="text-white" />
+          <div className="h-8 w-6 overflow-hidden rounded-lg flex-shrink-0">
+            <img src={smartTrackLogo} alt="" className="h-8 w-auto max-w-none object-cover object-left" />
           </div>
           <AnimatePresence>
             {isExpanded && (
@@ -158,7 +159,7 @@ export function Sidebar() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -8 }}
                 transition={{ duration: 0.15 }}
-                className="font-bold text-base text-white whitespace-nowrap"
+                className="font-bold text-base text-[var(--sidebar-text,#e2e8f0)] whitespace-nowrap"
               >
                 SmartTrack
               </motion.span>

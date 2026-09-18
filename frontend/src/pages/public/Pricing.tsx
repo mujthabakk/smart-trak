@@ -20,9 +20,16 @@ function limitLabel(n: number): string {
   return n >= 99999 ? 'Unlimited' : formatNumber(n)
 }
 
+/** Illustrative student count for the "e.g. $X/year for N students" line —
+ * uses the plan's actual cap where it's finite, or a representative size
+ * for an unlimited (enterprise-tier) plan. */
+function exampleStudentCount(maxStudents: number): number {
+  return maxStudents >= 99999 ? 1000 : maxStudents
+}
+
 export default function Pricing() {
   const navigate = useNavigate()
-  const [annual, setAnnual] = useState(false)
+  const [annual, setAnnual] = useState(true)
 
   const { data: plans = [], isLoading, isError } = useQuery({
     queryKey: ['plans', 'public'],
@@ -81,7 +88,8 @@ export default function Pricing() {
         {/* Plan cards */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch max-w-5xl mx-auto">
           {plans.map((plan) => {
-            const price = annual ? Math.round(plan.price_annual / 12) : plan.price_monthly
+            const rate = annual ? plan.price_annual : plan.price_monthly
+            const example = exampleStudentCount(plan.max_students)
             return (
               <motion.div
                 key={plan.id}
@@ -103,16 +111,11 @@ export default function Pricing() {
                   Up to {limitLabel(plan.max_students)} students &middot; {limitLabel(plan.max_buses)} buses
                 </p>
                 <div className="mt-4 flex items-end gap-1">
-                  <span className="text-4xl font-extrabold text-[var(--foreground)]">{formatCurrency(price)}</span>
-                  <span className="text-[var(--muted-foreground)] mb-1.5 text-sm">/ month</span>
+                  <span className="text-4xl font-extrabold text-[var(--foreground)]">{formatCurrency(rate)}</span>
+                  <span className="text-[var(--muted-foreground)] mb-1.5 text-sm">/ student / {annual ? 'year' : 'month'}</span>
                 </div>
                 <p className="text-xs text-[var(--muted-foreground)] mt-1 h-4">
-                  {annual ? `billed annually at ${formatCurrency(plan.price_annual)}` : 'billed monthly'}
-                  {plan.price_per_student > 0 && (
-                    annual
-                      ? ` + ${formatCurrency(plan.price_per_student * 12)}/student/year`
-                      : ` + ${formatCurrency(plan.price_per_student)}/student/month`
-                  )}
+                  No extra charges &middot; e.g. {formatCurrency(rate * example)}/{annual ? 'yr' : 'mo'} for {formatNumber(example)} students
                 </p>
 
                 <Button
