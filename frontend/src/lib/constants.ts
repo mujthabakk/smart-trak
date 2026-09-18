@@ -186,7 +186,7 @@ export const SCHOOL_ADMIN_NAV = [
 export const PUBLIC_NAV = [
   { label: 'Home', path: '/' },
   { label: 'Features', path: '/#features' },
-  { label: 'Pricing', path: '/pricing' },
+  // { label: 'Pricing', path: '/pricing' }, // hidden from navbar for now
   { label: 'FAQ', path: '/faq' },
   { label: 'Get In Touch', path: '/contact' },
 ]
