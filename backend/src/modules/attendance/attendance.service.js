@@ -396,9 +396,10 @@ async function getDaySummary(schoolId, studentId, date, parentUserId) {
 
   const { rows: tripRows } = await query(
     `SELECT t.id, t.trip_type, t.status AS trip_status, t.ended_at,
-       b.assistant_name, b.assistant_phone
+       b.assistant_name, b.assistant_phone, b.bus_number, d.name AS driver_name
      FROM trips t
      LEFT JOIN buses b ON b.id = t.bus_id
+     LEFT JOIN drivers d ON d.id = t.driver_id
      WHERE t.route_id = ANY($1) AND t.trip_date = $2
      ORDER BY t.trip_type`,
     [routeIds, dateStr]
@@ -469,6 +470,8 @@ async function getDaySummary(schoolId, studentId, date, parentUserId) {
       supervisor_phone: school.supervisor_phone || undefined,
       assistant_name: t.assistant_name || undefined,
       assistant_phone: t.assistant_phone || undefined,
+      bus_number: t.bus_number || undefined,
+      driver_name: t.driver_name || undefined,
     };
 
     if (isOnLeave || notStarted) {
