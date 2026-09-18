@@ -262,15 +262,23 @@ async function bulkOffboard(schoolId, tripId, records) {
       // off stop_id being set. Only fills it if still unset, and prefers this
       // trip's own override over the student's default drop stop, same
       // resolution order as ownStopId in getDaySummary below.
+      // A FROM-clause JOIN can't reference the UPDATE target table (ar) in its
+      // ON condition — Postgres rejects that ("invalid reference to
+      // FROM-clause entry for table ar") — so the override lookup has to be a
+      // correlated subquery instead, which is allowed to see ar.
       await client.query(
         `UPDATE attendance_records ar SET
            offboard_status = $1,
            offboard_reason = $2,
            drop_time = COALESCE($3, ar.drop_time),
            offboarded_at = COALESCE($4, ar.offboarded_at),
-           stop_id = COALESCE(ar.stop_id, tso.override_drop_stop_id, s.drop_stop_id)
+           stop_id = COALESCE(
+             ar.stop_id,
+             (SELECT tso.override_drop_stop_id FROM trip_student_overrides tso
+                WHERE tso.student_id = ar.student_id AND tso.trip_id = ar.trip_id),
+             s.drop_stop_id
+           )
          FROM students s
-         LEFT JOIN trip_student_overrides tso ON tso.student_id = s.id AND tso.trip_id = ar.trip_id
          WHERE ar.id = $5 AND ar.student_id = s.id`,
         [rec.offboard_status, rec.offboard_reason || null, dropTime, offboardedAt, rec.attendance_id]
       );
