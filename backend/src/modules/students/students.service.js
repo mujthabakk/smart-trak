@@ -64,7 +64,7 @@ function toResponse(row, parents = []) {
     dob: toDateOnly(row.dob),
     gender: row.gender || undefined,
     address: row.address || undefined,
-    photo_url: row.photo_url || undefined,
+    photo_url: row.photo_url || '',
     student_qr_code: row.student_qr_code || undefined,
     is_active: row.is_active,
     pickup_stop_id: row.pickup_stop_id || undefined,
