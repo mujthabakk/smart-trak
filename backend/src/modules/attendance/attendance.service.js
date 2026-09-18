@@ -453,12 +453,19 @@ async function getDaySummary(schoolId, studentId, date, parentUserId) {
     // The bus's general progress on the trip — the most recently marked stop,
     // regardless of whose stop it is — so every parent on the trip can see
     // where the bus currently is, not just the family whose own stop it hit.
+    // Ordered by COALESCE(offboarded_at, created_at), not created_at alone:
+    // a pickup row's stop_id is set at INSERT (fresh row per QR scan), so
+    // created_at tracks reach order correctly there. A drop row already
+    // exists from boarding — each later stop only UPDATEs that same row via
+    // bulkOffboard, so created_at never moves; offboarded_at is what actually
+    // advances as each student is offboarded, and is the real "reached at"
+    // signal for drop (see bulkOffboard's comment on offboarded_at above).
     const { rows: latestRows } = await query(
       `SELECT DISTINCT ON (ar.trip_id) ar.trip_id, st.name AS stop_name
        FROM attendance_records ar
        JOIN stops st ON st.id = ar.stop_id
        WHERE ar.trip_id = ANY($1)
-       ORDER BY ar.trip_id, ar.created_at DESC`,
+       ORDER BY ar.trip_id, COALESCE(ar.offboarded_at, ar.created_at) DESC`,
       [tripIds]
     );
     latestStopByTrip = Object.fromEntries(latestRows.map((r) => [r.trip_id, r.stop_name]));
