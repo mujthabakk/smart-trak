@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { query, withTransaction } = require('../../config/db');
+const { query } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { isGuestExpired } = require('../../utils/guestDriverExpiry');
 const { emailPasswordResetOtp } = require('../../utils/passwordResetEmail');
@@ -178,28 +178,22 @@ function toDeviceTokenResponse(row) {
 }
 
 /**
- * Registers this user's push token, replacing whatever was stored before —
- * only ever one row per user, even across different devices/device_ids.
- * A client that doesn't persist a stable device_id across app launches (or
- * a genuine device switch) was otherwise accumulating one stale row per
- * "new" device_id it generated, and resolvePushTokens() would then fan a
- * single push out to every one of those — including duplicate rows that
- * happen to hold the exact same underlying FCM token. Deleting every other
- * row for this user before the upsert makes "one token per user" a real
- * invariant instead of relying on every client behaving correctly.
+ * Registers this user's push token for one device, keyed by device_id — a
+ * user can be logged into several devices at once (e.g. phone + tablet, or
+ * two people sharing one account), and each device keeps its own row. A
+ * second login only overwrites the token for its own device_id (the
+ * ON CONFLICT below); other devices' rows are left alone so resolvePushTokens()
+ * keeps fanning pushes out to all of them.
  */
 async function registerDeviceToken(userId, { device_id, token, platform }) {
-  return withTransaction(async (client) => {
-    await client.query('DELETE FROM fcm_tokens WHERE user_id = $1 AND device_id != $2', [userId, device_id]);
-    const { rows } = await client.query(
-      `INSERT INTO fcm_tokens (user_id, device_id, token, platform)
-       VALUES ($1,$2,$3,$4)
-       ON CONFLICT (user_id, device_id) DO UPDATE SET token = $3, platform = $4, updated_at = now()
-       RETURNING *, (xmax = 0) AS inserted`,
-      [userId, device_id, token, platform || null]
-    );
-    return { deviceToken: toDeviceTokenResponse(rows[0]), created: rows[0].inserted };
-  });
+  const { rows } = await query(
+    `INSERT INTO fcm_tokens (user_id, device_id, token, platform)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (user_id, device_id) DO UPDATE SET token = $3, platform = $4, updated_at = now()
+     RETURNING *, (xmax = 0) AS inserted`,
+    [userId, device_id, token, platform || null]
+  );
+  return { deviceToken: toDeviceTokenResponse(rows[0]), created: rows[0].inserted };
 }
 
 module.exports = {
