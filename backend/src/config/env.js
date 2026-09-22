@@ -25,6 +25,16 @@ module.exports = {
     from: process.env.SMTP_FROM || 'SmartTrack <no-reply@smarttrack.app>',
   },
   fcmCredentialsPath: process.env.FCM_CREDENTIALS_PATH || '',
+  // iOS PushKit VoIP (full-screen CallKit ringing) — a direct-to-Apple APNs
+  // connection, separate from the Firebase Admin SDK above. Leave unset to
+  // fall back to the no-op stub in src/utils/voipPush.js (logs only).
+  apns: {
+    keyId: process.env.APNS_KEY_ID || '',
+    teamId: process.env.APNS_TEAM_ID || '',
+    p8: process.env.APNS_P8 || '',
+    bundleId: process.env.APNS_BUNDLE_ID || 'com.akiraplc.smarttrack',
+    production: process.env.APNS_PRODUCTION === '1',
+  },
   // Optional — the AI Assistant chat widget degrades to a clear "not
   // configured" message (rather than failing to boot) when this is unset.
   geminiApiKey: process.env.GEMINI_API_KEY || '',

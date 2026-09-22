@@ -2,6 +2,7 @@ const { query } = require('../../config/db');
 const ApiError = require('../../utils/ApiError');
 const { paginationMeta } = require('../../utils/pagination');
 const { sendPush } = require('../../utils/push');
+const { sendVoipPush } = require('../../utils/voipPush');
 
 function toResponse(row) {
   return {
@@ -63,30 +64,53 @@ async function getOwnedById(id, userId) {
   return rows[0];
 }
 
-/** Resolves push tokens for a batch of users — prefers each user's registered
+/** Resolves push devices for a batch of users — prefers each user's registered
  * fcm_tokens rows (one per device_id — see auth.service.js's
  * registerDeviceToken, which upserts by device_id so multiple devices logged
  * into the same account each keep their own row and all of them get pushed
  * to); falls back to the legacy users.fcm_token column only for a user with
  * zero rows in fcm_tokens, so accounts that haven't moved to the per-device
- * registration flow yet still receive pushes. */
+ * registration flow yet still receive pushes (FCM-only — legacy rows carry
+ * no platform/voip_token, so they can never be routed to a VoIP push). Each
+ * returned device carries platform + voip_token alongside the fcm token so
+ * dispatchPush() can decide FCM vs. PushKit per device. */
 async function resolvePushTokens(userIds) {
   if (!userIds.length) return [];
   const { rows: deviceRows } = await query(
-    'SELECT user_id, token FROM fcm_tokens WHERE user_id = ANY($1)',
+    'SELECT user_id, token, voip_token, platform FROM fcm_tokens WHERE user_id = ANY($1)',
     [userIds]
   );
   const usersWithDeviceTokens = new Set(deviceRows.map((r) => r.user_id));
   const legacyUserIds = userIds.filter((id) => !usersWithDeviceTokens.has(id));
-  let legacyTokens = [];
+  let legacyDevices = [];
   if (legacyUserIds.length) {
     const { rows } = await query(
-      'SELECT fcm_token FROM users WHERE id = ANY($1) AND fcm_token IS NOT NULL',
+      'SELECT id AS user_id, fcm_token AS token FROM users WHERE id = ANY($1) AND fcm_token IS NOT NULL',
       [legacyUserIds]
     );
-    legacyTokens = rows.map((r) => r.fcm_token);
+    legacyDevices = rows.map((r) => ({ user_id: r.user_id, token: r.token, voip_token: null, platform: null }));
   }
-  return [...deviceRows.map((r) => r.token), ...legacyTokens];
+  return [
+    ...deviceRows.map((r) => ({ user_id: r.user_id, token: r.token, voip_token: r.voip_token || null, platform: r.platform || null })),
+    ...legacyDevices,
+  ];
+}
+
+/**
+ * Sends one push to one device, routing iOS full-screen ringing to a direct
+ * PushKit VoIP push instead of FCM — the spec these push routes follow is
+ * explicit that a device must never get both (CallKit + a banner at once).
+ * Any other case (Android of any type, iOS normal/alert/warning, or iOS
+ * ringing with no voip_token yet registered) goes through the regular FCM
+ * path, the last case as a deliberate degraded fallback (banner only) rather
+ * than silence.
+ */
+async function dispatchPush(device, { title, body, type, id, extraData }) {
+  const isRinging = String(type || '').toLowerCase() === 'ringing';
+  if (device.platform === 'ios' && isRinging && device.voip_token) {
+    return sendVoipPush({ voipToken: device.voip_token, title, body, type, id });
+  }
+  return sendPush({ token: device.token, title, body, data: { type, id, ...extraData } });
 }
 
 /**
@@ -123,8 +147,10 @@ async function createNotification({ school_id, user_id, title, body, type, actio
   // a push failure (or missing/stubbed token) must never fail notification creation.
   if (user_id) {
     try {
-      const tokens = await resolvePushTokens([user_id]);
-      await Promise.all(tokens.map((token) => sendPush({ token, title, body, data: { type: push_type || type, action_url } })));
+      const devices = await resolvePushTokens([user_id]);
+      await Promise.all(devices.map((device) => dispatchPush(device, {
+        title, body, type: push_type || type, id: rows[0].id, extraData: { action_url },
+      })));
     } catch (err) {
       console.error('Failed to send push notification', err);
     }
@@ -206,16 +232,18 @@ async function broadcastNotification(schoolId, senderId, payload) {
     queryParams.push(schoolId, uid, title, body, type, broadcastId);
   }
 
-  await query(`
+  const { rows: insertedRows } = await query(`
     INSERT INTO notifications (school_id, user_id, title, body, type, broadcast_id)
     VALUES ${values.join(', ')}
+    RETURNING id, user_id
   `, queryParams);
+  const idByUser = new Map(insertedRows.map((r) => [r.user_id, r.id]));
 
   // Send push notifications
   try {
-    const tokens = await resolvePushTokens(userIds);
-    for (const token of tokens) {
-      await sendPush({ token, title, body, data: { type } }).catch(() => {});
+    const devices = await resolvePushTokens(userIds);
+    for (const device of devices) {
+      await dispatchPush(device, { title, body, type, id: idByUser.get(device.user_id) }).catch(() => {});
     }
   } catch (err) {
     console.error('Failed to send broadcast push notifications', err);

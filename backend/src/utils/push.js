@@ -34,47 +34,49 @@ function getMessaging() {
   return messaging;
 }
 
-// data.type picks the sound — the only three sound files bundled in the
-// app. Matched case-insensitively; anything unrecognised (including a
-// missing type) falls back to 'normal'. Android needs no sound/channel
-// field at all — since Android 8 the sound comes from the notification
-// channel, which the app itself configures and picks based on `data.type`.
-const SOUND_BY_TYPE = {
-  normal: { iosSound: 'normal_notfication_sound.aiff', apnsPriority: '5' },
-  alert: { iosSound: 'alert_warning.aiff', apnsPriority: '10' },
-  warning: { iosSound: 'alert_warning.aiff', apnsPriority: '10' },
-  ringing: { iosSound: 'ring.aiff', apnsPriority: '10' },
+// data.type picks the Android notification channel + sound (must match the
+// channels the app declares) and the iOS sound file. Matched
+// case-insensitively; anything unrecognised (including a missing type)
+// falls back to 'normal'. Ringing has no iOS alert sound — full-screen
+// ringing on iOS goes over a separate PushKit VoIP push (see voipPush.js),
+// never through this FCM/APNs-alert path.
+const CHANNEL_BY_TYPE = {
+  normal: { channelId: 'normal_channel_v5', androidSound: 'res_normal_notfication_sound', iosSound: 'normal_notfication_sound.aiff', apnsPriority: '5' },
+  alert: { channelId: 'alert_channel_v5', androidSound: 'res_alert_warning', iosSound: 'alert_warning.aiff', apnsPriority: '10' },
+  warning: { channelId: 'alert_channel_v5', androidSound: 'res_alert_warning', iosSound: 'alert_warning.aiff', apnsPriority: '10' },
+  ringing: { channelId: 'ringing_channel_v5', androidSound: 'res_ring', iosSound: null, apnsPriority: '10' },
 };
 
-function soundFor(type) {
-  return SOUND_BY_TYPE[String(type || '').toLowerCase()] || SOUND_BY_TYPE.normal;
+const RINGING_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_TTL_MS = 4 * 60 * 60 * 1000;
+
+function channelFor(type) {
+  return CHANNEL_BY_TYPE[String(type || '').toLowerCase()] || CHANNEL_BY_TYPE.normal;
 }
 
 async function sendPush({ token, title, body, data }) {
   if (!token) return { status: 'skipped', reason: 'no fcm_token on file' };
 
-  const msg = getMessaging();
-  if (!msg) {
-    console.log(`[push:stub] would send to ${token}: "${title}" — ${body}`, data || {});
-    return { status: 'stubbed' };
-  }
+  const type = String(data?.type || '').toLowerCase();
+  const isRinging = type === 'ringing';
+  const channel = channelFor(type);
+  const id = data?.id != null ? String(data.id) : '';
 
-  const isRinging = String(data?.type || '').toLowerCase() === 'ringing';
-  const sound = soundFor(data?.type);
-
-  // Rule 1: never send a top-level `notification` block, for ANY type — if
-  // present, Android's FCM SDK draws its own banner before the app's code
-  // runs, always with the default channel's sound, and (for ringing) never
-  // as a full-screen ring. title/body live only in `data` (Android reads
-  // that, having no notification block to read) and in apns.alert (iOS).
-  // The two copies must stay identical, or the same event can show as two
-  // different notifications across platforms — and the app also
-  // de-duplicates on (title, body, type) within a 45s window, so repeated
-  // test pushes with identical text look "lost" rather than re-delivered.
+  // Every value the app reads from `data` must be a string — Android has no
+  // notification block to fall back on when the app is force-stopped
+  // (data-only pushes get silently dropped by several OEMs), so the
+  // notification block below AND this data map both always carry
+  // title/body/channel/sound, kept identical so the same event can't show up
+  // differently on the two platforms.
   const stringData = {
     ...(data ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) : {}),
+    id,
     title,
     body,
+    type,
+    channel_id: channel.channelId,
+    sound: channel.androidSound,
+    ios_sound: channel.iosSound || '',
   };
 
   const message = {
@@ -82,34 +84,40 @@ async function sendPush({ token, title, body, data }) {
     data: stringData,
     android: {
       priority: 'high',
-      // Rule 2: ringing must stay data-only on Android — the full-screen
-      // ring only exists if the app builds it itself, and it deliberately
-      // won't when the OS already drew a banner. ttl stops a stale ring
-      // from arriving long after it stopped being relevant, the way a
-      // missed call shouldn't ring an hour later. The firebase-admin SDK
-      // wants milliseconds (a number) here — the "45s" duration-string
-      // format is only valid on the raw FCM REST API, not this SDK
-      // wrapper, which rejects it.
-      ...(isRinging ? { ttl: 45000 } : {}),
+      ttl: isRinging ? RINGING_TTL_MS : DEFAULT_TTL_MS,
+      directBootOk: true,
+      notification: {
+        title,
+        body,
+        channelId: channel.channelId,
+        sound: channel.androidSound,
+        tag: `st_${type || 'normal'}`,
+      },
     },
+    // iOS ringing with no voip_token on file is a deliberate degraded
+    // fallback (banner only, no CallKit) rather than silence — the caller
+    // (notifications.service.js) only reaches this function for ringing when
+    // there's no voip_token to route a real PushKit push to instead.
     apns: {
       headers: {
         'apns-push-type': 'alert',
-        'apns-priority': sound.apnsPriority,
+        'apns-priority': channel.apnsPriority,
       },
       payload: {
         aps: {
           alert: { title, body },
-          sound: sound.iosSound,
-          // badge has no meaning for a ringing call screen.
-          ...(isRinging ? {} : { badge: 1 }),
-          // interruption-level lives inside aps, not the headers. 'critical'
-          // requires an Apple entitlement this app does not have.
-          ...(isRinging ? { 'interruption-level': 'time-sensitive' } : {}),
+          ...(channel.iosSound ? { sound: channel.iosSound } : {}),
+          ...(isRinging ? { 'interruption-level': 'time-sensitive' } : { badge: 1 }),
         },
       },
     },
   };
+
+  const msg = getMessaging();
+  if (!msg) {
+    console.log(`[push:stub] would send to ${token}: "${title}" — ${body}`, stringData);
+    return { status: 'stubbed' };
+  }
 
   try {
     const messageId = await msg.send(message);

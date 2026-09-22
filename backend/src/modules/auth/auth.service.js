@@ -172,6 +172,7 @@ function toDeviceTokenResponse(row) {
     device_id: row.device_id,
     token: row.token,
     platform: row.platform || undefined,
+    voip_token: row.voip_token || undefined,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -184,14 +185,20 @@ function toDeviceTokenResponse(row) {
  * second login only overwrites the token for its own device_id (the
  * ON CONFLICT below); other devices' rows are left alone so resolvePushTokens()
  * keeps fanning pushes out to all of them.
+ *
+ * voip_token (iOS PushKit, for full-screen ringing) is optional and merged
+ * with COALESCE rather than overwritten outright — a re-register call that
+ * only sends fcm_token (e.g. an app launch that didn't refresh its PushKit
+ * token) must not silently wipe a voip_token stored on an earlier call.
  */
-async function registerDeviceToken(userId, { device_id, token, platform }) {
+async function registerDeviceToken(userId, { device_id, token, platform, voip_token }) {
   const { rows } = await query(
-    `INSERT INTO fcm_tokens (user_id, device_id, token, platform)
-     VALUES ($1,$2,$3,$4)
-     ON CONFLICT (user_id, device_id) DO UPDATE SET token = $3, platform = $4, updated_at = now()
+    `INSERT INTO fcm_tokens (user_id, device_id, token, platform, voip_token)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (user_id, device_id) DO UPDATE
+       SET token = $3, platform = $4, voip_token = COALESCE($5, fcm_tokens.voip_token), updated_at = now()
      RETURNING *, (xmax = 0) AS inserted`,
-    [userId, device_id, token, platform || null]
+    [userId, device_id, token, platform || null, voip_token || null]
   );
   return { deviceToken: toDeviceTokenResponse(rows[0]), created: rows[0].inserted };
 }

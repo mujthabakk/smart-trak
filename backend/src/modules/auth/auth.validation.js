@@ -43,6 +43,7 @@ const registerDeviceToken = z.object({
   device_id: z.string().min(1),
   fcm_token: z.string().min(1),
   platform: z.enum(['ios', 'android', 'web']).optional(),
+  voip_token: z.string().min(1).optional(),
 });
 
 module.exports = {

@@ -77,11 +77,12 @@ const updateFcmToken = asyncHandler(async (req, res) => {
 });
 
 const registerDeviceToken = asyncHandler(async (req, res) => {
-  const { device_id, fcm_token, platform } = req.body;
+  const { device_id, fcm_token, platform, voip_token } = req.body;
   const { deviceToken, created } = await authService.registerDeviceToken(req.user.id, {
     device_id,
     token: fcm_token,
     platform,
+    voip_token,
   });
   res.status(created ? 201 : 200).json({ deviceToken });
 });
