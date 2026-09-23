@@ -80,7 +80,7 @@ export default function Onboarding() {
           buses: form.buses ? Number(form.buses) : undefined,
           plan_name: planId as 'basic' | 'standard' | 'premium',
         })
-        navigate('/confirmation')
+        navigate('/login')
       } catch (err) {
         setSubmitError(
           isAxiosError(err)
@@ -498,8 +498,8 @@ export default function Onboarding() {
 
           {/* Nav */}
           <div className="flex items-center justify-between mt-8">
-            <Button variant="ghost" onClick={() => (step === 0 ? navigate('/pricing') : setStep((s) => s - 1))} disabled={isSubmitting}>
-              <ArrowLeft size={16} /> {step === 0 ? 'Plans' : 'Back'}
+            <Button variant="ghost" onClick={() => (step === 0 ? navigate('/login') : setStep((s) => s - 1))} disabled={isSubmitting}>
+              <ArrowLeft size={16} /> {step === 0 ? 'Back to Login' : 'Back'}
             </Button>
             <Button onClick={handleNext} disabled={!canNext || isSubmitting} loading={isSubmitting}>
               {step === STEPS.length - 1 ? 'Submit Application' : 'Continue'} <ArrowRight size={16} />

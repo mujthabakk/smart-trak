@@ -52,7 +52,7 @@ export function PublicLayout({ children }: PublicLayoutProps) {
 
           <div className="hidden md:flex items-center gap-2">
             <Button variant="ghost" onClick={() => navigate('/login')}>
-              Try For Free
+              Login
             </Button>
             <Button variant="secondary" onClick={() => navigate('/onboarding')}>Subscribe Now</Button>
           </div>
@@ -84,7 +84,7 @@ export function PublicLayout({ children }: PublicLayoutProps) {
             ))}
             <div className="flex gap-2 pt-2">
               <Button variant="outline" className="flex-1" onClick={() => navigate('/login')}>
-                Try For Free
+                Login
               </Button>
               <Button variant="secondary" className="flex-1" onClick={() => navigate('/onboarding')}>
                 Subscribe Now

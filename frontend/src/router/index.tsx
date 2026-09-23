@@ -8,12 +8,13 @@ import OTPVerification from '@/pages/auth/OTPVerification'
 import ResetPassword from '@/pages/auth/ResetPassword'
 
 // Public
-import Landing from '@/pages/public/Landing'
-import Pricing from '@/pages/public/Pricing'
-import FAQ from '@/pages/public/FAQ'
-import Contact from '@/pages/public/Contact'
+// Marketing pages disabled — site now opens directly on /login. Code kept, routes commented out.
+// import Landing from '@/pages/public/Landing'
+// import Pricing from '@/pages/public/Pricing'
+// import FAQ from '@/pages/public/FAQ'
+// import Contact from '@/pages/public/Contact'
 import Onboarding from '@/pages/public/Onboarding'
-import Confirmation from '@/pages/public/Confirmation'
+// import Confirmation from '@/pages/public/Confirmation'
 
 // Super Admin
 import SuperAdminDashboard from '@/pages/super-admin/Dashboard'
@@ -64,14 +65,15 @@ import HelpCenter from '@/pages/shared/HelpCenter'
 import NotFound from '@/pages/shared/NotFound'
 
 export const router = createHashRouter([
-  // Public / marketing
-  { path: '/', element: <Landing /> },
+  // Public / marketing — disabled, login is now the default page. Code kept, routes commented out.
+  { path: '/', element: <Navigate to="/login" replace /> },
+  // { path: '/', element: <Landing /> },
   { path: '/splash', element: <SplashScreen /> },
-  { path: '/pricing', element: <Pricing /> },
-  { path: '/faq', element: <FAQ /> },
-  { path: '/contact', element: <Contact /> },
+  // { path: '/pricing', element: <Pricing /> },
+  // { path: '/faq', element: <FAQ /> },
+  // { path: '/contact', element: <Contact /> },
   { path: '/onboarding', element: <Onboarding /> },
-  { path: '/confirmation', element: <Confirmation /> },
+  // { path: '/confirmation', element: <Confirmation /> },
 
   // Auth
   { path: '/login', element: <Login /> },

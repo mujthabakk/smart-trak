@@ -10,14 +10,21 @@ Base URL and auth are unchanged: `http://<host>/api`, `Authorization: Bearer <JW
 ## 1. New: self-service push-token registration
 
 ```
-PATCH /api/auth/fcm-token
-Body: { "fcm_token": "string" }
-Response: { "user": {...} }
+POST /api/auth/fcm-tokens
+Body: { "device_id": "string", "fcm_token": "string", "platform"?: "ios" | "android" | "web", "voip_token"?: "string" }
+Response: { "deviceToken": {...}, "created": boolean }
 ```
 
-Any authenticated role can call this to register its own device's push token — previously the only way to set `fcm_token` was the admin-only `PATCH /api/users/:id`, which a driver/guest_driver/parent app could never call for itself. Call this once after login (and again whenever the device token rotates, e.g. FCM's `onTokenRefresh`).
+Any authenticated role can call this to register its own device's push token — previously the only way to set a push token was the admin-only `PATCH /api/users/:id`, which a driver/guest_driver/parent app could never call for itself. This is a multi-device upsert keyed on `(user_id, device_id)`: call it once after login, and again whenever a token rotates (e.g. FCM's `onTokenRefresh`, or PushKit's `pushRegistry:didUpdatePushCredentials:forType:`) — it's safe to call repeatedly with the same `device_id`.
 
-**Push sending is currently stubbed.** The backend stores the token and logs what it *would* send (`backend/src/utils/push.js`), but no real push is delivered yet — no Firebase project is wired up. Registering the token now means zero mobile-side work is needed later when real sending goes live; until then, treat notifications as in-app-inbox-only (`GET /api/notifications`, poll or rely on Socket.IO for freshness).
+An older single-device endpoint, `PATCH /api/auth/fcm-token` (`{ "fcm_token": "string" }`), still works too, but it has no `platform`/`voip_token` fields — use `POST /api/auth/fcm-tokens` for anything new.
+
+**iOS needs both `fcm_token` and `voip_token`.** Send `platform: "ios"` plus:
+- `fcm_token` — the regular FCM registration token, used for normal alert/banner pushes.
+- `voip_token` — the PushKit token from `PKPushRegistry` (`pushRegistry:didUpdatePushCredentials:forType:` with type `.voIP`). This is required for full-screen, CallKit-style "ringing" pushes (currently used for the "Bus approaching" parent alert) — **FCM cannot deliver Apple's VoIP push type**, so the backend sends those over a separate direct-to-APNs path instead of FCM. If a device has no `voip_token` on file, a ringing push degrades gracefully to a normal FCM banner alert instead of failing, so sending `voip_token` is optional but strongly recommended for iOS. Android and web devices never need `voip_token` — omit it.
+- Re-registering with only `fcm_token` (no `voip_token`) never erases a `voip_token` already on file for that `device_id` — the two are merged independently.
+
+**Note on delivery:** the send paths and iOS/VoIP routing described above are fully implemented in the backend (`backend/src/utils/push.js`, `backend/src/utils/voipPush.js`), but real delivery only happens once the backend's Firebase/Apple credentials (`FCM_CREDENTIALS_PATH`, `APNS_KEY_ID`/`APNS_TEAM_ID`/`APNS_P8`) are configured — they're unset in most environments today, in which case both paths just log what they would have sent. Registering tokens now still means zero mobile-side work is needed later when those credentials go live; until then, treat notifications as in-app-inbox-only (`GET /api/notifications`, poll or rely on Socket.IO for freshness).
 
 ---
 
@@ -117,7 +124,7 @@ A driver/guest_driver's `bus:location` emit is now rebroadcast to **all three** 
 
 ## 10. Known limitations (not fixed in this pass — flagging so you don't build against them)
 
-- **Push notifications are stubbed.** No real FCM/APNs delivery yet — see §1. In-app inbox (`GET /api/notifications`) and Socket.IO are the only real-time channels today.
+- **Push delivery needs credentials that usually aren't configured.** The send/routing logic (FCM for normal pushes, direct APNs for iOS VoIP ringing) is fully implemented — see §1 — but nothing is actually delivered until the backend's `FCM_CREDENTIALS_PATH` and `APNS_KEY_ID`/`APNS_TEAM_ID`/`APNS_P8` env vars are set; both paths log a stub message instead when they're missing. Register tokens regardless — no mobile-side changes will be needed once those credentials are added. Until then, in-app inbox (`GET /api/notifications`) and Socket.IO are the only real-time channels you can rely on.
 - **OTP delivery is dev-only.** `POST /api/auth/forgot-password` returns the OTP directly in the response body outside production (`devOtp`) — no SMS/email provider is wired up. Don't build a "check your email/SMS for a code" flow expecting real delivery yet; the dev response is how you'll test the flow today.
 - **Guest-driver trips are not integrated with `trips`/`attendance`/GPS.** `guest_trips` is a separate table with no link to `trips.driver_id` (which requires a real `drivers.id` row that guest drivers don't have). A guest driver's actual pickup/drop run — GPS reporting, attendance marking — has no schema path today; only the `guest_trips` request/approval lifecycle itself (§7) is scoped correctly. Building GPS/attendance for guest drivers requires a backend architecture decision first (e.g. provisioning a placeholder `drivers` row per approved guest trip) — flag this if/when guest-driver trip execution is on your roadmap.
 
@@ -127,7 +134,7 @@ A driver/guest_driver's `bus:location` emit is now rebroadcast to **all three** 
 
 | Method & path | Purpose |
 |---|---|
-| `PATCH /api/auth/fcm-token` | Register your own push token |
+| `POST /api/auth/fcm-tokens` | Register your own push token(s) — send `platform` + `voip_token` on iOS |
 | `GET /api/qr/:code` | Resolve any QR code to its entity |
 | `POST /api/attendance/scan` | Scan a student QR → mark present |
 | `GET /api/tickets?mine=true` | Only your own support tickets |

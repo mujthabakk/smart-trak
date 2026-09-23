@@ -17,6 +17,7 @@ import { requestFcmToken } from '@/lib/firebase'
 import { isAxiosError } from 'axios'
 import smartTrackLogo from '@/assets/smarttrack-logo.png'
 
+// Used only by the (now hidden) demo-accounts UI below.
 const ROLE_ICON: Record<UserRole, typeof Shield> = {
   super_admin: Shield,
   school_admin: School,
@@ -32,6 +33,9 @@ const ROLE_TINT: Record<UserRole, string> = {
   guest_driver: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
   parent: 'bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400',
 }
+
+// Toggle to bring the one-click demo login panel back.
+const SHOW_DEMO_LOGINS = false
 
 const FEATURES = [
   { icon: MapPin, label: 'Real-time GPS Tracking' },
@@ -84,7 +88,7 @@ export default function Login() {
         setSchoolIdError(true)
         setError('That school code doesn’t match any school. Clear this field if you’re signing in as a super admin, or double-check your school’s code.')
       } else if (isAxiosError(err) && err.response?.status === 401) {
-        setError('Invalid credentials. Use one of the demo accounts below.')
+        setError('Invalid credentials. Please check your email and password.')
       } else {
         setError('Unable to sign in right now. Please try again.')
       }
@@ -231,7 +235,7 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>School Code <span className="text-[var(--muted-foreground)] font-normal">(Optional for Super Admin)</span></label>
+                <label className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>School Code <span className="text-[var(--muted-foreground)] font-normal"></span></label>
                 {schoolId && (
                   <button
                     type="button"
@@ -294,7 +298,8 @@ export default function Login() {
             </Button>
           </form>
 
-          {/* Demo accounts */}
+          {/* Demo accounts — hidden from the UI, code kept for when it's needed again. */}
+          {SHOW_DEMO_LOGINS && (
           <div className="mt-7">
             <div className="flex items-center gap-3 mb-3">
               <div className="flex-1 h-px bg-[var(--border)]" />
@@ -351,6 +356,7 @@ export default function Login() {
               </div>
             </div>
           </div>
+          )}
 
           <p className="mt-6 text-center text-sm" style={{ color: 'var(--muted-foreground)' }}>
             New school?{' '}

@@ -183,12 +183,13 @@ export const SCHOOL_ADMIN_NAV = [
   { label: 'Settings', path: '/school-admin/settings', icon: 'Settings' },
 ]
 
-export const PUBLIC_NAV = [
-  { label: 'Home', path: '/' },
-  { label: 'Features', path: '/#features' },
+// Marketing nav items unlinked — Landing/Pricing/FAQ/Contact pages are disabled (see router/index.tsx).
+export const PUBLIC_NAV: { label: string; path: string }[] = [
+  // { label: 'Home', path: '/' },
+  // { label: 'Features', path: '/#features' },
   // { label: 'Pricing', path: '/pricing' }, // hidden from navbar for now
-  { label: 'FAQ', path: '/faq' },
-  { label: 'Get In Touch', path: '/contact' },
+  // { label: 'FAQ', path: '/faq' },
+  // { label: 'Get In Touch', path: '/contact' },
 ]
 
 export const NOTIFICATION_TYPES = [
