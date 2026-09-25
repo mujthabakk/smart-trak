@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import {
   Check, ArrowRight, ArrowLeft, Star, Building2, Mail, Phone, MapPin, Globe,
@@ -14,10 +15,12 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { AddressFields } from '@/components/shared/AddressFields'
 import { LocationPicker } from '@/components/shared/LocationPicker'
 import { SchoolCodeField } from '@/components/shared/SchoolCodeField'
-import { PLANS } from '@/lib/siteContent'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { listPublicPlans } from '@/lib/api/plans'
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from '@/lib/timezones'
 import { cn } from '@/lib/utils'
 import { applyForSchool } from '@/lib/api/schools'
+import type { Plan } from '@/types'
 
 const STEPS = ['Choose plan', 'Basic details', 'Location', 'Confirm']
 
@@ -25,10 +28,25 @@ function formatUSD(n: number) {
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function limitLabel(n: number): string {
+  return n >= 99999 ? 'Unlimited' : n.toLocaleString()
+}
+
 export default function Onboarding() {
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
-  const [planId, setPlanId] = useState('standard')
+  const [planId, setPlanId] = useState('')
+
+  const { data: plans = [], isLoading, isError } = useQuery({
+    queryKey: ['plans', 'public'],
+    queryFn: listPublicPlans,
+  })
+
+  // Default to the popular plan once plans load, falling back to the first one
+  useEffect(() => {
+    if (planId || plans.length === 0) return
+    setPlanId((plans.find((p) => p.is_popular) ?? plans[0]).id)
+  }, [plans, planId])
 
   // Student count lives on step 0 so plan filtering works live
   const [studentFilter, setStudentFilter] = useState('')
@@ -42,7 +60,7 @@ export default function Onboarding() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
 
-  const plan = PLANS.find((p) => p.id === planId)!
+  const plan = plans.find((p) => p.id === planId)
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }))
   const setField = (k: keyof typeof form) => (value: string) => setForm((f) => ({ ...f, [k]: value }))
@@ -78,7 +96,7 @@ export default function Onboarding() {
           longitude: form.longitude.trim() === '' ? undefined : Number(form.longitude),
           students: form.students ? Number(form.students) : undefined,
           buses: form.buses ? Number(form.buses) : undefined,
-          plan_name: planId as 'basic' | 'standard' | 'premium',
+          plan_id: planId,
         })
         navigate('/login')
       } catch (err) {
@@ -96,18 +114,18 @@ export default function Onboarding() {
   const filterCount = parseInt(studentFilter) || 0
 
   // Determine plan eligibility based on student count
-  function planStatus(p: typeof PLANS[0]) {
+  function planStatus(p: Plan) {
     if (!filterCount) return 'available'
-    if (filterCount <= p.maxStudents) return 'available'
+    if (filterCount <= p.max_students) return 'available'
     return 'exceeded'
   }
 
   // Auto-recommend the cheapest plan that fits
   const recommendedId = useMemo(() => {
     if (!filterCount) return null
-    const fit = PLANS.find((p) => filterCount <= p.maxStudents)
+    const fit = plans.find((p) => filterCount <= p.max_students)
     return fit?.id ?? null
-  }, [filterCount])
+  }, [filterCount, plans])
 
   // Cost calculation, shown from step 1 onward once a student count is known.
   // Flat per-student/year rate, no base fee and no extra charges — monthly
@@ -115,9 +133,9 @@ export default function Onboarding() {
   const costCalc = useMemo(() => {
     const n = parseInt(form.students) || 0
     if (!n || !plan) return null
-    const annual = n * plan.pricePerStudentYear
+    const annual = n * plan.price_annual
     const monthly = annual / 12
-    return { annual, monthly, n, rate: plan.pricePerStudentYear }
+    return { annual, monthly, n, rate: plan.price_annual }
   }, [form.students, plan])
 
   const canNext =
@@ -181,7 +199,7 @@ export default function Onboarding() {
                       Showing plans that support <span className="font-semibold text-[var(--foreground)]">{filterCount.toLocaleString()}</span> students.
                       {recommendedId && (
                         <span className="ml-1 text-[var(--primary)] font-medium">
-                          Recommended: {PLANS.find(p => p.id === recommendedId)?.name}
+                          Recommended: {plans.find(p => p.id === recommendedId)?.label}
                         </span>
                       )}
                     </p>
@@ -189,13 +207,18 @@ export default function Onboarding() {
                 </div>
 
                 {/* Plan cards */}
+                {isLoading ? (
+                  <div className="flex justify-center py-10"><LoadingSpinner size="lg" /></div>
+                ) : isError ? (
+                  <p className="text-center text-sm text-red-600 dark:text-red-400 py-6">Failed to load pricing plans. Please try again shortly.</p>
+                ) : (
                 <div className="space-y-3">
-                  {PLANS.map((p) => {
+                  {plans.map((p) => {
                     const active = planId === p.id
                     const status = planStatus(p)
                     const exceeded = status === 'exceeded'
                     const isRecommended = recommendedId === p.id && filterCount > 0
-                    const estAnnual = filterCount > 0 ? filterCount * p.pricePerStudentYear : null
+                    const estAnnual = filterCount > 0 ? filterCount * p.price_annual : null
 
                     return (
                       <button
@@ -220,8 +243,8 @@ export default function Onboarding() {
                           </div>
                           <div className="min-w-0">
                             <p className="font-semibold text-[var(--foreground)] flex flex-wrap items-center gap-2">
-                              {p.name}
-                              {p.popular && (
+                              {p.label}
+                              {p.is_popular && (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--primary)] bg-[var(--primary)]/10 rounded-full px-1.5 py-0.5">
                                   <Star size={9} className="fill-[var(--primary)]" /> Popular
                                 </span>
@@ -237,14 +260,13 @@ export default function Onboarding() {
                                 </span>
                               )}
                             </p>
-                            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{p.tagline}</p>
                             {/* Limits row */}
                             <div className="flex flex-wrap gap-3 mt-2">
                               <span className="flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
-                                <Users size={11} /> Up to {p.limits.students} students
+                                <Users size={11} /> Up to {limitLabel(p.max_students)} students
                               </span>
                               <span className="flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
-                                <Bus size={11} /> {p.limits.buses} buses
+                                <Bus size={11} /> {limitLabel(p.max_buses)} buses
                               </span>
                             </div>
                             {/* Live cost estimate */}
@@ -258,7 +280,7 @@ export default function Onboarding() {
                         </div>
                         <div className="text-right flex-shrink-0">
                           <p className="font-bold text-[var(--foreground)]">
-                            {formatUSD(p.pricePerStudentYear)}<span className="text-xs font-normal text-[var(--muted-foreground)]">/student/yr</span>
+                            {formatUSD(p.price_annual)}<span className="text-xs font-normal text-[var(--muted-foreground)]">/student/yr</span>
                           </p>
                           <p className="text-[10px] text-[var(--muted-foreground)]">no extra charges</p>
                         </div>
@@ -266,6 +288,7 @@ export default function Onboarding() {
                     )
                   })}
                 </div>
+                )}
 
                 {filterCount > 0 && !recommendedId && (
                   <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 dark:border-red-800/40 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-400">
@@ -389,7 +412,7 @@ export default function Onboarding() {
                 </div>
 
                 {/* Live cost calculation */}
-                {costCalc && (
+                {costCalc && plan && (
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -397,7 +420,7 @@ export default function Onboarding() {
                   >
                     <div className="flex items-center gap-2 text-sm font-semibold text-[var(--primary)]">
                       <Calculator size={15} />
-                      Cost Estimate — {plan.name} Plan
+                      Cost Estimate — {plan.label} Plan
                     </div>
 
                     <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
@@ -417,11 +440,11 @@ export default function Onboarding() {
                     <p className="text-[11px] text-[var(--muted-foreground)]">No extra charges — this is the total price, features included.</p>
 
                     {/* Plan limit warning */}
-                    {costCalc.n > plan.maxStudents && (
+                    {costCalc.n > plan.max_students && (
                       <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700/40 dark:bg-amber-900/20 p-2.5 text-xs text-amber-700 dark:text-amber-400">
                         <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
                         <span>
-                          {costCalc.n.toLocaleString()} students exceeds the {plan.name} plan limit ({plan.limits.students}).
+                          {costCalc.n.toLocaleString()} students exceeds the {plan.label} plan limit ({limitLabel(plan.max_students)}).
                           <button onClick={() => setStep(0)} className="ml-1 font-semibold underline underline-offset-2 hover:no-underline">
                             Change plan <ChevronRight size={11} className="inline" />
                           </button>
@@ -443,7 +466,7 @@ export default function Onboarding() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-[var(--muted-foreground)]">Selected plan</p>
-                      <p className="font-semibold text-[var(--foreground)]">{plan.name} — {formatUSD(plan.pricePerStudentYear)}/student/yr</p>
+                      <p className="font-semibold text-[var(--foreground)]">{plan?.label} — {plan ? formatUSD(plan.price_annual) : ''}/student/yr</p>
                     </div>
                     <Button variant="ghost" size="sm" onClick={() => setStep(0)}>Change</Button>
                   </div>

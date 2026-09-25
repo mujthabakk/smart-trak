@@ -446,7 +446,43 @@
                 "fcm-token"
               ]
             },
-            "description": "New self-service endpoint — any role can register its own push token. Sending is currently stubbed server-side (logged, not actually delivered)."
+            "description": "Legacy self-service endpoint — single device, no platform/voip_token. Any role can register its own push token. Prefer POST /auth/fcm-tokens below for new integration work."
+          }
+        },
+        {
+          "name": "Register Device Token — FCM + VoIP (driver) [NEW]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{driver_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_id\": \"demo-device-{{$guid}}\",\n  \"fcm_token\": \"demo-fcm-token-abc123\",\n  \"platform\": \"ios\",\n  \"voip_token\": \"demo-voip-token-xyz789\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/fcm-tokens",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "fcm-tokens"
+              ]
+            },
+            "description": "Multi-device upsert keyed on (user_id, device_id) — any role can register its own push token(s). On iOS, send both fcm_token (normal alert pushes) and voip_token (PushKit token, required for full-screen CallKit-style \"ringing\" pushes — FCM cannot deliver Apple's VoIP push type). platform/voip_token are optional for Android/web. Re-registering with only fcm_token never wipes a voip_token already on file. Returns 201 on first registration for a device_id, 200 on later rotations. Real delivery requires FCM_CREDENTIALS_PATH + APNS_KEY_ID/APNS_TEAM_ID/APNS_P8 to be configured server-side — otherwise both send paths just log a stub."
           }
         },
         {

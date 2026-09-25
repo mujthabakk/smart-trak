@@ -63,7 +63,7 @@ export interface SchoolApplicationInput {
   longitude?: number
   students?: number
   buses?: number
-  plan_name: 'basic' | 'standard' | 'premium'
+  plan_id: string
 }
 
 /** Public self-service "Onboard your school" signup (no auth) — creates a

@@ -41,12 +41,15 @@ const listQuery = z.object({
 });
 
 // Public self-service "Onboard your school" form — deliberately a smaller
-// surface than createSchool: no subdomain/plan_id (still derived server-side,
-// see schools.service.js's apply()), and nothing an anonymous caller
-// shouldn't be able to set directly (status, logo_url, etc.) — but otherwise
-// mirrors the super_admin Add School form's own fields (country, post code,
+// surface than createSchool: no subdomain (still derived server-side, see
+// schools.service.js's apply()), and nothing an anonymous caller shouldn't
+// be able to set directly (status, logo_url, etc.) — but otherwise mirrors
+// the super_admin Add School form's own fields (country, post code,
 // timezone, map location, and now school_code too — the applicant picks
-// their own login code instead of getting a random one assigned).
+// their own login code instead of getting a random one assigned). plan_id
+// comes straight from GET /plans/public, so it always matches whatever the
+// admin currently has configured — no fixed set of plan names to fall out
+// of sync with.
 const applySchool = z.object({
   school_code: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_-]+$/, 'Must be alphanumeric with dashes or underscores').transform((v) => v.toUpperCase()),
   school_name: z.string().min(1).max(120),
@@ -64,7 +67,7 @@ const applySchool = z.object({
   longitude: z.coerce.number().min(-180).max(180).optional(),
   students: z.coerce.number().int().positive().optional(),
   buses: z.coerce.number().int().positive().optional(),
-  plan_name: z.enum(['basic', 'standard', 'premium']),
+  plan_id: z.string().min(1),
 });
 
 const checkCodeQuery = z.object({

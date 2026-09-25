@@ -467,18 +467,18 @@ async function notifySuperAdminsOfApplication(school, data) {
  * school_code (live-checked client-side via GET /schools/check-code, same
  * as the super_admin Add School form); create() re-checks it server-side
  * and throws a clear conflict if it was taken in the meantime. subdomain
- * and plan_id still have no applicant-facing field, so those are derived
- * here: a URL-safe slug of the school name plus a random suffix for the
- * subdomain, and plan_id resolved from the plan's display name (the
- * marketing site's plan ids — 'basic'/'standard'/'premium' — match
- * plans.name, not the real plans.id like 'plan_standard').
+ * still has no applicant-facing field, so it's derived here: a URL-safe
+ * slug of the school name plus a random suffix. plan_id comes straight from
+ * the plan the applicant picked on GET /plans/public, so it's re-validated
+ * against the live plans table here rather than matched against a fixed
+ * set of plan names.
  * Always forced to status 'pending' — never provisions admin credentials
  * immediately; those go out only when a super_admin later approves it (see
  * update()'s pending -> active transition), matching what this page tells
  * applicants: credentials arrive "on approval".
  */
 async function apply(data) {
-  const { rows: planRows } = await masterPool.query('SELECT id FROM plans WHERE lower(name) = lower($1)', [data.plan_name]);
+  const { rows: planRows } = await masterPool.query('SELECT id, label FROM plans WHERE id = $1', [data.plan_id]);
   const plan = planRows[0];
   if (!plan) throw ApiError.badRequest('Unknown plan selected');
 
@@ -509,7 +509,7 @@ async function apply(data) {
     status: 'pending',
   });
 
-  await notifySuperAdminsOfApplication(school, data);
+  await notifySuperAdminsOfApplication(school, { ...data, plan_name: plan.label });
   return school;
 }
 
